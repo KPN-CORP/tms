@@ -1,109 +1,108 @@
 @php
-    $activeRole = session('active_role');
+    $user = Auth::user();
+
+    // Anggota committee idea (assignment) = boleh Review Ideas & buat Project Shell,
+    // tanpa perlu permission terpisah. Super Admin selalu boleh.
+    $isIdeaCommittee = $user->hasRole('Super Admin')
+        || \App\Models\CommitteeAssignment::where('approval_type', 'idea')
+            ->where('user_id', $user->id)->exists();
+
+    // Item: [label, route, permission(null=semua login), show(override boolean), active].
+    // Tampil bila route ada DAN (show!==false) DAN (permission null / user punya izin).
+    $topMenu = [
+        ['label' => 'Dashboard', 'route' => 'dashboard', 'permission' => null, 'active' => ['dashboard']],
+    ];
+
+    // Menu dikelompokkan: "Judul Grup" => [ item, ... ]
+    $groups = [
+        'Ideas' => [
+            ['label' => 'My Ideas',       'route' => 'ideas.index',  'permission' => 'idea.create', 'active' => ['ideas.index', 'ideas.create', 'ideas.drafts', 'ideas.edit']],
+            ['label' => 'Review Ideas',   'route' => 'ideas.review', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['ideas.review', 'ideas.review.*']],
+            ['label' => 'Approved Ideas', 'route' => 'projects.approved-ideas', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['projects.approved-ideas', 'projects.create']],
+        ],
+        'Project' => [
+            ['label' => 'Manage Project',  'route' => 'projects.index',  'permission' => null, 'active' => ['projects.index', 'projects.show']],
+            ['label' => 'Review Projects', 'route' => 'projects.review', 'permission' => null, 'active' => ['projects.review']],
+        ],
+        'Admin Setting' => [
+            ['label' => 'Committee Assignment', 'route' => 'admin.committee.index', 'permission' => 'committee.assign', 'active' => ['admin.committee.*']],
+            ['label' => 'Project Category',     'route' => 'admin.project-categories.index', 'permission' => 'project-category.manage', 'active' => ['admin.project-categories.*']],
+            ['label' => 'Role Management',      'route' => 'admin.roles.index', 'permission' => 'role.manage', 'active' => ['admin.roles.*']],
+            // Menyusul (otomatis muncul saat route-nya dibuat):
+            ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
+        ],
+    ];
+
+    // Cek visibilitas satu item.
+    $visible = function ($item) use ($user) {
+        if (! Route::has($item['route'])) return false;
+        if (array_key_exists('show', $item) && ! $item['show']) return false;
+        if ($item['permission'] && ! $user->can($item['permission'])) return false;
+        return true;
+    };
+
+    $itemClass    = 'flex items-center px-4 py-3 rounded-xl mb-1 transition text-gray-700 hover:bg-gray-100';
+    $activeClass  = 'flex items-center px-4 py-3 rounded-xl mb-1 transition bg-red-50 text-red-700 font-semibold';
+    $headingClass = 'px-4 pt-5 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider';
 @endphp
 
 <aside class="w-64 bg-white border-r border-gray-200 min-h-screen flex flex-col">
 
     {{-- Logo --}}
     <div class="px-6 py-5 border-b">
+        <h1 class="text-2xl font-bold text-red-700">TMS</h1>
+        <p class="text-sm text-gray-500">Transformation Management System</p>
 
-        <h1 class="text-2xl font-bold text-red-700">
-            TMS
-        </h1>
-
-        <p class="text-sm text-gray-500">
-            Transformation Management System
-        </p>
-
-        @if($activeRole)
-            <div class="mt-3">
-                <span class="inline-flex px-3 py-1 text-xs rounded-full bg-red-100 text-red-700">
-                    {{ ucwords(str_replace('-', ' ', $activeRole)) }}
-                </span>
+        @if($user->getRoleNames()->isNotEmpty())
+            <div class="mt-3 flex flex-wrap gap-1">
+                @foreach($user->getRoleNames() as $roleName)
+                    <span class="inline-flex px-3 py-1 text-xs rounded-full bg-red-100 text-red-700">
+                        {{ $roleName }}
+                    </span>
+                @endforeach
             </div>
         @endif
-
     </div>
 
-    {{-- Dynamic Menu --}}
+    {{-- Menu (dikelompokkan dengan judul grup) --}}
     <nav class="flex-1 p-4">
 
-        @forelse($sidebarMenus as $menu)
+        {{-- Menu atas tanpa grup --}}
+        @foreach($topMenu as $item)
+            @if($visible($item))
+                <a href="{{ route($item['route']) }}"
+                   class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }}">
+                    {{ $item['label'] }}
+                </a>
+            @endif
+        @endforeach
 
-            <a
-                href="{{ $menu->route_name && Route::has($menu->route_name)
-                    ? route($menu->route_name)
-                    : '#'
-                }}"
-                class="flex items-center px-4 py-3 rounded-xl mb-2 transition
-
-                {{
-                    $menu->route_name &&
-                    request()->routeIs($menu->route_name)
-
-                    ? 'bg-red-50 text-red-700 font-semibold'
-
-                    : 'hover:bg-gray-100 text-gray-700'
-                }}"
-            >
-
-                {{-- Future Icon --}}
-                @if(!empty($menu->icon))
-                    <span class="mr-3">
-                        {!! $menu->icon !!}
-                    </span>
-                @endif
-
-                <span>
-                    {{ $menu->name }}
-                </span>
-
-            </a>
-
-        @empty
-
-            <div class="px-4 py-3 text-sm text-gray-400">
-                No menu assigned
-            </div>
-
-        @endforelse
+        {{-- Grup: judul hanya tampil bila ada minimal 1 item yang terlihat --}}
+        @foreach($groups as $groupLabel => $items)
+            @php $groupItems = array_filter($items, $visible); @endphp
+            @if(count($groupItems))
+                <p class="{{ $headingClass }}">{{ $groupLabel }}</p>
+                @foreach($groupItems as $item)
+                    <a href="{{ route($item['route']) }}"
+                       class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }}">
+                        {{ $item['label'] }}
+                    </a>
+                @endforeach
+            @endif
+        @endforeach
 
     </nav>
 
     {{-- Footer --}}
     <div class="border-t p-4">
-
-        <a
-            href="{{ route('profile.edit') }}"
-            class="block px-4 py-3 rounded-xl hover:bg-gray-100 mb-2"
-        >
-            Profile
-        </a>
-
-        {{-- Function Owner --}}
-        @if(Auth::user()->hasRole('function-owner'))
-
-            <a
-                href="{{ route('select-role') }}"
-                class="block px-4 py-3 rounded-xl hover:bg-gray-100 mb-2"
-            >
-                Switch Role
-            </a>
-
-        @endif
+        <a href="{{ route('profile.edit') }}"
+           class="block px-4 py-3 rounded-xl hover:bg-gray-100 mb-2">Profile</a>
 
         <form method="POST" action="{{ route('logout') }}">
             @csrf
-
-            <button
-                type="submit"
-                class="w-full text-left px-4 py-3 rounded-xl text-red-600 hover:bg-red-50"
-            >
-                Logout
-            </button>
-
+            <button type="submit"
+                    class="w-full text-left px-4 py-3 rounded-xl text-red-600 hover:bg-red-50">Logout</button>
         </form>
-
     </div>
 
 </aside>

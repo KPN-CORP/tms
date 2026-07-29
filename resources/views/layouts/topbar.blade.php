@@ -1,4 +1,4 @@
-<header class="bg-white border-b px-6 py-4">
+<header class="bg-white border-b px-6 py-4 sticky top-0 z-30">
 
     <div class="flex justify-between items-center">
 
@@ -17,7 +17,7 @@
                 </div>
 
                 <div class="text-sm text-gray-500">
-                    {{ ucfirst(Auth::user()->role) }}
+                    {{ Auth::user()->getRoleNames()->implode(', ') ?: '-' }}
                 </div>
 
             </div>

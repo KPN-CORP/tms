@@ -7,10 +7,23 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+
+    /** Ladder job level: angka besar = jabatan lebih tinggi (T-1/12/71/86). */
+    public const JOB_LEVELS = [
+        1 => 'Staff',
+        2 => 'Senior Staff',
+        3 => 'Supervisor',
+        4 => 'Assistant Manager',
+        5 => 'Manager',
+        6 => 'Senior Manager',
+        7 => 'General Manager',
+        8 => 'Director',
+    ];
 
     /**
      * The attributes that are mass assignable.
@@ -21,6 +34,11 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'employee_id',
+        'business_unit_id',
+        'department_id',
+        'job_level',
+        'summary',
     ];
 
     /**
@@ -44,32 +62,31 @@ class User extends Authenticatable
     ];
 
 
-    public function roles()
+    // roles(), hasRole(), hasPermissionTo(), can(), assignRole(), dll
+    // disediakan oleh trait Spatie HasRoles.
+
+    public function businessUnit()
     {
-        return $this->belongsToMany(
-            Role::class,
-            'user_roles'
-        );
+        return $this->belongsTo(BusinessUnit::class);
     }
 
-    public function hasRole($roleSlug)
+    public function department()
     {
-        return $this->roles()
-            ->where('slug', $roleSlug)
-            ->exists();
-    }   
-        
-    public function hasPermission($permissionSlug)
+        return $this->belongsTo(Department::class);
+    }
+
+    public function ideas()
     {
-        return $this->roles()
-            ->whereHas('permissions', function ($query) use ($permissionSlug) {
+        return $this->hasMany(Idea::class);
+    }
 
-                $query->where(
-                    'slug',
-                    $permissionSlug
-                );
+    /** Label job level, mis. "5 — Manager". */
+    public function getJobLevelLabelAttribute(): ?string
+    {
+        if ($this->job_level === null) {
+            return null;
+        }
 
-            })
-            ->exists();
-    }    
+        return $this->job_level . ' — ' . (self::JOB_LEVELS[$this->job_level] ?? 'Unknown');
+    }
 }

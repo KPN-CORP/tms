@@ -2,44 +2,141 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Permission;
 use App\Models\BusinessUnit;
 use App\Models\Company;
 use App\Models\Location;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class RoleController extends Controller
 {
     /**
-     * Halaman Create Role
+     * Manage Role — daftar semua role.
+     */
+    public function manageRole()
+    {
+        $roles = Role::query()
+            ->with('permissions')
+            ->withCount(['businessUnits', 'companies', 'locations', 'employees', 'users'])
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.role.index', compact('roles'));
+    }
+
+    /**
+     * Form Create Role.
      */
     public function createRole()
     {
-        return view('admin.role.create', [
+        return view('admin.role.create', $this->formData());
+    }
 
-            'businessUnits' => BusinessUnit::orderBy('name')->get(),
+    /**
+     * Simpan Role baru.
+     */
+    public function saveRole(Request $request)
+    {
+        $validated = $this->validateRole($request);
 
-            'companies' => Company::orderBy('name')->get(),
+        $role = Role::create([
+            'name'       => $validated['name'],
+            'guard_name' => 'web',
+        ]);
 
-            'locations' => Location::orderBy('name')->get(),
+        $this->syncRole($role, $validated);
 
-            'employees' => User::orderBy('name')->get(),
+        return redirect()
+            ->route('admin.roles.index')
+            ->with('success', "Role \"{$role->name}\" created successfully.");
+    }
 
-            'permissions' => Permission::orderBy('name')->get(),
+    /**
+     * Form Edit Role.
+     */
+    public function editRole(Role $role)
+    {
+        return view('admin.role.edit', $this->formData() + ['role' => $role]);
+    }
 
+    /**
+     * Update Role.
+     */
+    public function updateRole(Request $request, Role $role)
+    {
+        $validated = $this->validateRole($request, $role);
+
+        $role->update(['name' => $validated['name']]);
+
+        $this->syncRole($role, $validated);
+
+        return redirect()
+            ->route('admin.roles.index')
+            ->with('success', "Role \"{$role->name}\" updated successfully.");
+    }
+
+    /**
+     * Hapus Role.
+     */
+    public function deleteRole(Role $role)
+    {
+        $name = $role->name;
+        $role->delete();
+
+        return redirect()
+            ->route('admin.roles.index')
+            ->with('success', "Role \"{$name}\" deleted.");
+    }
+
+    /**
+     * Form Assign Users ke sebuah role.
+     */
+    public function assignUser(Role $role)
+    {
+        return view('admin.role.assign-user', [
+            'role'        => $role,
+            'users'       => User::orderBy('name')->get(),
+            'assignedIds' => $role->users()->pluck('users.id')->all(),
         ]);
     }
 
     /**
-     * Simpan Role
+     * Simpan Assign Users.
      */
-    public function saveRole(Request $request)
+    public function saveAssignUser(Request $request, Role $role)
     {
         $validated = $request->validate([
-            'name'             => ['required', 'string', 'max:100', 'unique:roles,name'],
+            'users'   => ['array'],
+            'users.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $role->users()->sync($validated['users'] ?? []);
+
+        return redirect()
+            ->route('admin.roles.index')
+            ->with('success', "Users for role \"{$role->name}\" updated.");
+    }
+
+    /* ----------------------------------------------------------------- */
+
+    private function formData(): array
+    {
+        return [
+            'permissions'   => Permission::orderBy('name')->get(),
+            'businessUnits' => BusinessUnit::orderBy('name')->get(),
+            'companies'     => Company::orderBy('name')->get(),
+            'locations'     => Location::orderBy('name')->get(),
+            'employees'     => User::orderBy('name')->get(),
+        ];
+    }
+
+    private function validateRole(Request $request, ?Role $role = null): array
+    {
+        return $request->validate([
+            'name'             => ['required', 'string', 'max:100', Rule::unique('roles', 'name')->ignore($role?->id)],
             'permissions'      => ['array'],
             'permissions.*'    => ['integer', 'exists:permissions,id'],
             'business_units'   => ['array'],
@@ -51,58 +148,18 @@ class RoleController extends Controller
             'employees'        => ['array'],
             'employees.*'      => ['integer', 'exists:users,id'],
         ]);
+    }
 
-        $role = Role::create([
-            'name' => $validated['name'],
-            'slug' => Str::slug($validated['name']),
-        ]);
+    private function syncRole(Role $role, array $validated): void
+    {
+        // Checkbox mengirim ID permission; Spatie syncPermissions menafsirkan
+        // string sebagai NAMA, jadi resolve dulu ke objek Permission by-id.
+        $permissions = Permission::whereIn('id', $validated['permissions'] ?? [])->get();
 
-        $role->permissions()->sync($validated['permissions'] ?? []);
-
-        // Restriction (kosong = tanpa pembatasan / akses semua)
+        $role->syncPermissions($permissions);
         $role->businessUnits()->sync($validated['business_units'] ?? []);
         $role->companies()->sync($validated['companies'] ?? []);
         $role->locations()->sync($validated['locations'] ?? []);
         $role->employees()->sync($validated['employees'] ?? []);
-
-        return redirect()
-            ->route('admin.roles.index')
-            ->with('success', 'Role created successfully.');
     }
-
-    /**
-     * Manage Role
-     *
-     * Menu "Role Management" (roles.index) menampilkan halaman Create Role.
-     */
-    public function manageRole()
-    {
-        return $this->createRole();
-    }
-
-    /**
-     * Update Role
-     */
-    public function updateRole()
-    {
-
-    }
-
-
-    /**
-     * Assign User
-     */
-    public function assignUser()
-    {
-
-    }
-
-    /**
-     * Save Assign User
-     */
-    public function saveAssignUser(Request $request)
-    {
-
-    }
-
 }

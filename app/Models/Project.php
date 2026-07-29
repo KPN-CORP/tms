@@ -1,0 +1,170 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+
+class Project extends Model
+{
+    public const CATEGORIES = ['QCC', 'QCP', 'SS'];
+
+    /** Status di mana Project Leader masih boleh mengedit proposal. */
+    public const EDITABLE_STATUSES = ['draft', 'revision'];
+
+    /** Status "project sedang berjalan" (fase eksekusi/tracking). */
+    public const EXECUTION_STATUSES = ['approved', 'ongoing', 'delayed'];
+
+    /** Peta status → [label, kelas badge warna]. Dipakai index & detail. */
+    public const STATUS_BADGES = [
+        'draft'             => ['Draft', 'bg-gray-100 text-gray-700'],
+        'submitted'         => ['Submitted', 'bg-blue-100 text-blue-700'],
+        'revision'          => ['Revision Required', 'bg-amber-100 text-amber-700'],
+        'committee_review'  => ['Committee Review', 'bg-purple-100 text-purple-700'],
+        'approved'          => ['Approved', 'bg-green-100 text-green-700'],
+        'rejected'          => ['Rejected', 'bg-red-100 text-red-700'],
+        'ongoing'           => ['Ongoing', 'bg-blue-100 text-blue-700'],
+        'delayed'           => ['Delayed', 'bg-orange-100 text-orange-700'],
+        'completion_review' => ['Completion Review', 'bg-purple-100 text-purple-700'],
+        'completed'         => ['Completed', 'bg-green-100 text-green-700'],
+        'cancelled'         => ['Cancelled', 'bg-gray-200 text-gray-600'],
+    ];
+
+    public function isInExecution(): bool
+    {
+        return in_array($this->status, self::EXECUTION_STATUSES, true);
+    }
+
+    /** [label, kelas warna badge] untuk status saat ini. */
+    public function statusBadge(): array
+    {
+        return self::STATUS_BADGES[$this->status]
+            ?? [ucwords(str_replace('_', ' ', $this->status)), 'bg-gray-100 text-gray-700'];
+    }
+
+    /**
+     * Leader boleh mengedit proposal saat draft/revision, ATAU saat ada
+     * update request yang sudah di-approve (belum di-apply).
+     */
+    public function canLeaderEditProposal(User $user): bool
+    {
+        return $this->project_leader_id === $user->id
+            && (in_array($this->status, self::EDITABLE_STATUSES, true)
+                || $this->updates()->where('status', 'approved')->exists());
+    }
+
+    protected $fillable = [
+        'project_id',
+        'idea_id',
+        'project_name',
+        'project_scope',
+        'expected_outcome',
+        'project_summary',
+        'project_category',
+        'project_category_id',
+        'status',
+        'current_layer',
+        'project_sponsor_id',
+        'project_leader_id',
+    ];
+
+    public function isEditableByLeader(User $user): bool
+    {
+        return $this->project_leader_id === $user->id
+            && in_array($this->status, self::EDITABLE_STATUSES, true);
+    }
+
+    public function idea()
+    {
+        return $this->belongsTo(Idea::class, 'idea_id', 'idea_id');
+    }
+
+    public function sponsor()
+    {
+        return $this->belongsTo(User::class, 'project_sponsor_id');
+    }
+
+    public function leader()
+    {
+        return $this->belongsTo(User::class, 'project_leader_id');
+    }
+
+    public function category()
+    {
+        return $this->belongsTo(ProjectCategory::class, 'project_category_id');
+    }
+
+    public function members()
+    {
+        return $this->hasMany(ProjectMember::class);
+    }
+
+    public function implementationPlans()
+    {
+        return $this->hasMany(ImplementationPlan::class)->orderBy('sequence_no');
+    }
+
+    public function indicators()
+    {
+        return $this->hasMany(ImplementationIndicator::class)->orderBy('sort_order');
+    }
+
+    public function budgets()
+    {
+        return $this->hasMany(ProjectBudget::class);
+    }
+
+    public function statusLogs()
+    {
+        return $this->hasMany(ProjectStatusLog::class)->latest();
+    }
+
+    public function approvals()
+    {
+        return $this->hasMany(ProjectApproval::class)->latest();
+    }
+
+    public function updates()
+    {
+        return $this->hasMany(ProjectUpdate::class)->latest();
+    }
+
+    /** Anggota tim (Leader / Sponsor / Members) — berhak mengajukan update. */
+    public function isTeamMember(User $user): bool
+    {
+        return $this->project_leader_id === $user->id
+            || $this->project_sponsor_id === $user->id
+            || $this->members()->where('user_id', $user->id)->exists();
+    }
+
+    public function businessUnitId(): ?int
+    {
+        return $this->idea?->business_unit_id;
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(ProjectAttachment::class)->latest();
+    }
+
+    /**
+     * Project yang boleh diakses user: submitter ide, member, leader,
+     * sponsor, atau committee (layer mana pun) dari BU project tsb.
+     */
+    public function scopeRelatedTo(Builder $query, int $userId): Builder
+    {
+        return $query->where(function (Builder $q) use ($userId) {
+            $q->where('project_leader_id', $userId)
+                ->orWhere('project_sponsor_id', $userId)
+                ->orWhereHas('idea', fn ($i) => $i->where('user_id', $userId))
+                ->orWhereHas('members', fn ($m) => $m->where('user_id', $userId))
+                ->orWhereExists(function ($sub) use ($userId) {
+                    $sub->selectRaw('1')
+                        ->from('committee_assignments as ca')
+                        ->join('ideas as ix', 'ix.idea_id', '=', 'projects.idea_id')
+                        ->whereColumn('ca.business_unit_id', 'ix.business_unit_id')
+                        ->where('ca.user_id', $userId);
+                });
+        });
+    }
+}
