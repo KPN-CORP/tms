@@ -28,14 +28,39 @@ deployment:
       esac
       echo "Deploying $REPO -> $DEPLOYPATH  (assets: $PUBHTML)"
 
+      # Ensure deployment folder exists
+      mkdir -p $DEPLOYPATH
+      mkdir -p $DEPLOYPATH/public
+      mkdir -p $DEPLOYPATH/public/build
+      mkdir -p $DEPLOYPATH/public/css
+      mkdir -p $DEPLOYPATH/public/img
+      mkdir -p $DEPLOYPATH/public/images
+      mkdir -p $DEPLOYPATH/public/js
+      mkdir -p $DEPLOYPATH/public/scss
+      mkdir -p $DEPLOYPATH/storage
+      mkdir -p $DEPLOYPATH/bootstrap/cache
+
       # Copy application code into the live app directory
       cp -r app bootstrap config database routes resources "$DEPLOYPATH"/
       cp -r public/build "$DEPLOYPATH"/public/
 
-      # Copy public assets into the site document root
-      cp -r public/css public/img public/images public/js public/scss "$PUBHTML"/
+      # Change to deployment directory
+      cd $DEPLOYPATH
+
+      # Install composer dependencies
+      composer install --ignore-platform-reqs --no-dev --optimize-autoloader
+
+      # Install Node packages
+      npm install --legacy-peer-deps --no-audit
+      npm run build
+
+      # Set correct permissions
+      chmod -R 755 storage
+      chmod -R 755 bootstrap/cache
 
       # Refresh Laravel caches in the live app
-      cd "$DEPLOYPATH"
       php artisan view:clear
       php artisan optimize:clear
+
+      # Copy public assets into the site document root
+      cp -r public/build public/css public/img public/images public/js public/scss "$PUBHTML"/
