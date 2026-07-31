@@ -42,7 +42,7 @@ deployment:
 
       # Copy application code into the live app directory
       cp -r app bootstrap config database routes resources "$DEPLOYPATH"/
-      cp -r public/build "$DEPLOYPATH"/public/
+      cp -r public/build public/css public/img public/images public/js public/scss "$DEPLOYPATH"/public/
 
       # Change to deployment directory
       cd $DEPLOYPATH
