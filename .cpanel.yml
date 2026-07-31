@@ -53,6 +53,7 @@ deployment:
       composer install --ignore-platform-reqs --no-dev --no-interaction --prefer-dist --optimize-autoloader >> "$LOG" 2>&1
 
       # Install Node packages
+      export NODE_OPTIONS="--max-old-space-size=1024"
       npm install --legacy-peer-deps --no-audit --silent >> "$LOG" 2>&1
       npm run build >> "$LOG" 2>&1
 
