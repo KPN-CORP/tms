@@ -47,10 +47,10 @@ deployment:
       cd $DEPLOYPATH
 
       # Install composer dependencies
-      composer install --ignore-platform-reqs --no-dev --optimize-autoloader
+      composer install --ignore-platform-reqs --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
       # Install Node packages
-      npm install --legacy-peer-deps --no-audit
+      npm install --legacy-peer-deps --no-audit --silent
       npm run build
 
       # Set correct permissions
