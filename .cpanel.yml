@@ -41,7 +41,7 @@ deployment:
       mkdir -p $DEPLOYPATH/bootstrap/cache
 
       # Copy application code into the live app directory
-      rsync -av --exclude='.git' ./ "$DEPLOYPATH"/
+      rsync -a --exclude='.git' ./ "$DEPLOYPATH"/
 
       # Change to deployment directory
       cd $DEPLOYPATH
