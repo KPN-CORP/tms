@@ -45,7 +45,7 @@ deployment:
 
       # Copy application code into the live app directory
       cp -r app bootstrap config database routes resources "$DEPLOYPATH"/ >> "$LOG" 2>&1
-      cp -r app bootstrap config database routes resources artisan composer.json composer.lock package.json package-lock.json yarn.lock "$DEPLOYPATH"/ >> "$LOG" 2>&1
+      cp -r app bootstrap config database routes resources artisan composer.json composer.lock package.json package-lock.json "$DEPLOYPATH"/ >> "$LOG" 2>&1
       cp -r public/build public/css public/img public/images public/js public/scss "$DEPLOYPATH"/public/ >> "$LOG" 2>&1
 
       # Change to deployment directory
