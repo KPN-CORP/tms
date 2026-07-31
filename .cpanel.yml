@@ -44,18 +44,19 @@ deployment:
       echo "Deploying $REPO -> $DEPLOYPATH  (assets: $PUBHTML)" >> "$LOG" 2>&1
 
       # Copy application code into the live app directory
-      rsync -a --exclude='.git' ./ "$DEPLOYPATH"/ >> "$LOG" 2>&1
+      cp -r app bootstrap config database routes resources "$DEPLOYPATH"/ >> "$LOG" 2>&1
+      cp -r app bootstrap config database routes resources artisan composer.json composer.lock package.json package-lock.json yarn.lock "$DEPLOYPATH"/ >> "$LOG" 2>&1
+      cp -r public/build public/css public/img public/images public/js public/scss "$DEPLOYPATH"/public/ >> "$LOG" 2>&1
 
       # Change to deployment directory
       cd $DEPLOYPATH >> "$LOG" 2>&1
 
       # Install composer dependencies
-      composer install --ignore-platform-reqs --no-dev --no-interaction --prefer-dist --optimize-autoloader >> "$LOG" 2>&1
+      # composer install --ignore-platform-reqs --no-dev --no-interaction --prefer-dist --optimize-autoloader >> "$LOG" 2>&1
 
       # Install Node packages
-      export NODE_OPTIONS="--max-old-space-size=1024"
-      npm install --legacy-peer-deps --no-audit --silent >> "$LOG" 2>&1
-      npm run build >> "$LOG" 2>&1
+      # npm install --legacy-peer-deps --no-audit --silent >> "$LOG" 2>&1
+      # npm run build >> "$LOG" 2>&1
 
       # Set correct permissions
       chmod -R 755 storage >> "$LOG" 2>&1
