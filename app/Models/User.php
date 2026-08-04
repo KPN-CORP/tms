@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -11,7 +12,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles, LogsActivity;
 
     /** Ladder job level: angka besar = jabatan lebih tinggi (T-1/12/71/86). */
     public const JOB_LEVELS = [
@@ -88,5 +89,11 @@ class User extends Authenticatable
         }
 
         return $this->job_level . ' — ' . (self::JOB_LEVELS[$this->job_level] ?? 'Unknown');
+    }
+
+    /** Label untuk audit trail (LogsActivity). */
+    public function activityLabel(): string
+    {
+        return $this->name;
     }
 }

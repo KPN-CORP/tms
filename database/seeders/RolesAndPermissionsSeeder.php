@@ -60,6 +60,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'reminder.manage',
                 'visibility.manage',
                 'project.bulk-upload',
+                'audit.view',
             ],
             'Super Admin' => [
                 'role.manage',
@@ -69,11 +70,12 @@ class RolesAndPermissionsSeeder extends Seeder
                 'backup-approver.manage',
                 'job-level.manage',
                 'override.role',
+                'audit.view',
             ],
         ];
 
-        // Izin dasar yang dimiliki SEMUA role (semua boleh submit ide).
-        $baseline = ['idea.create', 'idea.submit', 'history.view'];
+        // Izin dasar yang dimiliki SEMUA role (semua boleh submit ide & lihat guideline).
+        $baseline = ['idea.create', 'idea.submit', 'history.view', 'guideline.view'];
 
         // Buat semua permission unik (termasuk baseline)
         $allPermissions = collect($rolePermissions)->flatten()->merge($baseline)->unique();

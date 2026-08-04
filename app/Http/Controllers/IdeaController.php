@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\HandlesFileAttachments;
+use App\Http\Controllers\Concerns\HasListQuery;
 use App\Models\BusinessUnit;
 use App\Models\CommitteeAssignment;
 use App\Models\Company;
@@ -17,20 +18,46 @@ use Illuminate\Validation\Rule;
 class IdeaController extends Controller
 {
     use HandlesFileAttachments;
+    use HasListQuery;
+
+    /** Konfigurasi search/sort untuk daftar ide. Search = teks bebas saja. */
+    private const IDEA_LIST_CONFIG = [
+        'searchable'   => ['idea_id', 'idea_name', 'problem'],
+        'sortable'     => [
+            'idea_id'     => 'idea_id',
+            'idea_name'   => 'idea_name',
+            'status'      => 'status',
+            'modified_at' => 'modified_at',
+        ],
+        'default_sort' => 'modified_at',
+        'default_dir'  => 'desc',
+    ];
 
     /**
      * My Ideas — ide milik user yang login (selain draft).
+     * Search = teks bebas (ID/nama/problem); BU, Department, Status = dropdown.
      */
     public function index(Request $request)
     {
-        $ideas = Idea::where('user_id', $request->user()->id)
+        // Basis query (sudah tersaring kepemilikan + scope) — dipakai ulang untuk
+        // menurunkan opsi dropdown agar hanya menampilkan nilai yang relevan.
+        $base = Idea::where('user_id', $request->user()->id)
             ->where('status', '!=', 'draft')
-            ->visibleTo($request->user())
-            ->with(['businessUnit', 'department'])
-            ->latest('modified_at')
-            ->get();
+            ->visibleTo($request->user());
 
-        return view('ideas.index', compact('ideas'));
+        $query = (clone $base)
+            ->when($request->filled('business_unit_id'), fn ($q) => $q->where('business_unit_id', $request->integer('business_unit_id')))
+            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->with(['businessUnit', 'department']);
+
+        $this->applyListSearchSort($query, $request, self::IDEA_LIST_CONFIG);
+
+        return view('ideas.index', [
+            'ideas'         => $query->paginate(15)->withQueryString(),
+            'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
+            'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+        ] + $this->listSortState($request, self::IDEA_LIST_CONFIG));
     }
 
     /**
@@ -38,13 +65,27 @@ class IdeaController extends Controller
      */
     public function drafts(Request $request)
     {
-        $ideas = Idea::where('user_id', $request->user()->id)
-            ->where('status', 'draft')
-            ->with(['businessUnit', 'department'])
-            ->latest('modified_at')
-            ->get();
+        $config = [
+            'searchable'   => ['idea_id', 'idea_name', 'problem'],
+            'sortable'     => ['idea_name' => 'idea_name', 'modified_at' => 'modified_at'],
+            'default_sort' => 'modified_at',
+            'default_dir'  => 'desc',
+        ];
 
-        return view('ideas.drafts', compact('ideas'));
+        $base = Idea::where('user_id', $request->user()->id)->where('status', 'draft');
+
+        $query = (clone $base)
+            ->when($request->filled('business_unit_id'), fn ($q) => $q->where('business_unit_id', $request->integer('business_unit_id')))
+            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
+            ->with(['businessUnit', 'department']);
+
+        $this->applyListSearchSort($query, $request, $config);
+
+        return view('ideas.drafts', [
+            'ideas'         => $query->paginate(15)->withQueryString(),
+            'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
+            'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+        ] + $this->listSortState($request, $config));
     }
 
     /**
@@ -128,12 +169,34 @@ class IdeaController extends Controller
      */
     public function review(Request $request, IdeaWorkflowService $wf)
     {
-        $ideas = $wf->reviewQueueFor($request->user())
-            ->with(['businessUnit', 'department', 'user'])
-            ->latest('modified_at')
-            ->get();
+        $config = [
+            'searchable'   => ['idea_id', 'idea_name', 'problem'],
+            'sortable'     => [
+                'idea_id'       => 'idea_id',
+                'idea_name'     => 'idea_name',
+                'current_layer' => 'current_layer',
+                'status'        => 'status',
+                'modified_at'   => 'modified_at',
+            ],
+            'default_sort' => 'modified_at',
+            'default_dir'  => 'desc',
+        ];
 
-        return view('ideas.review', compact('ideas'));
+        $base = $wf->reviewQueueFor($request->user());
+
+        $query = (clone $base)
+            ->when($request->filled('business_unit_id'), fn ($q) => $q->where('business_unit_id', $request->integer('business_unit_id')))
+            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->with(['businessUnit', 'department', 'user']);
+
+        $this->applyListSearchSort($query, $request, $config);
+
+        return view('ideas.review', [
+            'ideas'         => $query->paginate(15)->withQueryString(),
+            'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
+            'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+        ] + $this->listSortState($request, $config));
     }
 
     /**

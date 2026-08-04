@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class Project extends Model
 {
+    use LogsActivity;
+
     public const CATEGORIES = ['QCC', 'QCP', 'SS'];
 
     /** Status di mana Project Leader masih boleh mengedit proposal. */
@@ -29,6 +32,30 @@ class Project extends Model
         'completed'         => ['Completed', 'bg-green-100 text-green-700'],
         'cancelled'         => ['Cancelled', 'bg-gray-200 text-gray-600'],
     ];
+
+    /** Label untuk audit trail (LogsActivity). */
+    public function activityLabel(): string
+    {
+        return $this->project_id ?? ($this->project_name ?? 'Project #' . $this->getKey());
+    }
+
+    /** Peta status review → jenis approval SLA. */
+    public const SLA_REVIEW_TYPES = [
+        'committee_review'  => 'project_proposal',
+        'completion_review' => 'project_completion',
+    ];
+
+    /** Jenis approval untuk SLA sesuai status review saat ini (null bila tak sedang direview). */
+    public function slaApprovalType(): ?string
+    {
+        return self::SLA_REVIEW_TYPES[$this->status] ?? null;
+    }
+
+    /** Kapan masuk layer review saat ini (approval terakhir, atau update terakhir). */
+    public function reviewSince(): ?\Illuminate\Support\Carbon
+    {
+        return $this->approvals()->first()?->created_at ?? $this->updated_at;
+    }
 
     public function isInExecution(): bool
     {

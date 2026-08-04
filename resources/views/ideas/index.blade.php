@@ -25,42 +25,51 @@
             </div>
         @endif
 
+        <x-list-toolbar :search="request('q')" placeholder="Cari ID Idea, nama, atau problem…">
+            <x-list-filters :business-units="$businessUnits" :departments="$departments"
+                :statuses="['submitted' => 'Submitted', 'review' => 'On Review', 'approved' => 'Approved', 'rejected' => 'Rejected', 'project_created' => 'Project Created']" />
+        </x-list-toolbar>
+
         <div class="bg-white rounded-xl shadow overflow-hidden">
-            <table class="w-full text-left">
-                <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                    <tr>
-                        <th class="px-6 py-3">Idea ID</th>
-                        <th class="px-6 py-3">Idea Name</th>
-                        <th class="px-6 py-3">Target BU</th>
-                        <th class="px-6 py-3">Target Dept</th>
-                        <th class="px-6 py-3">Status</th>
-                        <th class="px-6 py-3">Last Update</th>
-                        <th class="px-6 py-3 text-right">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y">
-                    @forelse($ideas as $idea)
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-6 py-4 font-mono text-sm text-red-700">{{ $idea->idea_id }}</td>
-                            <td class="px-6 py-4">
-                                <div class="font-semibold">{{ $idea->idea_name }}</div>
-                                <div class="text-sm text-gray-400 truncate max-w-xs">{{ $idea->problem }}</div>
-                            </td>
-                            <td class="px-6 py-4 text-sm">{{ optional($idea->businessUnit)->name }}</td>
-                            <td class="px-6 py-4 text-sm">{{ optional($idea->department)->name }}</td>
-                            <td class="px-6 py-4">@include('ideas._status', ['status' => $idea->status])</td>
-                            <td class="px-6 py-4 text-sm text-gray-500">{{ $idea->modified_at?->format('d M Y') }}</td>
-                            <td class="px-6 py-4 text-right">
-                                <a href="{{ route('ideas.show', $idea) }}"
-                                   class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Manage</a>
-                            </td>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
+                        <tr>
+                            <x-sortable-th column="idea_id" :sort="$sort" :dir="$dir">Idea ID</x-sortable-th>
+                            <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
+                            <th class="px-6 py-3">Target BU</th>
+                            <th class="px-6 py-3">Target Dept</th>
+                            <x-sortable-th column="status" :sort="$sort" :dir="$dir">Status</x-sortable-th>
+                            <x-sortable-th column="modified_at" :sort="$sort" :dir="$dir">Last Update</x-sortable-th>
+                            <th class="px-6 py-3 text-right">Action</th>
                         </tr>
-                    @empty
-                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang disubmit.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y">
+                        @forelse($ideas as $idea)
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 font-mono text-sm text-red-700">{{ $idea->idea_id }}</td>
+                                <td class="px-6 py-4">
+                                    <div class="font-semibold">{{ $idea->idea_name }}</div>
+                                    <div class="text-sm text-gray-400 truncate max-w-xs">{{ $idea->problem }}</div>
+                                </td>
+                                <td class="px-6 py-4 text-sm">{{ optional($idea->businessUnit)->name }}</td>
+                                <td class="px-6 py-4 text-sm">{{ optional($idea->department)->name }}</td>
+                                <td class="px-6 py-4">@include('ideas._status', ['status' => $idea->status])</td>
+                                <td class="px-6 py-4 text-sm text-gray-500">{{ $idea->modified_at?->format('d M Y') }}</td>
+                                <td class="px-6 py-4 text-right">
+                                    <a href="{{ route('ideas.show', $idea) }}"
+                                       class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Manage</a>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang cocok.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
+
+        <div>{{ $ideas->links() }}</div>
 
     </div>
 

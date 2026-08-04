@@ -138,7 +138,7 @@
                 @endif
                 <input type="file" name="attachments[]" multiple
                        class="w-full text-sm border rounded-lg px-3 py-2 @error('attachments.*') border-red-500 @enderror">
-                <p class="text-xs text-gray-400 mt-1">Opsional. Maks 10 MB/file — pdf, doc(x), xls(x), ppt(x), gambar, zip, csv, txt.</p>
+                <p class="text-xs text-gray-400 mt-1">Opsional. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
                 @error('attachments.*')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
@@ -151,6 +151,9 @@
         <button type="submit" name="action" value="draft"
                 class="px-5 py-2 border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Save as Draft</button>
         <button type="submit" name="action" value="submit"
+                data-confirm="Setelah di-submit, ide akan masuk antrean review committee dan tidak bisa diedit lagi. Lanjutkan submit?"
+                data-confirm-title="Submit Idea?"
+                data-confirm-ok="Ya, Submit Idea"
                 class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Idea</button>
     </div>
 

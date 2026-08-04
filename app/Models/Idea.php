@@ -2,14 +2,35 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use App\Services\RBAC\RoleScopeService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class Idea extends Model
 {
+    use LogsActivity;
+
     // Tabel ideas memakai modified_at (bukan updated_at bawaan Laravel).
     const UPDATED_AT = 'modified_at';
+
+    /** Label untuk audit trail (LogsActivity). */
+    public function activityLabel(): string
+    {
+        return $this->idea_id ?? ($this->idea_name ?? 'Idea #' . $this->getKey());
+    }
+
+    /** Jenis approval untuk SLA (ide selalu 'idea' saat direview). */
+    public function slaApprovalType(): ?string
+    {
+        return in_array($this->status, ['submitted', 'review'], true) ? 'idea' : null;
+    }
+
+    /** Kapan masuk layer review saat ini (approval terakhir, atau waktu submit). */
+    public function reviewSince(): ?\Illuminate\Support\Carbon
+    {
+        return $this->approvals()->latest('created_at')->first()?->created_at ?? $this->modified_at;
+    }
 
     /**
      * Batasi ide sesuai restrict scope role $user (union lintas role),

@@ -108,14 +108,4 @@
 
 </form>
 
-{{-- Tom Select: searchable multi-select --}}
-<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        ['#select-business-units', '#select-companies', '#select-locations', '#select-employees']
-            .forEach(function (id) {
-                new TomSelect(id, { plugins: ['remove_button'], create: false, hidePlaceholder: false, maxOptions: null });
-            });
-    });
-</script>
+{{-- Tom Select diterapkan global via layouts/app.blade.php (searchable multi-select). --}}

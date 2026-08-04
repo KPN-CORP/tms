@@ -36,8 +36,12 @@
                 @if($isLeader && $canEdit)
                     <div class="flex items-center justify-between">
                         <div class="text-sm text-gray-500">Lengkapi Impl. Plan & Success Indicators (total weight 100%), lalu submit.</div>
-                        <form method="POST" action="{{ route('projects.submit', $project) }}" onsubmit="return confirm('Submit proposal ke Sponsor?')">
-                            @csrf<button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Proposal</button>
+                        <form method="POST" action="{{ route('projects.submit', $project) }}">
+                            @csrf<button
+                                data-confirm="Proposal akan dikirim ke Sponsor untuk approval dan tidak bisa diedit selama menunggu keputusan. Lanjutkan submit?"
+                                data-confirm-title="Submit Proposal?"
+                                data-confirm-ok="Ya, Submit Proposal"
+                                class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Proposal</button>
                         </form>
                     </div>
                 @elseif($isSponsor && $project->status === 'submitted')
@@ -59,13 +63,16 @@
                 @elseif($canSubmitCompletion)
                     <h3 class="text-lg font-semibold mb-3">Completion Request</h3>
                     <p class="text-sm text-gray-500 mb-3">Project sudah Approved. Isi ringkasan lalu ajukan penyelesaian (butuh min. 1 Success Indicator).</p>
-                    <form method="POST" action="{{ route('projects.completion.submit', $project) }}" class="space-y-3"
-                          onsubmit="return confirm('Submit completion request?')">
+                    <form method="POST" action="{{ route('projects.completion.submit', $project) }}" class="space-y-3">
                         @csrf
                         <div><label class="block text-sm font-semibold text-gray-600 mb-1">Project Summary <span class="text-red-600">*</span></label>
                             <textarea name="project_summary" rows="4" required placeholder="Ringkasan hasil project (maks 20.000 karakter)"
                                       class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">{{ old('project_summary', $project->project_summary) }}</textarea></div>
-                        <div class="flex justify-end"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Completion</button></div>
+                        <div class="flex justify-end"><button
+                                data-confirm="Completion request akan dikirim ke committee untuk direview. Pastikan ringkasan & indikator sudah benar. Lanjutkan submit?"
+                                data-confirm-title="Submit Completion?"
+                                data-confirm-ok="Ya, Submit Completion"
+                                class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Completion</button></div>
                     </form>
                 @endif
             </div>
@@ -374,7 +381,7 @@
                         <button class="px-4 py-1.5 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800">Upload</button>
                         @error('file')<span class="text-sm text-red-600">{{ $message }}</span>@enderror
                     </form>
-                    <p class="text-xs text-gray-400">Maks 10 MB. pdf, doc(x), xls(x), ppt(x), gambar, zip, csv, txt.</p>
+                    <p class="text-xs text-gray-400">Maks 10 MB. - .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
                 @endif
             </div>
         </div>

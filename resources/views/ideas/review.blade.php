@@ -17,16 +17,23 @@
             </div>
         @endif
 
+        <x-list-toolbar :search="request('q')" placeholder="Cari ID Idea, nama, atau problem…">
+            <x-list-filters :business-units="$businessUnits" :departments="$departments"
+                :statuses="['submitted' => 'Submitted', 'review' => 'On Review']" />
+        </x-list-toolbar>
+
         <div class="bg-white rounded-xl shadow overflow-hidden">
+            <div class="overflow-x-auto">
             <table class="w-full text-left">
                 <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                     <tr>
-                        <th class="px-6 py-3">Idea ID</th>
-                        <th class="px-6 py-3">Idea Name</th>
+                        <x-sortable-th column="idea_id" :sort="$sort" :dir="$dir">Idea ID</x-sortable-th>
+                        <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
                         <th class="px-6 py-3">Submitter</th>
                         <th class="px-6 py-3">Target BU</th>
-                        <th class="px-6 py-3">Layer</th>
-                        <th class="px-6 py-3">Status</th>
+                        <x-sortable-th column="current_layer" :sort="$sort" :dir="$dir">Layer</x-sortable-th>
+                        <x-sortable-th column="status" :sort="$sort" :dir="$dir">Status</x-sortable-th>
+                        <th class="px-6 py-3">SLA</th>
                         <th class="px-6 py-3 text-right">Action</th>
                     </tr>
                 </thead>
@@ -39,17 +46,23 @@
                             <td class="px-6 py-4 text-sm">{{ optional($idea->businessUnit)->name }}</td>
                             <td class="px-6 py-4 text-sm">Layer {{ $idea->current_layer }}</td>
                             <td class="px-6 py-4">@include('ideas._status', ['status' => $idea->status])</td>
+                            <td class="px-6 py-4">
+                                <x-sla-badge :sla="app(\App\Services\SlaService::class)->evaluate($idea->slaApprovalType(), $idea->reviewSince())" />
+                            </td>
                             <td class="px-6 py-4 text-right">
                                 <a href="{{ route('ideas.review.show', $idea) }}"
                                    class="px-4 py-1 text-sm bg-red-700 text-white rounded-lg hover:bg-red-800">Review</a>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Tidak ada ide yang menunggu review Anda.</td></tr>
+                        <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400">Tidak ada ide yang menunggu review Anda.</td></tr>
                     @endforelse
                 </tbody>
             </table>
+            </div>
         </div>
+
+        <div>{{ $ideas->links() }}</div>
 
     </div>
 

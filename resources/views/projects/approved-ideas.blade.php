@@ -11,12 +11,17 @@
             <p class="text-gray-500">Ide yang sudah disetujui seluruh layer. Buat Project Shell (1 ide bisa banyak project).</p>
         </div>
 
+        <x-list-toolbar :search="request('q')" placeholder="Cari ID Idea, nama, atau problem…">
+            <x-list-filters :business-units="$businessUnits" :departments="$departments" />
+        </x-list-toolbar>
+
         <div class="bg-white rounded-xl shadow overflow-hidden">
+            <div class="overflow-x-auto">
             <table class="w-full text-left">
                 <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                     <tr>
-                        <th class="px-6 py-3">Idea ID</th>
-                        <th class="px-6 py-3">Idea Name</th>
+                        <x-sortable-th column="idea_id" :sort="$sort" :dir="$dir">Idea ID</x-sortable-th>
+                        <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
                         <th class="px-6 py-3">Submitter</th>
                         <th class="px-6 py-3">Target BU</th>
                         <th class="px-6 py-3 text-right">Action</th>
@@ -39,7 +44,10 @@
                     @endforelse
                 </tbody>
             </table>
+            </div>
         </div>
+
+        <div>{{ $ideas->links() }}</div>
 
     </div>
 

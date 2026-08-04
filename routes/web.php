@@ -9,8 +9,15 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectCategoryController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\UserController;
+use App\Http\Controllers\GuidelineController;
+use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\SlaSettingController;
+use App\Http\Controllers\SsoController;
 
 Route::redirect('/', '/login');
+
+Route::get("dbauth", [SsoController::class, "dbauth"]);
 
 Route::middleware(['auth'])->group(function () {
 
@@ -186,6 +193,60 @@ Route::middleware(['auth'])->group(function () {
                 ->name('roles.assign-user.store');
 
         });
+
+    /*
+    |--------------------------------------------------------------------------
+    | User Management (izin: user.manage) — §9.5
+    |--------------------------------------------------------------------------
+    */
+
+    Route::prefix('admin')->name('admin.')->middleware('permission:user.manage')->group(function () {
+        Route::get('/users', [UserController::class, 'index'])->name('users.index');
+        Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+        Route::post('/users', [UserController::class, 'store'])->name('users.store');
+        Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
+        Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Guideline — pustaka dokumen (§9.7)
+    | Lihat: guideline.view / guideline.upload. Kelola: guideline.upload.
+    |--------------------------------------------------------------------------
+    */
+
+    Route::middleware('permission:guideline.view|guideline.upload')->group(function () {
+        Route::get('/guidelines', [GuidelineController::class, 'index'])->name('guidelines.index');
+        Route::get('/guidelines/{guideline}/download', [GuidelineController::class, 'download'])->name('guidelines.download');
+    });
+
+    Route::middleware('permission:guideline.upload')->group(function () {
+        Route::post('/guidelines', [GuidelineController::class, 'store'])->name('guidelines.store');
+        Route::post('/guidelines/{guideline}/toggle', [GuidelineController::class, 'toggle'])->name('guidelines.toggle');
+        Route::delete('/guidelines/{guideline}', [GuidelineController::class, 'destroy'])->name('guidelines.destroy');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Activity Log — audit trail (izin: audit.view) — §9.2
+    |--------------------------------------------------------------------------
+    */
+
+    Route::prefix('admin')->name('admin.')->middleware('permission:audit.view')->group(function () {
+        Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | SLA Setting (izin: sla.manage)
+    |--------------------------------------------------------------------------
+    */
+
+    Route::prefix('admin')->name('admin.')->middleware('permission:sla.manage')->group(function () {
+        Route::get('/sla', [SlaSettingController::class, 'index'])->name('sla.index');
+        Route::put('/sla', [SlaSettingController::class, 'update'])->name('sla.update');
+    });
 
 });
 

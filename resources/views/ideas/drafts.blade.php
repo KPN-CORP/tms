@@ -21,14 +21,19 @@
             </div>
         @endif
 
+        <x-list-toolbar :search="request('q')" placeholder="Cari ID Idea, nama, atau problem…">
+            <x-list-filters :business-units="$businessUnits" :departments="$departments" />
+        </x-list-toolbar>
+
         <div class="bg-white rounded-xl shadow overflow-hidden">
+            <div class="overflow-x-auto">
             <table class="w-full text-left">
                 <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                     <tr>
-                        <th class="px-6 py-3">Idea Name</th>
+                        <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
                         <th class="px-6 py-3">Targeted BU</th>
                         <th class="px-6 py-3">Targeted Department</th>
-                        <th class="px-6 py-3">Last Updated</th>
+                        <x-sortable-th column="modified_at" :sort="$sort" :dir="$dir">Last Updated</x-sortable-th>
                         <th class="px-6 py-3 text-right">Action</th>
                     </tr>
                 </thead>
@@ -57,7 +62,10 @@
                     @endforelse
                 </tbody>
             </table>
+            </div>
         </div>
+
+        <div>{{ $ideas->links() }}</div>
 
     </div>
 

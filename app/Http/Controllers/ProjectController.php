@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\HandlesFileAttachments;
+use App\Http\Controllers\Concerns\HasListQuery;
+use App\Models\BusinessUnit;
+use App\Models\Department;
 use App\Models\Idea;
 use App\Models\ImplementationIndicator;
 use App\Models\ImplementationPlan;
@@ -22,6 +25,7 @@ use Illuminate\Validation\Rule;
 class ProjectController extends Controller
 {
     use HandlesFileAttachments;
+    use HasListQuery;
 
     /**
      * Approved Ideas — ide berstatus approved di BU tempat user menjadi
@@ -31,14 +35,37 @@ class ProjectController extends Controller
     {
         $user = $request->user();
 
-        $ideas = Idea::where('status', 'approved')
-            ->with(['businessUnit', 'department', 'user'])
-            ->latest('modified_at')
-            ->get()
+        $config = [
+            'searchable'   => ['idea_id', 'idea_name', 'problem'],
+            'sortable'     => ['idea_id' => 'idea_id', 'idea_name' => 'idea_name', 'modified_at' => 'modified_at'],
+            'default_sort' => 'modified_at',
+            'default_dir'  => 'desc',
+        ];
+
+        $query = Idea::where('status', 'approved')
+            ->with(['businessUnit', 'department', 'user']);
+
+        $this->applyListSearchSort($query, $request, $config);
+
+        // Filter committee layer terakhir dilakukan di PHP → "universe" yang boleh
+        // dilihat user. Opsi dropdown & filter BU/Dept diturunkan dari sini.
+        $universe = $query->get()
             ->filter(fn (Idea $idea) => $wf->isLastLayerCommittee($idea, $user))
             ->values();
 
-        return view('projects.approved-ideas', compact('ideas'));
+        $businessUnits = BusinessUnit::whereIn('id', $universe->pluck('business_unit_id')->unique()->filter())->orderBy('name')->get();
+        $departments   = Department::whereIn('id', $universe->pluck('department_id')->unique()->filter())->orderBy('name')->get();
+
+        $ideas = $universe
+            ->when($request->filled('business_unit_id'), fn ($c) => $c->where('business_unit_id', $request->integer('business_unit_id')))
+            ->when($request->filled('department_id'), fn ($c) => $c->where('department_id', $request->integer('department_id')))
+            ->values();
+
+        return view('projects.approved-ideas', [
+            'ideas'         => $this->paginateListCollection($ideas, $request, 15),
+            'businessUnits' => $businessUnits,
+            'departments'   => $departments,
+        ] + $this->listSortState($request, $config));
     }
 
     /**
@@ -102,13 +129,38 @@ class ProjectController extends Controller
      */
     public function index(Request $request)
     {
-        $projects = Project::relatedTo($request->user()->id)
-            ->whereHas('idea', fn ($q) => $q->visibleTo($request->user()))
-            ->with(['idea.businessUnit', 'sponsor', 'leader'])
-            ->latest()
-            ->get();
+        $config = [
+            'searchable'   => ['project_id', 'project_name'],
+            'sortable'     => [
+                'project_id'       => 'project_id',
+                'project_name'     => 'project_name',
+                'project_category' => 'project_category',
+                'status'           => 'status',
+                'created_at'       => 'created_at',
+            ],
+            'default_sort' => 'created_at',
+            'default_dir'  => 'desc',
+        ];
 
-        return view('projects.index', compact('projects'));
+        $base = Project::relatedTo($request->user()->id)
+            ->whereHas('idea', fn ($q) => $q->visibleTo($request->user()));
+
+        $query = (clone $base)
+            ->when($request->filled('business_unit_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_id', $request->integer('business_unit_id'))))
+            ->when($request->filled('department_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_id', $request->integer('department_id'))))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->with(['idea.businessUnit', 'sponsor', 'leader']);
+
+        $this->applyListSearchSort($query, $request, $config);
+
+        // Opsi BU/Dept diturunkan dari ide milik project yang terkait user.
+        $ideaIds = (clone $base)->select('idea_id');
+
+        return view('projects.index', [
+            'projects'      => $query->paginate(15)->withQueryString(),
+            'businessUnits' => BusinessUnit::whereIn('id', Idea::whereIn('id', $ideaIds)->select('business_unit_id'))->orderBy('name')->get(),
+            'departments'   => Department::whereIn('id', Idea::whereIn('id', $ideaIds)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+        ] + $this->listSortState($request, $config));
     }
 
     /**
@@ -195,12 +247,35 @@ class ProjectController extends Controller
 
     public function reviewQueue(Request $request, ProjectApprovalWorkflowService $wf)
     {
-        $projects = $wf->reviewQueueFor($request->user())
-            ->with(['idea.businessUnit', 'leader', 'sponsor'])
-            ->latest()
-            ->get();
+        $config = [
+            'searchable'   => ['project_id', 'project_name'],
+            'sortable'     => [
+                'project_id'    => 'project_id',
+                'project_name'  => 'project_name',
+                'current_layer' => 'current_layer',
+                'created_at'    => 'created_at',
+            ],
+            'default_sort' => 'created_at',
+            'default_dir'  => 'desc',
+        ];
 
-        return view('projects.review', compact('projects'));
+        $base = $wf->reviewQueueFor($request->user());
+
+        $query = (clone $base)
+            ->when($request->filled('business_unit_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_id', $request->integer('business_unit_id'))))
+            ->when($request->filled('department_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_id', $request->integer('department_id'))))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->with(['idea.businessUnit', 'leader', 'sponsor']);
+
+        $this->applyListSearchSort($query, $request, $config);
+
+        $ideaIds = (clone $base)->select('idea_id');
+
+        return view('projects.review', [
+            'projects'      => $query->paginate(15)->withQueryString(),
+            'businessUnits' => BusinessUnit::whereIn('id', Idea::whereIn('id', $ideaIds)->select('business_unit_id'))->orderBy('name')->get(),
+            'departments'   => Department::whereIn('id', Idea::whereIn('id', $ideaIds)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+        ] + $this->listSortState($request, $config));
     }
 
     public function reviewApprove(Request $request, Project $project, ProjectApprovalWorkflowService $wf)

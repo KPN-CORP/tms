@@ -11,6 +11,7 @@
     // Tampil bila route ada DAN (show!==false) DAN (permission null / user punya izin).
     $topMenu = [
         ['label' => 'Dashboard', 'route' => 'dashboard', 'permission' => null, 'active' => ['dashboard']],
+        ['label' => 'Guideline', 'route' => 'guidelines.index', 'permission' => 'guideline.view', 'active' => ['guidelines.*']],
     ];
 
     // Menu dikelompokkan: "Judul Grup" => [ item, ... ]
@@ -30,6 +31,8 @@
             ['label' => 'Role Management',      'route' => 'admin.roles.index', 'permission' => 'role.manage', 'active' => ['admin.roles.*']],
             // Menyusul (otomatis muncul saat route-nya dibuat):
             ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
+            ['label' => 'SLA Setting',          'route' => 'admin.sla.index', 'permission' => 'sla.manage', 'active' => ['admin.sla.*']],
+            ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
         ],
     ];
 
@@ -46,7 +49,7 @@
     $headingClass = 'px-4 pt-5 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider';
 @endphp
 
-<aside class="w-64 bg-white border-r border-gray-200 min-h-screen flex flex-col">
+<aside class="w-64 shrink-0 bg-white border-r border-gray-200 h-screen flex flex-col">
 
     {{-- Logo --}}
     <div class="px-6 py-5 border-b">
@@ -64,8 +67,8 @@
         @endif
     </div>
 
-    {{-- Menu (dikelompokkan dengan judul grup) --}}
-    <nav class="flex-1 p-4">
+    {{-- Menu (dikelompokkan dengan judul grup) — scroll internal bila menu banyak --}}
+    <nav class="flex-1 min-h-0 overflow-y-auto p-4">
 
         {{-- Menu atas tanpa grup --}}
         @foreach($topMenu as $item)
