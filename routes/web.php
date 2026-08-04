@@ -13,7 +13,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\GuidelineController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\SlaSettingController;
-use App\Http\Controllers\SsoController;
+use App\Http\Controllers\Auth\SsoController;
 
 Route::redirect('/', '/login');
 
@@ -77,6 +77,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/review/ideas/{idea}/reject', [IdeaController::class, 'reject'])->name('ideas.review.reject');
     });
 
+    
     /*
     |--------------------------------------------------------------------------
     | Committee Assignment (izin: committee.assign)
