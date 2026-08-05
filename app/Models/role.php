@@ -7,7 +7,7 @@ use Spatie\Permission\Models\Role as SpatieRole;
 class Role extends SpatieRole
 {
     // RBAC (roles, permissions, assignment) ditangani sepenuhnya oleh Spatie.
-
+    //commit
     /*
     |--------------------------------------------------------------------------
     | Restrict / Scope (kosong = tanpa pembatasan / akses semua)
