@@ -10,6 +10,7 @@ use App\Models\Company;
 use App\Models\Department;
 use App\Models\Idea;
 use App\Models\IdeaAttachment;
+use App\Models\KpnBusinessUnit;
 use App\Models\Location;
 use App\Services\Idea\IdeaWorkflowService;
 use Illuminate\Http\Request;
@@ -53,8 +54,15 @@ class IdeaController extends Controller
 
         $this->applyListSearchSort($query, $request, self::IDEA_LIST_CONFIG);
 
+        // "Show N entries" — jumlah baris per halaman (whitelist).
+        $perPage = (int) $request->integer('per_page', 10);
+        if (! in_array($perPage, [10, 25, 50, 100], true)) {
+            $perPage = 10;
+        }
+
         return view('ideas.index', [
-            'ideas'         => $query->paginate(15)->withQueryString(),
+            'ideas'         => $query->paginate($perPage)->withQueryString(),
+            'perPage'       => $perPage,
             'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
             'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
         ] + $this->listSortState($request, self::IDEA_LIST_CONFIG));
@@ -81,8 +89,11 @@ class IdeaController extends Controller
 
         $this->applyListSearchSort($query, $request, $config);
 
+        $perPage = $this->listPerPage($request);
+
         return view('ideas.drafts', [
-            'ideas'         => $query->paginate(15)->withQueryString(),
+            'ideas'         => $query->paginate($perPage)->withQueryString(),
+            'perPage'       => $perPage,
             'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
             'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
         ] + $this->listSortState($request, $config));
@@ -109,8 +120,10 @@ class IdeaController extends Controller
     {
         $isSubmit  = $request->input('action') === 'submit';
         $validated = $this->validateIdea($request, $isSubmit);
+        $org       = $this->resolveOrg($validated);
+        unset($validated['business_unit'], $validated['department'], $validated['company'], $validated['location']);
 
-        $idea = Idea::create($validated + [
+        $idea = Idea::create($validated + $org + [
             'user_id' => $request->user()->id,
             'idea_id' => $this->generateIdeaId($request->user()),
             'status'  => $isSubmit ? 'submitted' : 'draft',
@@ -138,8 +151,10 @@ class IdeaController extends Controller
 
         $isSubmit  = $request->input('action') === 'submit';
         $validated = $this->validateIdea($request, $isSubmit);
+        $org       = $this->resolveOrg($validated);
+        unset($validated['business_unit'], $validated['department'], $validated['company'], $validated['location']);
 
-        $idea->update($validated + [
+        $idea->update($validated + $org + [
             'status' => $isSubmit ? 'submitted' : 'draft',
         ]);
 
@@ -192,8 +207,11 @@ class IdeaController extends Controller
 
         $this->applyListSearchSort($query, $request, $config);
 
+        $perPage = $this->listPerPage($request);
+
         return view('ideas.review', [
-            'ideas'         => $query->paginate(15)->withQueryString(),
+            'ideas'         => $query->paginate($perPage)->withQueryString(),
+            'perPage'       => $perPage,
             'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
             'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
         ] + $this->listSortState($request, $config));
@@ -297,12 +315,44 @@ class IdeaController extends Controller
 
     private function formData(): array
     {
+        // Business Unit dari hcis (master_bisnisunits.nama_bisnis); Department via AJAX.
         return [
-            'businessUnits' => BusinessUnit::orderBy('name')->get(),
-            'departments'   => Department::with('businessUnit')->orderBy('name')->get(),
-            'companies'     => Company::orderBy('name')->get(),
-            'locations'     => Location::with('company')->orderBy('name')->get(),
+            'businessUnits' => KpnBusinessUnit::names(),
         ];
+    }
+
+    /**
+     * Terjemahkan input nama (business_unit/department dari hcis) ke payload kolom ide:
+     * simpan NAMA + jembatani ke FK lokal (find-or-create) agar RBAC scope & relasi lama jalan.
+     */
+    private function resolveOrg(array $validated): array
+    {
+        $buName   = $validated['business_unit'] ?? null;
+        $deptName = $validated['department'] ?? null;
+
+        $payload = [
+            'business_unit_name' => $buName,
+            'department_name'    => $deptName,
+            'company_name'       => $validated['company'] ?? null,
+            'location_name'      => $validated['location'] ?? null,
+            'business_unit_id'   => null,
+            'department_id'      => null,
+            'company_id'         => null,
+            'location_id'        => null,
+        ];
+
+        if ($buName) {
+            $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $buName), 0, 10)) ?: 'GEN';
+            $bu = BusinessUnit::firstOrCreate(['name' => $buName], ['code' => $code]);
+            $payload['business_unit_id'] = $bu->id;
+
+            if ($deptName) {
+                $dept = Department::firstOrCreate(['name' => $deptName, 'business_unit_id' => $bu->id]);
+                $payload['department_id'] = $dept->id;
+            }
+        }
+
+        return $payload;
     }
 
     
@@ -317,11 +367,11 @@ class IdeaController extends Controller
             'problem'          => [$required, 'string', 'max:5000'],
             'description'      => [$required, 'string', 'max:10000'],
             'expected_outcome' => [$required, 'string', 'max:5000'],
-            'business_unit_id' => [$required, 'integer', Rule::exists('business_units', 'id')],
-            // Company & Location opsional (level BU bila kosong).
-            'company_id'       => ['nullable', 'integer', Rule::exists('companies', 'id')],
-            'location_id'      => ['nullable', 'integer', Rule::exists('locations', 'id')],
-            'department_id'    => [$required, 'integer', Rule::exists('departments', 'id')],
+            // BU & Department kini NAMA (string) dari hcis; Company & Location opsional.
+            'business_unit'    => [$required, 'string', 'max:255'],
+            'department'       => [$required, 'string', 'max:255'],
+            'company'          => ['nullable', 'string', 'max:255'],
+            'location'         => ['nullable', 'string', 'max:255'],
         ]);
     }
 

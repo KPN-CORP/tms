@@ -56,6 +56,14 @@ trait HasListQuery
         return $query;
     }
 
+    /** Jumlah baris per halaman ("Show N entries") — whitelist. */
+    protected function listPerPage(Request $request, int $default = 10): int
+    {
+        $perPage = (int) $request->integer('per_page', $default);
+
+        return in_array($perPage, [10, 25, 50, 100], true) ? $perPage : $default;
+    }
+
     /** State sort terpakai (key publik + arah) untuk header tabel. */
     protected function listSortState(Request $request, array $config): array
     {

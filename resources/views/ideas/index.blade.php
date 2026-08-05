@@ -25,16 +25,19 @@
             </div>
         @endif
 
-        <x-list-toolbar :search="request('q')" placeholder="Cari ID Idea, nama, atau problem…">
-            <x-list-filters :business-units="$businessUnits" :departments="$departments"
-                :statuses="['submitted' => 'Submitted', 'review' => 'On Review', 'approved' => 'Approved', 'rejected' => 'Rejected', 'project_created' => 'Project Created']" />
-        </x-list-toolbar>
+        {{-- Satu card: toolbar + tabel + footer (tanpa gap) --}}
+        <form method="GET" class="bg-white rounded-xl shadow overflow-hidden">
 
-        <div class="bg-white rounded-xl shadow overflow-hidden">
+            <x-list-filter-bar :business-units="$businessUnits" :departments="$departments"
+                :statuses="['submitted' => 'Submitted', 'review' => 'On Review', 'approved' => 'Approved', 'rejected' => 'Rejected', 'project_created' => 'Project Created']"
+                :reset-route="route('ideas.index')" placeholder="Cari ID, nama, problem…" />
+
+            {{-- Tabel --}}
             <div class="overflow-x-auto">
                 <table class="w-full text-left">
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                         <tr>
+                            <th class="px-6 py-3 w-12 text-center">No</th>
                             <x-sortable-th column="idea_id" :sort="$sort" :dir="$dir">Idea ID</x-sortable-th>
                             <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
                             <th class="px-6 py-3">Target BU</th>
@@ -47,6 +50,7 @@
                     <tbody class="divide-y">
                         @forelse($ideas as $idea)
                             <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 text-sm text-center text-gray-500">{{ $ideas->firstItem() + $loop->index }}</td>
                                 <td class="px-6 py-4 font-mono text-sm text-red-700">{{ $idea->idea_id }}</td>
                                 <td class="px-6 py-4">
                                     <div class="font-semibold">{{ $idea->idea_name }}</div>
@@ -62,14 +66,15 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang cocok.</td></tr>
+                            <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang cocok.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
-        </div>
 
-        <div>{{ $ideas->links() }}</div>
+            <x-list-footer :paginator="$ideas" :per-page="$perPage" />
+
+        </form>
 
     </div>
 

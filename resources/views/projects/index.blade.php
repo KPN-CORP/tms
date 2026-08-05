@@ -17,51 +17,54 @@
             </div>
         @endif
 
-        <x-list-toolbar :search="request('q')" placeholder="Cari Project ID atau nama…">
-            <x-list-filters :business-units="$businessUnits" :departments="$departments"
-                :statuses="collect(\App\Models\Project::STATUS_BADGES)->map(fn ($b) => $b[0])->all()" />
-        </x-list-toolbar>
+        <form method="GET" class="bg-white rounded-xl shadow overflow-hidden">
 
-        <div class="bg-white rounded-xl shadow overflow-hidden">
+            <x-list-filter-bar :business-units="$businessUnits" :departments="$departments"
+                :statuses="collect(\App\Models\Project::STATUS_BADGES)->map(fn ($b) => $b[0])->all()"
+                :reset-route="route('projects.index')" placeholder="Cari Project ID atau nama…" />
+
             <div class="overflow-x-auto">
-            <table class="w-full text-left">
-                <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                    <tr>
-                        <x-sortable-th column="project_id" :sort="$sort" :dir="$dir">Project ID</x-sortable-th>
-                        <x-sortable-th column="project_name" :sort="$sort" :dir="$dir">Project Name</x-sortable-th>
-                        <x-sortable-th column="project_category" :sort="$sort" :dir="$dir">Category</x-sortable-th>
-                        <x-sortable-th column="status" :sort="$sort" :dir="$dir">Status</x-sortable-th>
-                        <th class="px-6 py-3">Leader</th>
-                        <th class="px-6 py-3">Sponsor</th>
-                        <th class="px-6 py-3 text-right">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y">
-                    @forelse($projects as $project)
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-6 py-4 font-mono text-sm text-red-700">{{ $project->project_id }}</td>
-                            <td class="px-6 py-4 font-semibold">{{ $project->project_name }}</td>
-                            <td class="px-6 py-4 text-sm">{{ $project->project_category }}</td>
-                            <td class="px-6 py-4 text-sm">
-                                @php([$stLabel, $stCls] = $project->statusBadge())
-                                <span class="inline-flex px-2 py-1 text-xs rounded-full font-medium {{ $stCls }}">{{ $stLabel }}</span>
-                            </td>
-                            <td class="px-6 py-4 text-sm">{{ optional($project->leader)->name }}</td>
-                            <td class="px-6 py-4 text-sm">{{ optional($project->sponsor)->name }}</td>
-                            <td class="px-6 py-4 text-right">
-                                <a href="{{ route('projects.show', $project) }}"
-                                   class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Detail</a>
-                            </td>
+                <table class="w-full text-left">
+                    <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
+                        <tr>
+                            <th class="px-6 py-3 w-12 text-center">No</th>
+                            <x-sortable-th column="project_id" :sort="$sort" :dir="$dir">Project ID</x-sortable-th>
+                            <x-sortable-th column="project_name" :sort="$sort" :dir="$dir">Project Name</x-sortable-th>
+                            <x-sortable-th column="project_category" :sort="$sort" :dir="$dir">Category</x-sortable-th>
+                            <x-sortable-th column="status" :sort="$sort" :dir="$dir">Status</x-sortable-th>
+                            <th class="px-6 py-3">Leader</th>
+                            <th class="px-6 py-3">Sponsor</th>
+                            <th class="px-6 py-3 text-right">Action</th>
                         </tr>
-                    @empty
-                        <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Belum ada project.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y">
+                        @forelse($projects as $project)
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 text-sm text-center text-gray-500">{{ $projects->firstItem() + $loop->index }}</td>
+                                <td class="px-6 py-4 font-mono text-sm text-red-700">{{ $project->project_id }}</td>
+                                <td class="px-6 py-4 font-semibold">{{ $project->project_name }}</td>
+                                <td class="px-6 py-4 text-sm">{{ $project->project_category }}</td>
+                                <td class="px-6 py-4 text-sm">
+                                    @php([$stLabel, $stCls] = $project->statusBadge())
+                                    <span class="inline-flex px-2 py-1 text-xs rounded-full font-medium {{ $stCls }}">{{ $stLabel }}</span>
+                                </td>
+                                <td class="px-6 py-4 text-sm">{{ optional($project->leader)->name }}</td>
+                                <td class="px-6 py-4 text-sm">{{ optional($project->sponsor)->name }}</td>
+                                <td class="px-6 py-4 text-right">
+                                    <a href="{{ route('projects.show', $project) }}"
+                                       class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Detail</a>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400">Belum ada project.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
-        </div>
 
-        <div>{{ $projects->links() }}</div>
+            <x-list-footer :paginator="$projects" :per-page="$perPage" />
+
+        </form>
 
     </div>
 

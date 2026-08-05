@@ -41,7 +41,7 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        if (! $this->attemptLogin()) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
@@ -50,6 +50,31 @@ class LoginRequest extends FormRequest
         }
 
         RateLimiter::clear($this->throttleKey());
+    }
+
+    /**
+     * Login dua sumber: tm_system (lokal) dulu, lalu fallback ke hcis.
+     */
+    private function attemptLogin(): bool
+    {
+        // 1) User tm_system (lokal).
+        if (Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+            return true;
+        }
+
+        // 2) Fallback ke hcis — sinkron user lokal (mirror) lalu login.
+        $user = app(\App\Services\HcisAuthService::class)->attempt(
+            (string) $this->string('email'),
+            (string) $this->string('password'),
+        );
+
+        if ($user) {
+            Auth::login($user, $this->boolean('remember'));
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

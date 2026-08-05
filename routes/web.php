@@ -45,6 +45,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])
         ->name('dashboard');
 
+    // Org data (hcis) untuk dropdown cascade dari Business Unit
+    Route::get('/org/departments', [\App\Http\Controllers\OrgController::class, 'departments'])->name('org.departments');
+    Route::get('/org/locations', [\App\Http\Controllers\OrgController::class, 'locations'])->name('org.locations');
+    Route::get('/org/companies', [\App\Http\Controllers\OrgController::class, 'companies'])->name('org.companies');
+
     /*
     |--------------------------------------------------------------------------
     | Ideas — My Ideas / Create / Draft (izin: idea.create)
@@ -231,12 +236,15 @@ Route::middleware(['auth'])->group(function () {
     /*
     |--------------------------------------------------------------------------
     | Activity Log — audit trail (izin: audit.view) — §9.2
+    | DI-HIDE SEMENTARA: route dinonaktifkan agar fitur tidak bisa diakses.
+    | Pencatatan audit (trait LogsActivity) tetap berjalan di background.
+    | Uncomment blok di bawah untuk mengaktifkan kembali.
     |--------------------------------------------------------------------------
     */
 
-    Route::prefix('admin')->name('admin.')->middleware('permission:audit.view')->group(function () {
-        Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
-    });
+    // Route::prefix('admin')->name('admin.')->middleware('permission:audit.view')->group(function () {
+    //     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+    // });
 
     /*
     |--------------------------------------------------------------------------

@@ -102,11 +102,19 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Business Unit</label>
-                        <div class="{{ $box }}">{{ optional($idea->businessUnit)->name ?? '-' }}</div>
+                        <div class="{{ $box }}">{{ $idea->business_unit_name ?? optional($idea->businessUnit)->name ?? '-' }}</div>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Department</label>
-                        <div class="{{ $box }}">{{ optional($idea->department)->name ?? '-' }}</div>
+                        <div class="{{ $box }}">{{ $idea->department_name ?? optional($idea->department)->name ?? '-' }}</div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Company</label>
+                        <div class="{{ $box }}">{{ $idea->company_name ?? '-' }}</div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Location</label>
+                        <div class="{{ $box }}">{{ $idea->location_name ?? '-' }}</div>
                     </div>
                 </div>
 

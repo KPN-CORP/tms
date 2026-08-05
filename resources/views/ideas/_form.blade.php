@@ -1,11 +1,11 @@
 @php
-    $u      = Auth::user();
-    $isEdit = isset($idea);
-    $v      = fn ($f) => old($f, $isEdit ? $idea->$f : '');
-    $selBu  = old('business_unit_id', $isEdit ? $idea->business_unit_id : '');
-    $selDep = old('department_id',    $isEdit ? $idea->department_id : '');
-    $selCo  = old('company_id',       $isEdit ? $idea->company_id : '');
-    $selLoc = old('location_id',      $isEdit ? $idea->location_id : '');
+    $u        = Auth::user();
+    $isEdit   = isset($idea);
+    $v        = fn ($f) => old($f, $isEdit ? $idea->$f : '');
+    $selBu       = old('business_unit', $isEdit ? $idea->business_unit_name : '');
+    $selDept     = old('department',    $isEdit ? $idea->department_name : '');
+    $selCompany  = old('company',       $isEdit ? $idea->company_name : '');
+    $selLocation = old('location',      $isEdit ? $idea->location_name : '');
 @endphp
 
 <form method="POST" action="{{ $action }}" enctype="multipart/form-data" class="space-y-6">
@@ -72,53 +72,49 @@
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block font-semibold mb-1">Targeted Business Unit <span class="text-red-600">*</span></label>
-                    <select name="business_unit_id"
-                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('business_unit_id') border-red-500 @enderror">
+                    <select name="business_unit" id="idea-bu"
+                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('business_unit') border-red-500 @enderror">
                         <option value="">Select Business Unit</option>
                         @foreach($businessUnits as $bu)
-                            <option value="{{ $bu->id }}" @selected((string) $selBu === (string) $bu->id)>{{ $bu->name }}</option>
+                            <option value="{{ $bu }}" @selected((string) $selBu === (string) $bu)>{{ $bu }}</option>
                         @endforeach
                     </select>
-                    @error('business_unit_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+                    @error('business_unit')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <div>
                     <label class="block font-semibold mb-1">Targeted Department <span class="text-red-600">*</span></label>
-                    <select name="department_id"
-                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('department_id') border-red-500 @enderror">
+                    {{-- Diisi via AJAX dari hcis sesuai Business Unit terpilih (data-remote-*) --}}
+                    <select name="department" id="idea-dept"
+                            data-remote-parent="#idea-bu" data-remote-url="{{ route('org.departments') }}" data-selected="{{ $selDept }}"
+                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('department') border-red-500 @enderror">
                         <option value="">Select Department</option>
-                        @foreach($departments as $dep)
-                            <option value="{{ $dep->id }}" @selected((string) $selDep === (string) $dep->id)>
-                                {{ $dep->name }} ({{ optional($dep->businessUnit)->name }})
-                            </option>
-                        @endforeach
+                        @if($selDept)<option value="{{ $selDept }}" selected>{{ $selDept }}</option>@endif
                     </select>
-                    @error('department_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+                    @error('department')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
             </div>
 
-            {{-- Targeted Company & Location (opsional) — untuk restrict scope --}}
+            {{-- Company & Location (opsional) — dari hcis, cascade dari Business Unit --}}
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block font-semibold mb-1">Targeted Company <span class="text-gray-400 text-sm font-normal">(opsional)</span></label>
-                    <select name="company_id" id="idea-company"
-                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('company_id') border-red-500 @enderror">
-                        <option value="">— Semua Company (level BU) —</option>
-                        @foreach($companies as $co)
-                            <option value="{{ $co->id }}" data-bu="{{ $co->business_unit_id }}" @selected((string) $selCo === (string) $co->id)>{{ $co->name }}</option>
-                        @endforeach
+                    <select name="company" id="idea-company"
+                            data-remote-parent="#idea-bu" data-remote-url="{{ route('org.companies') }}" data-selected="{{ $selCompany }}"
+                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('company') border-red-500 @enderror">
+                        <option value="">Select Company</option>
+                        @if($selCompany)<option value="{{ $selCompany }}" selected>{{ $selCompany }}</option>@endif
                     </select>
-                    @error('company_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+                    @error('company')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <div>
                     <label class="block font-semibold mb-1">Targeted Location <span class="text-gray-400 text-sm font-normal">(opsional)</span></label>
-                    <select name="location_id" id="idea-location"
-                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('location_id') border-red-500 @enderror">
-                        <option value="">— Semua Location (level Company) —</option>
-                        @foreach($locations as $loc)
-                            <option value="{{ $loc->id }}" data-company="{{ $loc->company_id }}" @selected((string) $selLoc === (string) $loc->id)>{{ $loc->name }}</option>
-                        @endforeach
+                    <select name="location" id="idea-location"
+                            data-remote-parent="#idea-bu" data-remote-url="{{ route('org.locations') }}" data-selected="{{ $selLocation }}"
+                            class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('location') border-red-500 @enderror">
+                        <option value="">Select Location</option>
+                        @if($selLocation)<option value="{{ $selLocation }}" selected>{{ $selLocation }}</option>@endif
                     </select>
-                    @error('location_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+                    @error('location')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
             </div>
 
@@ -168,31 +164,4 @@
     @endforeach
 @endif
 
-{{-- Cascading BU -> Company -> Location --}}
-<script>
-(function () {
-    const bu       = document.querySelector('[name="business_unit_id"]');
-    const company  = document.getElementById('idea-company');
-    const location = document.getElementById('idea-location');
-    if (!bu || !company || !location) return;
-
-    function filterOptions(select, attr, matchValue) {
-        Array.from(select.options).forEach(opt => {
-            if (opt.value === '') return; // opsi "semua" selalu tampil
-            const show = String(opt.dataset[attr]) === String(matchValue);
-            opt.hidden = !show;
-            if (!show && opt.selected) select.value = '';
-        });
-    }
-
-    function syncCompany() { filterOptions(company, 'bu', bu.value); }
-    function syncLocation() { filterOptions(location, 'company', company.value); }
-
-    bu.addEventListener('change', () => { syncCompany(); syncLocation(); });
-    company.addEventListener('change', syncLocation);
-
-    // Jalankan saat load (hormati nilai lama / edit).
-    syncCompany();
-    syncLocation();
-})();
-</script>
+{{-- Cascade Business Unit → Department (AJAX ke hcis) ditangani global di app layout. --}}

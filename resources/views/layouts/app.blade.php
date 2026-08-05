@@ -9,7 +9,36 @@
 
     <title>{{ config('app.name', 'TMS') }}</title>
 
-    <style>[x-cloak]{ display: none !important; }</style>
+    {{-- Tom Select CSS di-head DULU agar override di bawah selalu menang --}}
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
+
+    <style>
+        [x-cloak]{ display: none !important; }
+        /* Samakan tampilan Tom Select dengan input Tailwind: BORDER TUNGGAL, tinggi = search (38px) */
+        .ts-wrapper{ border: 0 !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
+        .ts-wrapper .ts-control{
+            box-sizing: border-box !important;
+            display: flex !important; align-items: center !important;   /* konten center vertikal */
+            width: 100% !important;
+            height: 38px !important; min-height: 38px !important;        /* TEPAT sama dengan Search & Apply */
+            border: 1px solid #d1d5db !important;   /* gray-300 — satu-satunya border */
+            border-radius: .5rem !important;        /* rounded-lg */
+            padding: 0 .75rem !important;
+            box-shadow: none !important;
+            background: #fff !important;
+            font-size: .875rem !important;          /* text-sm */
+            line-height: 1.5rem !important;
+        }
+        .ts-wrapper .ts-control > *{ margin: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; }
+        .ts-wrapper .ts-control input{ line-height: 1.5rem; height: auto; }
+        .ts-wrapper .ts-control > input::placeholder{ color: #9ca3af; }  /* placeholder abu-abu */
+        .ts-wrapper.focus .ts-control,
+        .ts-wrapper.input-active .ts-control{
+            border-color: #fca5a5 !important;       /* red-300 */
+            box-shadow: 0 0 0 3px rgba(254,202,202,.5) !important;
+        }
+        .ts-dropdown{ border-radius: .5rem; font-size: .875rem; }
+    </style>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -102,18 +131,20 @@
 {{-- Searchable dropdown (Tom Select) — diterapkan ke SEMUA <select> di aplikasi.
      Opt-out: tambahkan atribut data-no-search. Cascade: data-cascade-parent="#idParent"
      dengan tiap <option data-bu="..."> untuk menyaring anak mengikuti parent. --}}
-<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // 1) Semua dropdown jadi searchable.
         document.querySelectorAll('select:not([data-no-search])').forEach(function (el) {
             if (el.tomselect) return;
+            var hasEmpty = el.querySelector('option[value=""]') !== null;
             new TomSelect(el, {
-                plugins: el.multiple ? ['remove_button'] : [],
+                // Empty option (value="") jadi PLACEHOLDER, tidak muncul sebagai item list.
+                plugins: el.multiple ? ['remove_button'] : (hasEmpty ? ['clear_button'] : []),
                 create: false,
                 maxOptions: null,
-                allowEmptyOption: true,
+                // Render dropdown ke <body> agar tidak terpotong / mendorong konten (overflow-hidden card).
+                dropdownParent: 'body',
             });
         });
 
@@ -133,9 +164,10 @@
                 var ts = child.tomselect;
                 if (ts) {
                     ts.clearOptions();
-                    filtered.forEach(function (o) { ts.addOption({ value: o.value, text: o.text }); });
+                    // Lewati opsi kosong (placeholder) — jangan di-add sebagai item list.
+                    filtered.forEach(function (o) { if (o.value) ts.addOption({ value: o.value, text: o.text }); });
                     ts.refreshOptions(false);
-                    ts.setValue(filtered.some(function (o) { return o.value === current; }) ? current : '', true);
+                    ts.setValue(filtered.some(function (o) { return o.value && o.value === current; }) ? current : '', true);
                 } else {
                     Array.from(child.options).forEach(function (opt) {
                         if (!opt.value) return;
@@ -146,6 +178,41 @@
 
             parent.addEventListener('change', apply);
             apply();
+        });
+
+        // 3) Remote cascade: child diisi via AJAX dari data-remote-url?bu=<parent value>
+        //    (mis. Department diambil dari hcis sesuai Business Unit terpilih).
+        document.querySelectorAll('select[data-remote-url][data-remote-parent]').forEach(function (child) {
+            var parent = document.querySelector(child.getAttribute('data-remote-parent'));
+            if (!parent) return;
+            var url = child.getAttribute('data-remote-url');
+
+            function load(keep) {
+                var bu = parent.value;
+                var ts = child.tomselect;
+                if (!bu) {
+                    if (ts) { ts.clear(true); ts.clearOptions(); ts.refreshOptions(false); }
+                    return;
+                }
+                fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'bu=' + encodeURIComponent(bu), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (list) {
+                    if (ts) {
+                        ts.clear(true); ts.clearOptions();
+                        list.forEach(function (name) { ts.addOption({ value: name, text: name }); });
+                        ts.refreshOptions(false);
+                        if (keep && list.indexOf(keep) !== -1) ts.setValue(keep, true);
+                    }
+                })
+                .catch(function () {});
+            }
+
+            // Ganti BU → muat ulang department (reset pilihan).
+            parent.addEventListener('change', function () { load(null); });
+            // Saat load: bila BU sudah terisi (edit / old input), muat & pertahankan pilihan.
+            if (parent.value) load(child.getAttribute('data-selected') || '');
         });
     });
 </script>

@@ -41,8 +41,8 @@
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Detailed Description</label><div class="{{ $box }} whitespace-pre-line">{{ $idea->description }}</div></div>
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Expected Outcome</label><div class="{{ $box }} whitespace-pre-line">{{ $idea->expected_outcome }}</div></div>
                 <div class="grid grid-cols-2 gap-4">
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Business Unit</label><div class="{{ $box }}">{{ optional($idea->businessUnit)->name }}</div></div>
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Department</label><div class="{{ $box }}">{{ optional($idea->department)->name }}</div></div>
+                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Business Unit</label><div class="{{ $box }}">{{ $idea->business_unit_name ?? optional($idea->businessUnit)->name }}</div></div>
+                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Department</label><div class="{{ $box }}">{{ $idea->department_name ?? optional($idea->department)->name }}</div></div>
                 </div>
                 <div>
                     <label class="block text-sm font-semibold text-gray-600 mb-1">Supporting Documents</label>

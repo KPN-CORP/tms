@@ -61,8 +61,11 @@ class ProjectController extends Controller
             ->when($request->filled('department_id'), fn ($c) => $c->where('department_id', $request->integer('department_id')))
             ->values();
 
+        $perPage = $this->listPerPage($request);
+
         return view('projects.approved-ideas', [
-            'ideas'         => $this->paginateListCollection($ideas, $request, 15),
+            'ideas'         => $this->paginateListCollection($ideas, $request, $perPage),
+            'perPage'       => $perPage,
             'businessUnits' => $businessUnits,
             'departments'   => $departments,
         ] + $this->listSortState($request, $config));
@@ -155,9 +158,11 @@ class ProjectController extends Controller
 
         // Opsi BU/Dept diturunkan dari ide milik project yang terkait user.
         $ideaIds = (clone $base)->select('idea_id');
+        $perPage = $this->listPerPage($request);
 
         return view('projects.index', [
-            'projects'      => $query->paginate(15)->withQueryString(),
+            'projects'      => $query->paginate($perPage)->withQueryString(),
+            'perPage'       => $perPage,
             'businessUnits' => BusinessUnit::whereIn('id', Idea::whereIn('id', $ideaIds)->select('business_unit_id'))->orderBy('name')->get(),
             'departments'   => Department::whereIn('id', Idea::whereIn('id', $ideaIds)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
         ] + $this->listSortState($request, $config));
@@ -270,9 +275,11 @@ class ProjectController extends Controller
         $this->applyListSearchSort($query, $request, $config);
 
         $ideaIds = (clone $base)->select('idea_id');
+        $perPage = $this->listPerPage($request);
 
         return view('projects.review', [
-            'projects'      => $query->paginate(15)->withQueryString(),
+            'projects'      => $query->paginate($perPage)->withQueryString(),
+            'perPage'       => $perPage,
             'businessUnits' => BusinessUnit::whereIn('id', Idea::whereIn('id', $ideaIds)->select('business_unit_id'))->orderBy('name')->get(),
             'departments'   => Department::whereIn('id', Idea::whereIn('id', $ideaIds)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
         ] + $this->listSortState($request, $config));

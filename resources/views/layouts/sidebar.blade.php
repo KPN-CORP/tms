@@ -32,7 +32,8 @@
             // Menyusul (otomatis muncul saat route-nya dibuat):
             ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
             ['label' => 'SLA Setting',          'route' => 'admin.sla.index', 'permission' => 'sla.manage', 'active' => ['admin.sla.*']],
-            ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
+            // Activity Log di-hide sementara (menu & fitur). Uncomment untuk mengaktifkan kembali.
+            // ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
         ],
     ];
 
