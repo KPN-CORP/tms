@@ -13,7 +13,7 @@ class SsoController extends Controller
 {
     public function dbauth(Request $request)
     {
-        return $this->handleDbauth($request, route('goals', absolute: false), 'kpnpm');
+        return $this->handleDbauth($request, route('dashboard', absolute: false), 'kpntms');
     }
 
     private function handleDbauth(Request $request, $redirectRoute, $sessionValue)
