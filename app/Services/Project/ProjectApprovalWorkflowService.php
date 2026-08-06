@@ -24,22 +24,47 @@ class ProjectApprovalWorkflowService
         'completion_review' => ['type' => 'project_completion', 'final' => 'completed', 'reject' => 'approved'],
     ];
 
+    /**
+     * Department efektif untuk routing project (dari ide-nya): department ide bila
+     * ada assignment department-specific, selain itu NULL (pakai chain BU-wide).
+     */
+    private function effectiveDepartment(Project $project, string $type): ?int
+    {
+        $buId   = $project->businessUnitId();
+        $deptId = $project->departmentId();
+
+        $hasSpecific = $buId && $deptId && CommitteeAssignment::where('approval_type', $type)
+            ->where('business_unit_id', $buId)
+            ->where('department_id', $deptId)
+            ->exists();
+
+        return $hasSpecific ? $deptId : null;
+    }
+
+    /** Query committee efektif (BU + department efektif) untuk sebuah project & flow. */
+    private function committeeQuery(Project $project, string $type)
+    {
+        $dept = $this->effectiveDepartment($project, $type);
+
+        return CommitteeAssignment::where('approval_type', $type)
+            ->where('business_unit_id', $project->businessUnitId())
+            ->when(
+                $dept === null,
+                fn ($q) => $q->whereNull('department_id'),
+                fn ($q) => $q->where('department_id', $dept)
+            );
+    }
+
     public function committeeExists(Project $project, string $type): bool
     {
-        $buId = $project->businessUnitId();
-
-        return $buId && CommitteeAssignment::where('approval_type', $type)
-            ->where('business_unit_id', $buId)
-            ->exists();
+        return $project->businessUnitId() && $this->committeeQuery($project, $type)->exists();
     }
 
     public function isCurrentReviewer(Project $project, User $user): bool
     {
         $flow = self::FLOWS[$project->status] ?? null;
-        $buId = $project->businessUnitId();
 
-        return $flow && $buId && CommitteeAssignment::where('approval_type', $flow['type'])
-            ->where('business_unit_id', $buId)
+        return $flow && $project->businessUnitId() && (clone $this->committeeQuery($project, $flow['type']))
             ->where('layer', $project->current_layer)
             ->where('user_id', $user->id)
             ->exists();
@@ -73,8 +98,7 @@ class ProjectApprovalWorkflowService
         $current = $project->current_layer;
         $next    = $current + 1;
 
-        $hasNext = CommitteeAssignment::where('approval_type', $flow['type'])
-            ->where('business_unit_id', $project->businessUnitId())
+        $hasNext = (clone $this->committeeQuery($project, $flow['type']))
             ->where('layer', $next)
             ->exists();
 
@@ -112,7 +136,21 @@ class ProjectApprovalWorkflowService
                                     ->where('ca.approval_type', $flow['type'])
                                     ->whereColumn('ca.business_unit_id', 'ix.business_unit_id')
                                     ->whereColumn('ca.layer', 'projects.current_layer')
-                                    ->where('ca.user_id', $user->id);
+                                    ->where('ca.user_id', $user->id)
+                                    ->where(function ($w) use ($flow) {
+                                        // department-specific ATAU BU-wide (bila tak ada yang specific utk unit ide).
+                                        $w->whereColumn('ca.department_id', 'ix.department_id')
+                                            ->orWhere(function ($ww) use ($flow) {
+                                                $ww->whereNull('ca.department_id')
+                                                    ->whereNotExists(function ($s) use ($flow) {
+                                                        $s->selectRaw('1')
+                                                            ->from('committee_assignments as cs')
+                                                            ->where('cs.approval_type', $flow['type'])
+                                                            ->whereColumn('cs.business_unit_id', 'ix.business_unit_id')
+                                                            ->whereColumn('cs.department_id', 'ix.department_id');
+                                                    });
+                                            });
+                                    });
                             });
                     });
                 }

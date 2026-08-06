@@ -7,6 +7,7 @@
     @php
         $box = 'w-full border rounded-lg px-4 py-2 bg-gray-50 text-gray-600';
         $creator = $idea->user;
+        $creatorEmp = \App\Models\KpnEmployee::forEmail(optional($creator)->email);
     @endphp
 
     <div class="p-6 space-y-6 max-w-5xl">
@@ -30,8 +31,8 @@
                 <div class="grid grid-cols-4 gap-4">
                     <div class="border rounded-lg px-4 py-3"><div class="text-xs text-gray-400">EMPLOYEE ID</div><div class="font-semibold">{{ optional($creator)->employee_id ?? '-' }}</div></div>
                     <div class="border rounded-lg px-4 py-3"><div class="text-xs text-gray-400">FULL NAME</div><div class="font-semibold">{{ optional($creator)->name ?? '-' }}</div></div>
-                    <div class="border rounded-lg px-4 py-3"><div class="text-xs text-gray-400">BUSINESS UNIT</div><div class="font-semibold">{{ optional(optional($creator)->businessUnit)->name ?? '-' }}</div></div>
-                    <div class="border rounded-lg px-4 py-3"><div class="text-xs text-gray-400">DEPARTMENT</div><div class="font-semibold">{{ optional(optional($creator)->department)->name ?? '-' }}</div></div>
+                    <div class="border rounded-lg px-4 py-3"><div class="text-xs text-gray-400">BUSINESS UNIT</div><div class="font-semibold">{{ ($creatorEmp?->businessUnitName()) ?? optional(optional($creator)->businessUnit)->name ?? '-' }}</div></div>
+                    <div class="border rounded-lg px-4 py-3"><div class="text-xs text-gray-400">DEPARTMENT</div><div class="font-semibold">{{ ($creatorEmp?->departmentName()) ?? optional(optional($creator)->department)->name ?? '-' }}</div></div>
                 </div>
 
                 <div class="flex items-center gap-4"><span class="text-sm font-semibold text-gray-600 w-28">Idea ID</span><span class="font-mono text-red-700">{{ $idea->idea_id }}</span></div>

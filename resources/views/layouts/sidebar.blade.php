@@ -7,6 +7,22 @@
         || \App\Models\CommitteeAssignment::where('approval_type', 'idea')
             ->where('user_id', $user->id)->exists();
 
+    // Manage Project tampil bila user: Project Leader / Sponsor / anggota tim,
+    // atau pengaju ide yang idenya sudah dijadikan project. (Super Admin selalu boleh.)
+    $canManageProject = $user->hasRole('Super Admin')
+        || \App\Models\Project::where(function ($q) use ($user) {
+            $q->where('project_leader_id', $user->id)
+                ->orWhere('project_sponsor_id', $user->id)
+                ->orWhereHas('members', fn ($m) => $m->where('user_id', $user->id))
+                ->orWhereHas('idea', fn ($i) => $i->where('user_id', $user->id));
+        })->exists();
+
+    // Review Projects tampil bila user terdaftar sebagai committee untuk review
+    // project (proposal/completion) di layer mana pun. (Super Admin selalu boleh.)
+    $isProjectCommittee = $user->hasRole('Super Admin')
+        || \App\Models\CommitteeAssignment::whereIn('approval_type', ['project_proposal', 'project_completion'])
+            ->where('user_id', $user->id)->exists();
+
     // Item: [label, route, permission(null=semua login), show(override boolean), active].
     // Tampil bila route ada DAN (show!==false) DAN (permission null / user punya izin).
     $topMenu = [
@@ -22,8 +38,8 @@
             ['label' => 'Approved Ideas', 'route' => 'projects.approved-ideas', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['projects.approved-ideas', 'projects.create']],
         ],
         'Project' => [
-            ['label' => 'Manage Project',  'route' => 'projects.index',  'permission' => null, 'active' => ['projects.index', 'projects.show']],
-            ['label' => 'Review Projects', 'route' => 'projects.review', 'permission' => null, 'active' => ['projects.review']],
+            ['label' => 'Manage Project',  'route' => 'projects.index',  'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.show']],
+            ['label' => 'Review Projects', 'route' => 'projects.review', 'permission' => null, 'show' => $isProjectCommittee, 'active' => ['projects.review']],
         ],
         'Admin Setting' => [
             ['label' => 'Committee Assignment', 'route' => 'admin.committee.index', 'permission' => 'committee.assign', 'active' => ['admin.committee.*']],

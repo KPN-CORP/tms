@@ -24,13 +24,14 @@
                 <div class="text-xs text-gray-400">FULL NAME</div>
                 <div class="font-semibold">{{ $u->name }}</div>
             </div>
+            @php $emp = $employeeInfo ?? null; @endphp
             <div class="border rounded-lg px-4 py-3">
                 <div class="text-xs text-gray-400">BUSINESS UNIT</div>
-                <div class="font-semibold">{{ optional($u->businessUnit)->name ?? '-' }}</div>
+                <div class="font-semibold">{{ ($emp?->businessUnitName()) ?? optional($u->businessUnit)->name ?? '-' }}</div>
             </div>
             <div class="border rounded-lg px-4 py-3">
                 <div class="text-xs text-gray-400">DEPARTMENT</div>
-                <div class="font-semibold">{{ optional($u->department)->name ?? '-' }}</div>
+                <div class="font-semibold">{{ ($emp?->departmentName()) ?? optional($u->department)->name ?? '-' }}</div>
             </div>
         </div>
     </div>

@@ -34,33 +34,59 @@ class HcisAuthService
         return $this->syncLocalUser($hcis);
     }
 
-    /** Buat/perbarui user lokal berdasarkan data hcis. */
+    /**
+     * Buat/perbarui user lokal (tm_system) berdasarkan data hcis.
+     * CATATAN: hcis HANYA dibaca (SELECT) — tidak ada insert/update ke hcis.
+     */
     private function syncLocalUser(object $hcis): User
     {
-        $user = User::where('email', $hcis->email)->first();
+        return $this->mirror($hcis->email, $hcis->name ?? null, $hcis->employee_id ?? null);
+    }
+
+    /**
+     * Find-or-create user lokal (mirror) dari data hcis + pastikan role Employee.
+     * Dipakai login (setelah verifikasi password) & Committee Assignment (pilih approver).
+     * TIDAK menulis ke hcis.
+     */
+    public function mirror(string $email, ?string $name = null, $employeeId = null): User
+    {
+        $email = trim($email);
+
+        $user = User::where('email', $email)->first();
 
         if ($user) {
-            // Perbarui data profil dasar (bukan password/role — dikelola lokal).
             $user->update([
-                'name'        => $hcis->name ?: $user->name,
-                'employee_id' => $user->employee_id ?: ($hcis->employee_id ?? null),
+                'name'        => $name ?: $user->name,
+                'employee_id' => $user->employee_id ?: $employeeId,
             ]);
-
-            return $user;
+        } else {
+            // Password lokal acak (user hcis diverifikasi via hcis saat login).
+            $user = User::create([
+                'email'       => $email,
+                'name'        => $name ?: $email,
+                'employee_id' => $employeeId,
+                'password'    => Str::random(40),
+            ]);
         }
 
-        // Buat mirror baru. Password lokal acak (login hcis diverifikasi via hcis).
-        $user = User::create([
-            'email'       => $hcis->email,
-            'name'        => $hcis->name ?: $hcis->email,
-            'employee_id' => $hcis->employee_id ?? null,
-            'password'    => Str::random(40),
-        ]);
-
-        if (self::DEFAULT_ROLE && Role::where('name', self::DEFAULT_ROLE)->exists()) {
-            $user->assignRole(self::DEFAULT_ROLE);
-        }
+        // SEMUA user hcis otomatis punya role Employee (self-healing, additive).
+        $this->ensureDefaultRole($user);
 
         return $user;
+    }
+
+    /**
+     * Pastikan SETIAP user hcis punya role Employee (tanpa terkecuali).
+     * Additive: menambah Employee bila belum ada, TIDAK menghapus role lain.
+     */
+    private function ensureDefaultRole(User $user): void
+    {
+        if (! self::DEFAULT_ROLE || $user->hasRole(self::DEFAULT_ROLE)) {
+            return;
+        }
+
+        if (Role::where('name', self::DEFAULT_ROLE)->exists()) {
+            $user->assignRole(self::DEFAULT_ROLE);
+        }
     }
 }

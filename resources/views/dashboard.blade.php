@@ -52,7 +52,7 @@
             </div>
         </div>
 
-        <p class="text-xs text-gray-400">Catatan: angka saat ini agregat global. Penyaringan berdasarkan scope akses (BU/Unit) & filter tanggal menyusul (T-9).</p>
+        <p class="text-xs text-gray-400">Catatan: angka saat ini agregat global. Penyaringan berdasarkan scope akses (BU/Unit).</p>
 
     </div>
 

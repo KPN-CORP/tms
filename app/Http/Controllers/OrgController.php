@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\KpnCompany;
-use App\Models\KpnDepartment;
+use App\Models\KpnEmployee;
 use App\Models\KpnLocation;
 use Illuminate\Http\Request;
 
@@ -12,10 +12,10 @@ use Illuminate\Http\Request;
  */
 class OrgController extends Controller
 {
-    /** JSON daftar department_name untuk sebuah Business Unit (?bu=Cement). */
+    /** JSON daftar Unit/Department untuk sebuah Business Unit (?bu=Cement) — dari employees.unit. */
     public function departments(Request $request)
     {
-        return $this->respond($request, fn ($bu) => KpnDepartment::namesFor($bu));
+        return $this->respond($request, fn ($bu) => KpnEmployee::unitsFor($bu));
     }
 
     /** JSON daftar area (locations) untuk sebuah Business Unit. */
@@ -28,6 +28,20 @@ class OrgController extends Controller
     public function companies(Request $request)
     {
         return $this->respond($request, fn ($bu) => KpnCompany::contributionsFor($bu));
+    }
+
+    /** JSON employee searchable (semua BU) untuk dropdown approver Committee (?q=...). */
+    public function employees(Request $request)
+    {
+        return response()->json(
+            KpnEmployee::search((string) $request->get('q'), 30)
+                ->map(fn ($e) => [
+                    'employee_id' => $e->employee_id,
+                    'email'       => $e->email,
+                    'label'       => $e->label(),
+                ])
+                ->all()
+        );
     }
 
     private function respond(Request $request, \Closure $resolver)

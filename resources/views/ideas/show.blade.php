@@ -17,6 +17,8 @@
         [$sTitle, $sMsg, $sBorder, $sLabel] = $statusInfo[$idea->status] ?? [$idea->status, '', 'border-gray-400', $idea->status];
 
         $creator = $idea->user;
+        // BU & Department pembuat ide dari hcis (employees.group_company / unit).
+        $creatorEmp = \App\Models\KpnEmployee::forEmail(optional($creator)->email);
 
         // read-only "input look"
         $box = 'w-full border rounded-lg px-4 py-2 bg-gray-50 text-gray-600';
@@ -58,11 +60,11 @@
                     </div>
                     <div class="border rounded-lg px-4 py-3">
                         <div class="text-xs text-gray-400">BUSINESS UNIT</div>
-                        <div class="font-semibold">{{ optional(optional($creator)->businessUnit)->name ?? '-' }}</div>
+                        <div class="font-semibold">{{ ($creatorEmp?->businessUnitName()) ?? optional(optional($creator)->businessUnit)->name ?? '-' }}</div>
                     </div>
                     <div class="border rounded-lg px-4 py-3">
                         <div class="text-xs text-gray-400">DEPARTMENT</div>
-                        <div class="font-semibold">{{ optional(optional($creator)->department)->name ?? '-' }}</div>
+                        <div class="font-semibold">{{ ($creatorEmp?->departmentName()) ?? optional(optional($creator)->department)->name ?? '-' }}</div>
                     </div>
                 </div>
 

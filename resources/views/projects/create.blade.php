@@ -52,25 +52,22 @@
             </div>
 
             <div class="grid grid-cols-2 gap-4">
+                @php $selS = $preselect[old('project_sponsor_id')] ?? null; $selL = $preselect[old('project_leader_id')] ?? null; @endphp
                 <div>
                     <label class="block font-semibold mb-1">Project Sponsor <span class="text-red-600">*</span></label>
-                    <select name="project_sponsor_id"
+                    <select name="project_sponsor_id" data-no-search data-remote-search="{{ $searchUrl }}" data-remote-value="employee_id"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_sponsor_id') border-red-500 @enderror">
                         <option value="">Select Sponsor</option>
-                        @foreach($users as $u)
-                            <option value="{{ $u->id }}" @selected((string) old('project_sponsor_id') === (string) $u->id)>{{ $u->name }} [{{ $u->job_level_label ?? 'tanpa grade' }}]</option>
-                        @endforeach
+                        @if($selS)<option value="{{ $selS->employee_id }}" selected>{{ $selS->label() }}</option>@endif
                     </select>
                     @error('project_sponsor_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <div>
                     <label class="block font-semibold mb-1">Project Leader <span class="text-red-600">*</span></label>
-                    <select name="project_leader_id"
+                    <select name="project_leader_id" data-no-search data-remote-search="{{ $searchUrl }}" data-remote-value="employee_id"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_leader_id') border-red-500 @enderror">
                         <option value="">Select Leader</option>
-                        @foreach($users as $u)
-                            <option value="{{ $u->id }}" @selected((string) old('project_leader_id') === (string) $u->id)>{{ $u->name }} [{{ $u->job_level_label ?? 'tanpa grade' }}]</option>
-                        @endforeach
+                        @if($selL)<option value="{{ $selL->employee_id }}" selected>{{ $selL->label() }}</option>@endif
                     </select>
                     @error('project_leader_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>

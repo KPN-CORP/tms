@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\BusinessUnit;
 use App\Models\CommitteeAssignment;
-use App\Models\Department;
+use App\Models\KpnBusinessUnit;
+use App\Models\KpnEmployee;
 use App\Models\User;
+use App\Services\HcisAuthService;
+use App\Services\OrgResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -14,28 +16,39 @@ class CommitteeAssignmentController extends Controller
 {
     private const MAX_LAYERS = 10;
 
-    public function index(Request $request)
+    public function index(Request $request, OrgResolver $org)
     {
-        $businessUnits = BusinessUnit::orderBy('name')->get();
-        $type          = array_key_exists($request->query('approval_type'), CommitteeAssignment::TYPES)
+        // Business Unit dari hcis (master_bisnisunits) — dipetakan ke BU lokal (find-or-create).
+        $businessUnits = KpnBusinessUnit::names()
+            ->map(fn ($name) => $org->businessUnit($name))
+            ->sortBy('name')
+            ->values();
+
+        $type         = array_key_exists($request->query('approval_type'), CommitteeAssignment::TYPES)
             ? $request->query('approval_type')
             : 'idea';
-        $selectedBuId  = $request->integer('business_unit_id') ?: optional($businessUnits->first())->id;
+        $selectedBuId = $request->integer('business_unit_id') ?: optional($businessUnits->first())->id;
+        $selectedBu   = $businessUnits->firstWhere('id', $selectedBuId);
 
-        // Department routing (Unit) hanya berlaku untuk approval_type = idea (T-95).
-        $departments = $type === 'idea'
-            ? Department::where('business_unit_id', $selectedBuId)->orderBy('name')->get()
-            : collect();
+        // Unit/Department dari employees.unit (tanpa kurung), by nama BU — untuk SEMUA approval type.
+        $unitNames = $selectedBu ? KpnEmployee::unitsFor($selectedBu->name) : collect();
 
-        $selectedDeptId = null;
-        if ($type === 'idea' && $request->filled('department_id')) {
-            $deptId = $request->integer('department_id');
-            if ($departments->contains('id', $deptId)) {
-                $selectedDeptId = $deptId;
+        $selectedUnitName = null;
+        $selectedDeptId   = null;
+        if ($request->filled('department')) {
+            $reqName = $request->get('department');
+            if ($unitNames->contains($reqName)) {
+                $selectedUnitName = $reqName;
+                $selectedDeptId   = $org->department($reqName, $selectedBuId)->id; // find-or-create satu
             }
         }
 
-        // [layer => user_id]
+        // --- (DI-COMMENT) Filter employee per BU+Unit. Dropdown approver kini pakai
+        //     AJAX search (semua employee hcis, muncul saat user mengetik).
+        //     Uncomment untuk kembali ke daftar terfilter.
+        // $employees = KpnEmployee::forSelection($selectedBu->name, $selectedUnitName);
+
+        // [layer => user_id] existing → dipetakan ke [layer => {email,label}] untuk pre-select.
         $assignments = CommitteeAssignment::where('approval_type', $type)
             ->where('business_unit_id', $selectedBuId)
             ->when(
@@ -45,17 +58,29 @@ class CommitteeAssignmentController extends Controller
             )
             ->pluck('user_id', 'layer');
 
+        $userEmails = User::whereIn('id', $assignments->values()->filter())->pluck('email', 'id');
+        $empByEmail = KpnEmployee::query()->whereIn('email', $userEmails->values()->filter()->all())->get()->keyBy('email');
+
+        $assignedByLayer = $assignments->map(function ($uid) use ($userEmails, $empByEmail) {
+            $email = $userEmails[$uid] ?? null;
+            if (! $email) {
+                return null;
+            }
+
+            return ['email' => $email, 'label' => optional($empByEmail[$email] ?? null)->label() ?: $email];
+        });
+
         return view('admin.committee.index', [
-            'businessUnits'  => $businessUnits,
-            'types'          => CommitteeAssignment::TYPES,
-            'type'           => $type,
-            'selectedBuId'   => $selectedBuId,
-            'departments'    => $departments,
-            'selectedDeptId' => $selectedDeptId,
-            'users'          => User::with('businessUnit')->orderBy('name')->get(),
-            'assignments'    => $assignments,
-            'maxLayers'      => self::MAX_LAYERS,
-            'configured'     => $this->configuredSets(),
+            'businessUnits'     => $businessUnits,
+            'types'             => CommitteeAssignment::TYPES,
+            'type'              => $type,
+            'selectedBuId'      => $selectedBuId,
+            'unitNames'         => $unitNames,
+            'selectedUnitName'  => $selectedUnitName,
+            'assignedByLayer'   => $assignedByLayer,
+            'employeeSearchUrl' => route('org.employees'),
+            'maxLayers'         => self::MAX_LAYERS,
+            'configured'        => $this->configuredSets(),
         ]);
     }
 
@@ -81,6 +106,7 @@ class CommitteeAssignmentController extends Controller
                     'bu_name'          => optional($first->businessUnit)->name,
                     'department_id'    => $first->department_id,
                     'dept_name'        => $first->department_id ? optional($first->department)->name : 'Semua Unit',
+                    'dept_name_raw'    => optional($first->department)->name,
                     'layers'           => $rows->sortBy('layer')
                         ->map(fn ($r) => ['layer' => $r->layer, 'name' => optional($r->user)->name])
                         ->values(),
@@ -89,20 +115,23 @@ class CommitteeAssignmentController extends Controller
             ->values();
     }
 
-    public function store(Request $request)
+    public function store(Request $request, OrgResolver $org, HcisAuthService $hcis)
     {
         $data = $request->validate([
             'approval_type'    => ['required', Rule::in(array_keys(CommitteeAssignment::TYPES))],
             'business_unit_id' => ['required', 'integer', 'exists:business_units,id'],
-            'department_id'    => ['nullable', 'integer', 'exists:departments,id'],
+            'department'       => ['nullable', 'string', 'max:255'],
             'layers'           => ['array'],
-            'layers.*'         => ['nullable', 'integer', 'exists:users,id'],
+            'layers.*'         => ['nullable', 'email'], // email employee (hcis)
         ]);
 
-        // Department routing hanya untuk idea; tipe lain selalu BU-wide (null).
-        $departmentId = $data['approval_type'] === 'idea' ? ($data['department_id'] ?? null) : null;
+        // Unit/Department (NAMA) → find-or-create FK lokal — untuk SEMUA approval type.
+        $departmentId = null;
+        if (! empty($data['department'])) {
+            $departmentId = $org->department($data['department'], (int) $data['business_unit_id'])->id;
+        }
 
-        DB::transaction(function () use ($data, $departmentId) {
+        DB::transaction(function () use ($data, $departmentId, $hcis) {
             CommitteeAssignment::where('approval_type', $data['approval_type'])
                 ->where('business_unit_id', $data['business_unit_id'])
                 ->when(
@@ -112,16 +141,22 @@ class CommitteeAssignmentController extends Controller
                 )
                 ->delete();
 
-            foreach (($data['layers'] ?? []) as $layer => $userId) {
-                if ($userId) {
-                    CommitteeAssignment::create([
-                        'approval_type'    => $data['approval_type'],
-                        'business_unit_id' => $data['business_unit_id'],
-                        'department_id'    => $departmentId,
-                        'layer'            => (int) $layer,
-                        'user_id'          => $userId,
-                    ]);
+            foreach (($data['layers'] ?? []) as $layer => $email) {
+                if (! $email) {
+                    continue;
                 }
+
+                // Employee hcis → mirror user tm_system (find-or-create + role Employee).
+                $emp  = KpnEmployee::forEmail($email);
+                $user = $hcis->mirror($email, $emp?->fullname, $emp?->employee_id);
+
+                CommitteeAssignment::create([
+                    'approval_type'    => $data['approval_type'],
+                    'business_unit_id' => $data['business_unit_id'],
+                    'department_id'    => $departmentId,
+                    'layer'            => (int) $layer,
+                    'user_id'          => $user->id,
+                ]);
             }
         });
 
@@ -129,7 +164,7 @@ class CommitteeAssignmentController extends Controller
             ->route('admin.committee.index', array_filter([
                 'approval_type'    => $data['approval_type'],
                 'business_unit_id' => $data['business_unit_id'],
-                'department_id'    => $departmentId,
+                'department'       => $data['department'] ?? null,
             ]))
             ->with('success', 'Committee assignment saved.');
     }

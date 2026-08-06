@@ -49,6 +49,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/org/departments', [\App\Http\Controllers\OrgController::class, 'departments'])->name('org.departments');
     Route::get('/org/locations', [\App\Http\Controllers\OrgController::class, 'locations'])->name('org.locations');
     Route::get('/org/companies', [\App\Http\Controllers\OrgController::class, 'companies'])->name('org.companies');
+    Route::get('/org/employees', [\App\Http\Controllers\OrgController::class, 'employees'])->name('org.employees');
 
     /*
     |--------------------------------------------------------------------------

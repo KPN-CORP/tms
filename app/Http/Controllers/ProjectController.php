@@ -21,6 +21,9 @@ use App\Services\Project\ProjectApprovalWorkflowService;
 use App\Services\Project\ProjectUpdateService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use App\Models\KpnEmployee;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class ProjectController extends Controller
 {
@@ -79,10 +82,20 @@ class ProjectController extends Controller
         $idea = Idea::where('idea_id', $request->query('idea_id'))->firstOrFail();
         $this->authorizeShellCreator($request->user(), $idea);
 
+        // --- (DI-COMMENT) Load semua employee — sekarang dropdown pakai AJAX search.
+        // $employees = KpnEmployee::select('employee_id', 'fullname', 'designation')->orderBy('fullname')->get();
+
+        // Pre-fill Leader/Sponsor saat ada old input (mis. kembali karena error validasi).
+        $preselect = KpnEmployee::query()
+            ->whereIn('employee_id', array_filter([old('project_leader_id'), old('project_sponsor_id')]))
+            ->get()
+            ->keyBy('employee_id');
+
         return view('projects.create', [
             'idea'       => $idea,
             'categories' => ProjectCategory::where('is_active', true)->orderBy('name')->get(),
-            'users'      => User::orderBy('name')->get(),
+            'preselect'  => $preselect,
+            'searchUrl'  => route('org.employees'),
         ]);
     }
 
@@ -94,28 +107,46 @@ class ProjectController extends Controller
             'project_category_id' => ['required', 'integer', 'exists:project_categories,id'],
             'project_scope'       => ['required', 'string', 'max:255'],
             'expected_outcome'    => ['required', 'string', 'max:500'],
-            'project_sponsor_id'  => ['required', 'integer', 'exists:users,id'],
-            'project_leader_id'   => ['required', 'integer', 'exists:users,id'],
+            'project_sponsor_id'  => ['required', 'string', 'exists:kpncorp.employees,employee_id'],
+            'project_leader_id'   => ['required', 'string', 'exists:kpncorp.employees,employee_id'],
         ]);
 
         $idea     = Idea::where('idea_id', $data['idea_id'])->firstOrFail();
         $this->authorizeShellCreator($request->user(), $idea);
 
+        $leaderEmployee = KpnEmployee::where(
+            'employee_id',
+            $data['project_leader_id']
+        )->firstOrFail();
+
+        $sponsorEmployee = KpnEmployee::where(
+            'employee_id',
+            $data['project_sponsor_id']
+        )->firstOrFail();
+
         $category = ProjectCategory::findOrFail($data['project_category_id']);
 
         // T-86: eligibility Leader/Sponsor terhadap grade kategori.
-        $leader  = User::find($data['project_leader_id']);
-        $sponsor = User::find($data['project_sponsor_id']);
+
         $errors  = [];
-        if (! $category->eligibleAsLeader($leader?->job_level)) {
+        if (! $category->eligibleAsLeader($leaderEmployee->grade())) {
             $errors['project_leader_id'] = "Job level Leader tidak memenuhi syarat kategori {$category->code} ({$category->gradeRangeText($category->leader_grade_min, $category->leader_grade_max)}).";
         }
-        if (! $category->eligibleAsSponsor($sponsor?->job_level)) {
+        if (! $category->eligibleAsSponsor($sponsorEmployee->grade())) {
             $errors['project_sponsor_id'] = "Job level Sponsor tidak memenuhi syarat kategori {$category->code} ({$category->gradeRangeText($category->sponsor_grade_min, $category->sponsor_grade_max)}).";
         }
         if ($errors) {
             return back()->withErrors($errors)->withInput();
         }
+
+        $leaderUser = $this->getOrCreateUser($leaderEmployee);
+
+        $sponsorUser = $this->getOrCreateUser($sponsorEmployee);
+
+        $data['project_leader_id'] = $leaderUser->id;
+        $data['project_sponsor_id'] = $sponsorUser->id;
+
+
 
         $project = Project::create($data + [
             'project_category' => $category->code,
@@ -126,6 +157,25 @@ class ProjectController extends Controller
             ->route('projects.show', $project)
             ->with('success', "Project shell created ({$project->project_id}).");
     }
+
+
+    private function getOrCreateUser(KpnEmployee $employee): User
+    {
+        $user = User::where('email', $employee->email)->first();
+
+        if (! $user) {
+
+            $user = User::create([
+                'name'     => $employee->fullname,
+                'email'    => $employee->email,
+                'password' => Hash::make(Str::random(40)),
+            ]);
+
+        }
+
+        return $user;
+    }
+
 
     /**
      * Manage Project — daftar project yang berkaitan dengan user (row-level).

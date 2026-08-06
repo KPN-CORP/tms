@@ -125,7 +125,7 @@ class IdeaController extends Controller
 
         $idea = Idea::create($validated + $org + [
             'user_id' => $request->user()->id,
-            'idea_id' => $this->generateIdeaId($request->user()),
+            'idea_id' => $this->generateIdeaId($org['business_unit_name'] ?? null),
             'status'  => $isSubmit ? 'submitted' : 'draft',
         ]);
 
@@ -316,8 +316,10 @@ class IdeaController extends Controller
     private function formData(): array
     {
         // Business Unit dari hcis (master_bisnisunits.nama_bisnis); Department via AJAX.
+        // employeeInfo: data BU/Department user login dari hcis (Employee Information).
         return [
             'businessUnits' => KpnBusinessUnit::names(),
+            'employeeInfo'  => \App\Models\KpnEmployee::forEmail(auth()->user()->email),
         ];
     }
 
@@ -383,15 +385,62 @@ class IdeaController extends Controller
     }
 
     /**
-     * Format: I-{BU}-YYYYMMDD-00000. BU = business unit pembuat (source).
+     * Format: I-{BU}-YYYYMMDD-00000. BU = singkatan Business Unit TARGET ide.
      */
-    private function generateIdeaId(\App\Models\User $creator): string
+    private function generateIdeaId(?string $businessUnitName): string
     {
-        $buCode = BusinessUnit::find($creator->business_unit_id)?->code ?? 'GEN';
+        $buCode = $this->buCodeFromName($businessUnitName);
         $date   = now()->format('Ymd');
-        $seq    = Idea::whereDate('created_at', now()->toDateString())->count() + 1;
+
+        $lastIdea = Idea::where('idea_id', 'like', "I-{$buCode}-{$date}-%")
+            ->orderByDesc('idea_id')
+            ->first();
+
+        if ($lastIdea) {
+            $lastSeq = (int) substr($lastIdea->idea_id, -5);
+            $seq = $lastSeq + 1;
+        } else {
+            $seq = 1;
+        }
 
         return sprintf('I-%s-%s-%05d', $buCode, $date, $seq);
+    }
+
+    /** Override kode BU untuk nama tertentu (diprioritaskan di atas singkatan otomatis). */
+    private const BU_CODE_MAP = [
+        'KPN Corporation' => 'CORP',
+    ];
+
+    /**
+     * Singkatan kode BU dari namanya:
+     *  - override eksplisit bila terdaftar di BU_CODE_MAP (mis. "KPN Corporation" → CORP),
+     *  - inisial tiap kata bila ≥ 3 huruf (mis. "Semen Merah Putih" → SMP),
+     *  - selain itu 3 huruf pertama nama (mis. "Cement" → CEM).
+     */
+    private function buCodeFromName(?string $name): string
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return 'GEN';
+        }
+
+        // Cocokkan override (abaikan beda huruf besar/kecil).
+        foreach (self::BU_CODE_MAP as $key => $code) {
+            if (strcasecmp($key, $name) === 0) {
+                return $code;
+            }
+        }
+
+        $words = preg_split('/\s+/', preg_replace('/[^A-Za-z\s]/', '', $name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $initials = strtoupper(implode('', array_map(fn ($w) => $w[0], $words)));
+
+        if (strlen($initials) >= 3) {
+            return substr($initials, 0, 6);
+        }
+
+        $letters = strtoupper(preg_replace('/[^A-Za-z]/', '', $name));
+
+        return substr($letters, 0, 3) ?: 'GEN';
     }
     
 }

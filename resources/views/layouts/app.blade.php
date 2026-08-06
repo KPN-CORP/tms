@@ -148,6 +148,26 @@
             });
         });
 
+        // 1b) Dropdown searchable via AJAX — opsi muncul saat user mengetik (data besar).
+        document.querySelectorAll('select[data-remote-search]').forEach(function (el) {
+            if (el.tomselect) return;
+            var url = el.getAttribute('data-remote-search');
+            var valueKey = el.getAttribute('data-remote-value') || 'email'; // field yg dipakai jadi value option
+            new TomSelect(el, {
+                valueField: 'value', labelField: 'text', searchField: ['text'],
+                create: false, maxOptions: 50, dropdownParent: 'body', plugins: ['clear_button'],
+                load: function (query, callback) {
+                    if (!query.length) { callback(); return; }
+                    fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(query), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                    })
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) { callback(list.map(function (x) { return { value: x[valueKey], text: x.label }; })); })
+                    .catch(function () { callback(); });
+                },
+            });
+        });
+
         // 2) Cascade parent → child (mis. Business Unit → Department).
         document.querySelectorAll('select[data-cascade-parent]').forEach(function (child) {
             var parent = document.querySelector(child.getAttribute('data-cascade-parent'));

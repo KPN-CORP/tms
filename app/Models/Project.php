@@ -169,6 +169,11 @@ class Project extends Model
         return $this->idea?->business_unit_id;
     }
 
+    public function departmentId(): ?int
+    {
+        return $this->idea?->department_id;
+    }
+
     public function attachments()
     {
         return $this->hasMany(ProjectAttachment::class)->latest();
