@@ -14,8 +14,6 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles, LogsActivity;
 
-    protected $connection = 'kpncorp';
-    protected $table = 'users';
 
     /** Ladder job level: angka besar = jabatan lebih tinggi (T-1/12/71/86). */
     public const JOB_LEVELS = [
