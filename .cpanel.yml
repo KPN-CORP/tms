@@ -28,7 +28,9 @@ deployment:
       esac
 
       mkdir -p "$DEPLOYPATH"/public/{build,css,img,images,js,scss}
-      mkdir -p "$DEPLOYPATH"/storage "$DEPLOYPATH"/bootstrap/cache
+      mkdir -p "$DEPLOYPATH"/storage/framework/{sessions,views,cache/data}
+      mkdir -p "$DEPLOYPATH"/storage/logs "$DEPLOYPATH"/storage/app/public
+      mkdir -p "$DEPLOYPATH"/bootstrap/cache
       mkdir -p "$PUBHTML"/{build,css,img,images,js,scss}
 
       LOG="$DEPLOYPATH/deploy.log"
