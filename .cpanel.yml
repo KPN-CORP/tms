@@ -50,11 +50,11 @@ deployment:
 
       echo "Install composer dependencies (only if lock changed)"
       if [ ! -d vendor ] || ! cmp -s composer.lock vendor/composer.lock.deployed 2>/dev/null; then
-        php -d memory_limit=-1 /opt/cpanel/composer/bin/composer install \
+        php -d memory_limit=-1 /usr/local/bin/composer install \
           --no-dev --no-interaction --prefer-dist --optimize-autoloader
         cp composer.lock vendor/composer.lock.deployed
       else
-        echo "composer.lock unchanged — skipping install"
+        echo "composer.lock unchanged-skipping install"
       fi
 
       echo "Set correct permissions"
