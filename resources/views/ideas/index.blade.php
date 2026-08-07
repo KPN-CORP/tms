@@ -12,8 +12,6 @@
                 <p class="text-gray-500">Track and manage your improvement ideas</p>
             </div>
             <div class="flex items-center gap-3">
-                <a href="{{ route('ideas.drafts') }}"
-                   class="px-4 py-2 border rounded-lg hover:bg-gray-100">Drafts</a>
                 <a href="{{ route('ideas.create') }}"
                    class="px-5 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">+ Create Idea</a>
             </div>
@@ -25,12 +23,115 @@
             </div>
         @endif
 
+        @php
+            // Kartu ringkasan (mini dashboard). $counts = [status => jumlah] milik user.
+            $total = $counts->sum();
+            $cards = [
+                ['label' => 'Total Idea Draft',            'value' => $counts->get('draft', 0),            'accent' => 'text-gray-700',  'dot' => 'bg-gray-400'],
+                ['label' => 'Cumulative Submitted',        'value' => $total - $counts->get('draft', 0),   'accent' => 'text-blue-700',  'dot' => 'bg-blue-500'],
+                ['label' => 'In Submitted Status',         'value' => $counts->get('submitted', 0),        'accent' => 'text-amber-700', 'dot' => 'bg-amber-500'],
+                ['label' => 'Approved for Implementation', 'value' => $counts->get('approved', 0),         'accent' => 'text-green-700', 'dot' => 'bg-green-500'],
+                ['label' => 'Converted to Project',        'value' => $counts->get('project_created', 0),  'accent' => 'text-red-700',   'dot' => 'bg-red-500'],
+            ];
+
+            $tabDefs = [
+                'all'       => 'All',
+                'draft'     => 'Draft',
+                'submitted' => 'Submitted',
+                'review'    => 'On Review',
+                'approved'  => 'Approved',
+                'rejected'  => 'Rejected',
+            ];
+            $tabCount = fn ($key) => $key === 'all' ? $counts->sum() : $counts->get($key, 0);
+            $tabUrl   = fn ($key) => request()->url() . '?' . http_build_query(array_merge(request()->query(), ['tab' => $key, 'page' => 1]));
+        @endphp
+
+        {{-- Kartu ringkasan (5 kartu satu baris) --}}
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            @foreach($cards as $card)
+                <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-gray-500 leading-tight">{{ $card['label'] }}</p>
+                        <p class="text-2xl font-bold mt-1 {{ $card['accent'] }}">{{ $card['value'] }}</p>
+                    </div>
+                    <span class="w-3 h-3 rounded-full shrink-0 {{ $card['dot'] }}"></span>
+                </div>
+            @endforeach
+        </div>
+
+        {{-- Tab status + jumlah --}}
+        <div class="flex flex-wrap items-center gap-2 border-b border-gray-200">
+            @foreach($tabDefs as $key => $label)
+                @php $active = $tab === $key; @endphp
+                <a href="{{ $tabUrl($key) }}"
+                   class="px-4 py-2 -mb-px text-sm font-medium border-b-2 transition
+                          {{ $active ? 'border-red-700 text-red-700' : 'border-transparent text-gray-500 hover:text-gray-800' }}">
+                    {{ $label }}
+                    <span class="ml-1 inline-flex items-center justify-center min-w-5 px-1.5 py-0.5 text-xs rounded-full
+                                 {{ $active ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500' }}">
+                        {{ $tabCount($key) }}
+                    </span>
+                </a>
+            @endforeach
+        </div>
+
         {{-- Satu card: toolbar + tabel + footer (tanpa gap) --}}
         <form method="GET" class="bg-white rounded-xl shadow overflow-hidden">
 
-            <x-list-filter-bar :business-units="$businessUnits" :departments="$departments"
-                :statuses="['submitted' => 'Submitted', 'review' => 'On Review', 'approved' => 'Approved', 'rejected' => 'Rejected', 'project_created' => 'Project Created']"
-                :reset-route="route('ideas.index')" placeholder="Cari ID, nama, problem…" />
+            {{-- Pertahankan tab aktif saat search/filter di-submit --}}
+            <input type="hidden" name="tab" value="{{ $tab }}">
+
+            {{-- Filter: Search + Business Unit + Unit (dari hcis, cascade). Tanpa placeholder. --}}
+            <div class="flex flex-wrap items-start gap-3 p-4 border-b border-gray-100">
+                @if(request('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
+                @if(request('dir'))<input type="hidden" name="dir" value="{{ request('dir') }}">@endif
+
+                <div class="w-60">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Search</label>
+                    <input name="q" value="{{ request('q') }}" placeholder=""
+                           x-data x-on:input.debounce.500ms="$el.form.requestSubmit()"
+                           class="w-full h-[38px] border border-gray-300 rounded-lg px-3 text-sm focus:ring focus:ring-red-200">
+                </div>
+
+                <div class="w-60">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Business Unit</label>
+                    <select name="bu" id="filter-bu" onchange="this.form.requestSubmit()"
+                            class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
+                        <option value=""></option>
+                        @foreach($buNames as $bu)
+                            <option value="{{ $bu }}" @selected(request('bu') === $bu)>{{ $bu }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="w-60">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Unit</label>
+                    {{-- Cascade dari Business Unit (client-side, data-bu = nama BU) --}}
+                    <select name="unit" id="filter-unit" data-cascade-parent="#filter-bu" onchange="this.form.requestSubmit()"
+                            class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
+                        <option value=""></option>
+                        @foreach($unitsByBu as $buName => $units)
+                            @foreach($units as $unit)
+                                <option value="{{ $unit }}" data-bu="{{ $buName }}"
+                                    @selected(request('unit') === $unit && request('bu') === $buName)>{{ $unit }}</option>
+                            @endforeach
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-transparent mb-1 select-none">.</label>
+                    <button class="h-[38px] px-5 bg-gray-800 text-white rounded-lg text-sm hover:bg-gray-900">Apply</button>
+                </div>
+
+                @if(request('q') || request('bu') || request('unit'))
+                    <div>
+                        <label class="block text-xs font-semibold text-transparent mb-1 select-none">.</label>
+                        <a href="{{ route('ideas.index', ['tab' => $tab]) }}"
+                           class="inline-flex items-center h-[38px] px-4 border rounded-lg text-sm hover:bg-gray-100">Reset</a>
+                    </div>
+                @endif
+            </div>
 
             {{-- Tabel --}}
             <div class="overflow-x-auto">
@@ -38,10 +139,9 @@
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                         <tr>
                             <th class="px-6 py-3 w-12 text-center">No</th>
-                            <x-sortable-th column="idea_id" :sort="$sort" :dir="$dir">Idea ID</x-sortable-th>
                             <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
                             <th class="px-6 py-3">Target BU</th>
-                            <th class="px-6 py-3">Target Dept</th>
+                            <th class="px-6 py-3">Target Unit</th>
                             <x-sortable-th column="status" :sort="$sort" :dir="$dir">Status</x-sortable-th>
                             <x-sortable-th column="modified_at" :sort="$sort" :dir="$dir">Last Update</x-sortable-th>
                             <th class="px-6 py-3 text-right">Action</th>
@@ -51,22 +151,34 @@
                         @forelse($ideas as $idea)
                             <tr class="hover:bg-gray-50">
                                 <td class="px-6 py-4 text-sm text-center text-gray-500">{{ $ideas->firstItem() + $loop->index }}</td>
-                                <td class="px-6 py-4 font-mono text-sm text-red-700">{{ $idea->idea_id }}</td>
                                 <td class="px-6 py-4">
-                                    <div class="font-semibold">{{ $idea->idea_name }}</div>
-                                    <div class="text-sm text-gray-400 truncate max-w-xs">{{ $idea->problem }}</div>
+                                    <div class="font-semibold" title="{{ $idea->idea_name }}">{{ \Illuminate\Support\Str::words($idea->idea_name, 2, '...') }}</div>
+                                    <div class="font-mono text-sm text-red-700">{{ $idea->idea_id }}</div>
                                 </td>
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->businessUnit)->name }}</td>
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->department)->name }}</td>
                                 <td class="px-6 py-4">@include('ideas._status', ['status' => $idea->status])</td>
                                 <td class="px-6 py-4 text-sm text-gray-500">{{ $idea->modified_at?->format('d M Y') }}</td>
                                 <td class="px-6 py-4 text-right">
-                                    <a href="{{ route('ideas.show', $idea) }}"
-                                       class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Manage</a>
+                                    @if($idea->status === 'draft')
+                                        <div class="flex items-center justify-end gap-2">
+                                            <a href="{{ route('ideas.edit', $idea) }}"
+                                               class="px-3 py-1 text-sm border rounded-lg hover:bg-gray-100">Edit</a>
+                                            <form method="POST" action="{{ route('ideas.destroy', $idea) }}"
+                                                  onsubmit="return confirm('Delete this draft?');">
+                                                @csrf @method('DELETE')
+                                                <button type="submit"
+                                                        class="px-3 py-1 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
+                                            </form>
+                                        </div>
+                                    @else
+                                        <a href="{{ route('ideas.show', $idea) }}"
+                                           class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Detail</a>
+                                    @endif
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="8" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang cocok.</td></tr>
+                            <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang cocok.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

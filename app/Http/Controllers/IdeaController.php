@@ -11,9 +11,11 @@ use App\Models\Department;
 use App\Models\Idea;
 use App\Models\IdeaAttachment;
 use App\Models\KpnBusinessUnit;
+use App\Models\KpnDepartment;
 use App\Models\Location;
 use App\Services\Idea\IdeaWorkflowService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class IdeaController extends Controller
@@ -35,24 +37,36 @@ class IdeaController extends Controller
     ];
 
     /**
-     * My Ideas — ide milik user yang login (selain draft).
+     * My Ideas — semua ide milik user yang login (termasuk draft).
      * Search = teks bebas (ID/nama/problem); BU, Department, Status = dropdown.
      */
     public function index(Request $request)
     {
-        // Basis query (sudah tersaring kepemilikan + scope) — dipakai ulang untuk
+        // Basis query (tersaring kepemilikan + scope) — dipakai ulang untuk
         // menurunkan opsi dropdown agar hanya menampilkan nilai yang relevan.
         $base = Idea::where('user_id', $request->user()->id)
-            ->where('status', '!=', 'draft')
             ->visibleTo($request->user());
 
+        // Filter BU/Unit by NAMA (dropdown dari hcis) + search/sort. Status pakai tab.
         $query = (clone $base)
-            ->when($request->filled('business_unit_id'), fn ($q) => $q->where('business_unit_id', $request->integer('business_unit_id')))
-            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->when($request->filled('bu'), fn ($q) => $q->where('business_unit_name', $request->get('bu')))
+            ->when($request->filled('unit'), fn ($q) => $q->where('department_name', $request->get('unit')))
             ->with(['businessUnit', 'department']);
 
         $this->applyListSearchSort($query, $request, self::IDEA_LIST_CONFIG);
+
+        // Jumlah per status (kartu ringkasan + angka tab) — sadar search & filter, tanpa sort.
+        $counts = (clone $query)->reorder()->getQuery()
+            ->select('status', DB::raw('count(*) as c'))
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        // Tab aktif → filter status (selain 'all').
+        $tabs = ['all', 'draft', 'submitted', 'review', 'approved', 'rejected'];
+        $tab  = in_array($request->get('tab'), $tabs, true) ? $request->get('tab') : 'all';
+        if ($tab !== 'all') {
+            $query->where('status', $tab);
+        }
 
         // "Show N entries" — jumlah baris per halaman (whitelist).
         $perPage = (int) $request->integer('per_page', 10);
@@ -60,43 +74,19 @@ class IdeaController extends Controller
             $perPage = 10;
         }
 
+        // Dropdown filter dari hcis: BU = master_bisnisunits.nama_bisnis;
+        // Unit = departments.department_name per BU (cascade, buang null/'-'/kosong).
+        $buNames   = KpnBusinessUnit::names();
+        $unitsByBu = $buNames->mapWithKeys(fn ($bu) => [$bu => KpnDepartment::namesFor($bu)]);
+
         return view('ideas.index', [
-            'ideas'         => $query->paginate($perPage)->withQueryString(),
-            'perPage'       => $perPage,
-            'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
-            'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+            'ideas'     => $query->paginate($perPage)->withQueryString(),
+            'perPage'   => $perPage,
+            'buNames'   => $buNames,
+            'unitsByBu' => $unitsByBu,
+            'counts'    => $counts,
+            'tab'       => $tab,
         ] + $this->listSortState($request, self::IDEA_LIST_CONFIG));
-    }
-
-    /**
-     * Draft Ideas — ide milik user yang masih draft.
-     */
-    public function drafts(Request $request)
-    {
-        $config = [
-            'searchable'   => ['idea_id', 'idea_name', 'problem'],
-            'sortable'     => ['idea_name' => 'idea_name', 'modified_at' => 'modified_at'],
-            'default_sort' => 'modified_at',
-            'default_dir'  => 'desc',
-        ];
-
-        $base = Idea::where('user_id', $request->user()->id)->where('status', 'draft');
-
-        $query = (clone $base)
-            ->when($request->filled('business_unit_id'), fn ($q) => $q->where('business_unit_id', $request->integer('business_unit_id')))
-            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
-            ->with(['businessUnit', 'department']);
-
-        $this->applyListSearchSort($query, $request, $config);
-
-        $perPage = $this->listPerPage($request);
-
-        return view('ideas.drafts', [
-            'ideas'         => $query->paginate($perPage)->withQueryString(),
-            'perPage'       => $perPage,
-            'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
-            'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
-        ] + $this->listSortState($request, $config));
     }
 
     /**
@@ -125,17 +115,19 @@ class IdeaController extends Controller
 
         $idea = Idea::create($validated + $org + [
             'user_id' => $request->user()->id,
-            'idea_id' => $this->generateIdeaId($org['business_unit_name'] ?? null),
+            // ID dibuat sekali di sini (draft maupun submit). BU pada ID = BU PENGAJU
+            // (group_company employee-nya dari hcis), bukan BU target ide.
+            'idea_id' => $this->generateIdeaId($this->submitterBusinessUnit($request->user())),
             'status'  => $isSubmit ? 'submitted' : 'draft',
         ]);
 
         $this->storeAttachments($request, $idea);
 
         return redirect()
-            ->route($isSubmit ? 'ideas.index' : 'ideas.drafts')
+            ->route('ideas.index')
             ->with('success', $isSubmit
-                ? "Idea \"{$idea->idea_name}\" submitted ({$idea->idea_id})."
-                : "Draft \"{$idea->idea_name}\" saved.");
+                ? "Idea {$idea->idea_id} submitted."
+                : "Draft {$idea->idea_id} saved.");
     }
 
     public function edit(Request $request, Idea $idea)
@@ -161,60 +153,119 @@ class IdeaController extends Controller
         $this->storeAttachments($request, $idea);
 
         return redirect()
-            ->route($isSubmit ? 'ideas.index' : 'ideas.drafts')
+            ->route('ideas.index')
             ->with('success', $isSubmit
-                ? "Idea \"{$idea->idea_name}\" submitted ({$idea->idea_id})."
-                : "Draft \"{$idea->idea_name}\" updated.");
+                ? "Idea {$idea->idea_id} submitted."
+                : "Draft {$idea->idea_id} updated.");
     }
 
     public function destroy(Request $request, Idea $idea)
     {
         $this->authorizeOwnerDraft($request, $idea);
 
+        $ideaId = $idea->idea_id;
         $idea->delete();
 
         return redirect()
-            ->route('ideas.drafts')
-            ->with('success', 'Draft deleted.');
+            ->route('ideas.index')
+            ->with('success', "Draft {$ideaId} deleted.");
     }
 
     /**
-     * Review Ideas — antrean ide yang menunggu review oleh committee ini
-     * (di layer masing-masing, sesuai routing waterfall).
+     * Task Box — gabungan "Review Ideas" + "Approved Ideas" untuk committee & Super Admin.
+     * Ditampilkan per-tab status (All / Submitted / Approved / On Review / Reject) beserta
+     * jumlahnya. FLOW TIDAK BERUBAH — hanya tampilan & nama menu:
+     *  - Submitted/On Review = antrean review user (di layer-nya, via reviewQueueFor).
+     *  - Approved            = ide approved di mana user committee layer terakhir (buat shell).
+     *  - Reject              = ide rejected di BU tempat user menjadi idea-committee.
+     *  - Super Admin melihat semua ide (oversight, read-only kecuali yang memang haknya).
+     * Aksi (review/approve/reject/buat project) tetap di-gate service seperti semula.
      */
-    public function review(Request $request, IdeaWorkflowService $wf)
+    public function taskBox(Request $request, IdeaWorkflowService $wf)
     {
-        $config = [
-            'searchable'   => ['idea_id', 'idea_name', 'problem'],
-            'sortable'     => [
-                'idea_id'       => 'idea_id',
-                'idea_name'     => 'idea_name',
-                'current_layer' => 'current_layer',
-                'status'        => 'status',
-                'modified_at'   => 'modified_at',
-            ],
-            'default_sort' => 'modified_at',
-            'default_dir'  => 'desc',
+        $user    = $request->user();
+        $isSuper = $user->hasRole('Super Admin');
+
+        // --- Universe (koleksi) sesuai flow ---
+        if ($isSuper) {
+            $universe = Idea::with(['businessUnit', 'department', 'user'])
+                ->whereIn('status', ['submitted', 'review', 'approved', 'rejected'])
+                ->get();
+        } else {
+            $queue = $wf->reviewQueueFor($user)
+                ->with(['businessUnit', 'department', 'user'])->get();
+
+            $approved = Idea::where('status', 'approved')
+                ->with(['businessUnit', 'department', 'user'])->get()
+                ->filter(fn (Idea $i) => $wf->isLastLayerCommittee($i, $user));
+
+            $committeeBuIds = CommitteeAssignment::where('approval_type', 'idea')
+                ->where('user_id', $user->id)->pluck('business_unit_id')->unique();
+            $rejected = Idea::where('status', 'rejected')
+                ->whereIn('business_unit_id', $committeeBuIds)
+                ->with(['businessUnit', 'department', 'user'])->get();
+
+            $universe = $queue->concat($approved)->concat($rejected)->unique('id')->values();
+        }
+
+        // --- Filter search (q) + BU + Department (PHP, karena universe adalah koleksi) ---
+        if (($q = trim((string) $request->get('q'))) !== '') {
+            $needle = mb_strtolower($q);
+            $universe = $universe->filter(fn (Idea $i) => str_contains(mb_strtolower((string) $i->idea_id), $needle)
+                || str_contains(mb_strtolower((string) $i->idea_name), $needle)
+                || str_contains(mb_strtolower((string) $i->problem), $needle));
+        }
+        if ($request->filled('business_unit_id')) {
+            $universe = $universe->where('business_unit_id', $request->integer('business_unit_id'));
+        }
+        if ($request->filled('department_id')) {
+            $universe = $universe->where('department_id', $request->integer('department_id'));
+        }
+        $universe = $universe->values();
+
+        // --- Jumlah per status (setelah filter, sebelum tab) → angka di tab ---
+        $counts = [
+            'all'       => $universe->count(),
+            'submitted' => $universe->where('status', 'submitted')->count(),
+            'approved'  => $universe->where('status', 'approved')->count(),
+            'review'    => $universe->where('status', 'review')->count(),
+            'rejected'  => $universe->where('status', 'rejected')->count(),
         ];
 
-        $base = $wf->reviewQueueFor($request->user());
+        // --- Tab aktif → filter status ---
+        $tab  = in_array($request->get('tab'), array_keys($counts), true) ? $request->get('tab') : 'all';
+        $list = $tab === 'all' ? $universe : $universe->where('status', $tab)->values();
 
-        $query = (clone $base)
-            ->when($request->filled('business_unit_id'), fn ($q) => $q->where('business_unit_id', $request->integer('business_unit_id')))
-            ->when($request->filled('department_id'), fn ($q) => $q->where('department_id', $request->integer('department_id')))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
-            ->with(['businessUnit', 'department', 'user']);
+        // --- Sort (whitelist), default modified_at desc ---
+        $sortable = ['idea_id', 'idea_name', 'status', 'current_layer', 'modified_at'];
+        $sort = in_array($request->get('sort'), $sortable, true) ? $request->get('sort') : 'modified_at';
+        $dir  = $request->get('dir') === 'asc' ? 'asc' : 'desc';
+        $list = $list->sortBy(fn (Idea $i) => $i->{$sort}, SORT_REGULAR, $dir === 'desc')->values();
 
-        $this->applyListSearchSort($query, $request, $config);
+        // --- Opsi dropdown BU/Dept dari universe penuh ---
+        $businessUnits = BusinessUnit::whereIn('id', $universe->pluck('business_unit_id')->unique()->filter())->orderBy('name')->get();
+        $departments   = Department::whereIn('id', $universe->pluck('department_id')->unique()->filter())->orderBy('name')->get();
 
+        // --- Paginate + tandai aksi per baris (hanya halaman aktif → hemat query) ---
         $perPage = $this->listPerPage($request);
+        $ideas   = $this->paginateListCollection($list, $request, $perPage);
+        $ideas->setCollection($ideas->getCollection()->map(function (Idea $i) use ($wf, $user) {
+            $i->can_review       = $wf->isCurrentReviewer($i, $user);
+            $i->can_create_shell = $i->status === 'approved' && $wf->isLastLayerCommittee($i, $user);
 
-        return view('ideas.review', [
-            'ideas'         => $query->paginate($perPage)->withQueryString(),
+            return $i;
+        }));
+
+        return view('ideas.task-box', [
+            'ideas'         => $ideas,
             'perPage'       => $perPage,
-            'businessUnits' => BusinessUnit::whereIn('id', (clone $base)->select('business_unit_id'))->orderBy('name')->get(),
-            'departments'   => Department::whereIn('id', (clone $base)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
-        ] + $this->listSortState($request, $config));
+            'businessUnits' => $businessUnits,
+            'departments'   => $departments,
+            'counts'        => $counts,
+            'tab'           => $tab,
+            'sort'          => $sort,
+            'dir'           => $dir,
+        ]);
     }
 
     /**
@@ -224,11 +275,12 @@ class IdeaController extends Controller
     {
         $user = $request->user();
 
-        // Hanya committee dari BU ide ini (di layer mana pun) yang boleh melihat.
+        // Committee dari BU ide ini (di layer mana pun) boleh melihat; Super Admin
+        // boleh melihat semua (read-only untuk oversight Task Box).
         $isCommitteeOfBu = CommitteeAssignment::where('business_unit_id', $idea->business_unit_id)
             ->where('user_id', $user->id)
             ->exists();
-        abort_unless($isCommitteeOfBu, 403);
+        abort_unless($isCommitteeOfBu || $user->hasRole('Super Admin'), 403);
 
         // FR-078: begitu dibuka reviewer layer aktif -> On Review.
         if ($wf->isCurrentReviewer($idea, $user)) {
@@ -251,8 +303,8 @@ class IdeaController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
         $wf->approve($idea, $request->user(), $note);
 
-        return redirect()->route('ideas.review')
-            ->with('success', "Idea \"{$idea->idea_name}\" approved for your layer.");
+        return redirect()->route('ideas.taskbox')
+            ->with('success', "Idea {$idea->idea_id} approved for your layer.");
     }
 
     public function reject(Request $request, Idea $idea, IdeaWorkflowService $wf)
@@ -262,8 +314,8 @@ class IdeaController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
         $wf->reject($idea, $request->user(), $note);
 
-        return redirect()->route('ideas.review')
-            ->with('success', "Idea \"{$idea->idea_name}\" rejected.");
+        return redirect()->route('ideas.taskbox')
+            ->with('success', "Idea {$idea->idea_id} rejected.");
     }
 
     /* ---- Attachments (T-17) ------------------------------------------ */
@@ -385,8 +437,16 @@ class IdeaController extends Controller
     }
 
     /**
-     * Format: I-{BU}-YYYYMMDD-00000. BU = singkatan Business Unit TARGET ide.
+     * Business Unit PENGAJU ide = group_company employee-nya di hcis, dicocokkan
+     * lewat employee_id (users.employee_id = employees.employee_id). Dipakai untuk
+     * kode BU pada Idea ID. Null bila user tak punya employee terkait.
      */
+    private function submitterBusinessUnit(\App\Models\User $user): ?string
+    {
+        return optional($user->employee)->group_company;
+    }
+
+    
     private function generateIdeaId(?string $businessUnitName): string
     {
         $buCode = $this->buCodeFromName($businessUnitName);
@@ -409,6 +469,12 @@ class IdeaController extends Controller
     /** Override kode BU untuk nama tertentu (diprioritaskan di atas singkatan otomatis). */
     private const BU_CODE_MAP = [
         'KPN Corporation' => 'CORP',
+        'Cement' => 'CEME',
+        'Downstream' => 'DOWN',
+        'KPN Sugar' => 'SUGA',
+        'Plantations' => 'PLANT',
+        'Property' => 'PROP'
+
     ];
 
     /**

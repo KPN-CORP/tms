@@ -30,6 +30,7 @@ class KpnDepartment extends Model
             ->where('parent_company_id', $parent)
             ->whereNotNull('department_name')
             ->where('department_name', '!=', '')
+            ->where('department_name', '!=', '-')
             ->orderBy('department_name')
             ->pluck('department_name')
             ->unique()

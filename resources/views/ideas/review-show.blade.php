@@ -13,7 +13,7 @@
     <div class="p-6 space-y-6 max-w-5xl">
 
         <div>
-            <a href="{{ route('ideas.review') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Review Ideas</a>
+            <a href="{{ route('ideas.taskbox') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Task Box</a>
             <h1 class="text-2xl font-bold text-gray-800 mt-1">Idea: {{ $idea->idea_name }}</h1>
         </div>
 

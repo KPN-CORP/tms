@@ -7,7 +7,7 @@
     <div class="p-6 space-y-6 max-w-4xl">
 
         <div>
-            <a href="{{ route('projects.approved-ideas') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Approved Ideas</a>
+            <a href="{{ route('ideas.taskbox', ['tab' => 'approved']) }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Task Box</a>
             <h1 class="text-2xl font-bold text-gray-800 mt-1">Create Project Shell</h1>
             <p class="text-gray-500">Dari ide: <span class="font-mono text-red-700">{{ $idea->idea_id }}</span> — {{ $idea->idea_name }}</p>
         </div>
@@ -74,7 +74,7 @@
             </div>
 
             <div class="flex justify-end gap-3 pt-2">
-                <a href="{{ route('projects.approved-ideas') }}" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</a>
+                <a href="{{ route('ideas.taskbox', ['tab' => 'approved']) }}" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</a>
                 <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Create Project</button>
             </div>
         </form>

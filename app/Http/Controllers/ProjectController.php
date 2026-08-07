@@ -31,50 +31,6 @@ class ProjectController extends Controller
     use HasListQuery;
 
     /**
-     * Approved Ideas — ide berstatus approved di BU tempat user menjadi
-     * committee LAYER TERAKHIR (berhak membuat Project Shell).
-     */
-    public function approvedIdeas(Request $request, IdeaWorkflowService $wf)
-    {
-        $user = $request->user();
-
-        $config = [
-            'searchable'   => ['idea_id', 'idea_name', 'problem'],
-            'sortable'     => ['idea_id' => 'idea_id', 'idea_name' => 'idea_name', 'modified_at' => 'modified_at'],
-            'default_sort' => 'modified_at',
-            'default_dir'  => 'desc',
-        ];
-
-        $query = Idea::where('status', 'approved')
-            ->with(['businessUnit', 'department', 'user']);
-
-        $this->applyListSearchSort($query, $request, $config);
-
-        // Filter committee layer terakhir dilakukan di PHP → "universe" yang boleh
-        // dilihat user. Opsi dropdown & filter BU/Dept diturunkan dari sini.
-        $universe = $query->get()
-            ->filter(fn (Idea $idea) => $wf->isLastLayerCommittee($idea, $user))
-            ->values();
-
-        $businessUnits = BusinessUnit::whereIn('id', $universe->pluck('business_unit_id')->unique()->filter())->orderBy('name')->get();
-        $departments   = Department::whereIn('id', $universe->pluck('department_id')->unique()->filter())->orderBy('name')->get();
-
-        $ideas = $universe
-            ->when($request->filled('business_unit_id'), fn ($c) => $c->where('business_unit_id', $request->integer('business_unit_id')))
-            ->when($request->filled('department_id'), fn ($c) => $c->where('department_id', $request->integer('department_id')))
-            ->values();
-
-        $perPage = $this->listPerPage($request);
-
-        return view('projects.approved-ideas', [
-            'ideas'         => $this->paginateListCollection($ideas, $request, $perPage),
-            'perPage'       => $perPage,
-            'businessUnits' => $businessUnits,
-            'departments'   => $departments,
-        ] + $this->listSortState($request, $config));
-    }
-
-    /**
      * Form Create Project Shell dari sebuah ide approved.
      */
     public function create(Request $request)

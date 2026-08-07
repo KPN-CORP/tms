@@ -19,9 +19,20 @@ class User extends Authenticatable
 
     protected static function booted(): void
     {
-        $block = fn () => false; // return false membatalkan operasi → tak ada query tulis
-        static::saving($block);   // mencakup creating + updating
-        static::deleting($block);
+        // Batalkan semua insert/update ke tabel users hcis (return false → tak ada query tulis).
+        static::saving(fn () => false); // mencakup creating + updating
+    }
+
+    /**
+     * Override delete: hcis read-only. Return false LANGSUNG tanpa memicu event
+     * `deleting`. Penting — Spatie HasRoles memasang listener `deleting` yang
+     * melepas seluruh role model saat dihapus; bila kita hanya return false di
+     * listener, detach Spatie sudah terlanjur jalan dan role di tm_system hilang.
+     * Dengan override ini, delete tak pernah menyentuh hcis DAN role tetap utuh.
+     */
+    public function delete()
+    {
+        return false;
     }
 
     /**

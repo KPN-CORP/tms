@@ -23,19 +23,21 @@
         || \App\Models\CommitteeAssignment::whereIn('approval_type', ['project_proposal', 'project_completion'])
             ->where('user_id', $user->id)->exists();
 
+    // Dashboard hanya untuk admin (Admin / Super Admin).
+    $isAdmin = $user->hasAnyRole(['Admin', 'Super Admin']);
+
     // Item: [label, route, permission(null=semua login), show(override boolean), active].
     // Tampil bila route ada DAN (show!==false) DAN (permission null / user punya izin).
     $topMenu = [
-        ['label' => 'Dashboard', 'route' => 'dashboard', 'permission' => null, 'active' => ['dashboard']],
-        ['label' => 'Guideline', 'route' => 'guidelines.index', 'permission' => 'guideline.view', 'active' => ['guidelines.*']],
+        ['label' => 'Dashboard', 'route' => 'dashboard', 'permission' => null, 'show' => $isAdmin, 'active' => ['dashboard']],
+        
     ];
 
     // Menu dikelompokkan: "Judul Grup" => [ item, ... ]
     $groups = [
         'Ideas' => [
-            ['label' => 'My Ideas',       'route' => 'ideas.index',  'permission' => 'idea.create', 'active' => ['ideas.index', 'ideas.create', 'ideas.drafts', 'ideas.edit']],
-            ['label' => 'Review Ideas',   'route' => 'ideas.review', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['ideas.review', 'ideas.review.*']],
-            ['label' => 'Approved Ideas', 'route' => 'projects.approved-ideas', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['projects.approved-ideas', 'projects.create']],
+            ['label' => 'My Ideas',       'route' => 'ideas.index',  'permission' => 'idea.create', 'active' => ['ideas.index', 'ideas.create', 'ideas.edit']],
+            ['label' => 'Task Box',       'route' => 'ideas.taskbox', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['ideas.taskbox', 'ideas.review.*', 'projects.create']],
         ],
         'Project' => [
             ['label' => 'Manage Project',  'route' => 'projects.index',  'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.show']],
@@ -51,6 +53,9 @@
             // Activity Log di-hide sementara (menu & fitur). Uncomment untuk mengaktifkan kembali.
             // ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
         ],
+        'Guidelines' => [
+            ['label' => 'Guidelines', 'route' => 'guidelines.index', 'permission' => 'guideline.view', 'active' => ['guidelines.*']],
+        ]
     ];
 
     // Cek visibilitas satu item.
@@ -72,16 +77,6 @@
     <div class="px-6 py-5 border-b">
         <h1 class="text-2xl font-bold text-red-700">TMS</h1>
         <p class="text-sm text-gray-500">Transformation Management System</p>
-
-        @if($user->getRoleNames()->isNotEmpty())
-            <div class="mt-3 flex flex-wrap gap-1">
-                @foreach($user->getRoleNames() as $roleName)
-                    <span class="inline-flex px-3 py-1 text-xs rounded-full bg-red-100 text-red-700">
-                        {{ $roleName }}
-                    </span>
-                @endforeach
-            </div>
-        @endif
     </div>
 
     {{-- Menu (dikelompokkan dengan judul grup) — scroll internal bila menu banyak --}}

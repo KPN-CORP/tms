@@ -61,6 +61,8 @@ class SsoController extends Controller
             $user = User::where('email', $email)->first();
             if ($user) {
                 Auth::login($user);
+                // Setiap user SSO otomatis dapat role Employee 
+                app(\App\Services\HcisAuthService::class)->ensureRole($user);
                 $user->token = $token;
                 $user->email_log = $email;
                 $user->save();

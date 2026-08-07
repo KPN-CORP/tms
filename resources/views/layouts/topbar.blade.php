@@ -16,9 +16,9 @@
                     {{ Auth::user()->name }}
                 </div>
 
-                <div class="text-sm text-gray-500">
+                <!-- <div class="text-sm text-gray-500">
                     {{ Auth::user()->getRoleNames()->implode(', ') ?: '-' }}
-                </div>
+                </div> -->
 
             </div>
 

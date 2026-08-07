@@ -59,7 +59,6 @@ Route::middleware(['auth'])->group(function () {
 
     Route::middleware('permission:idea.create')->group(function () {
         Route::get('/ideas', [IdeaController::class, 'index'])->name('ideas.index');
-        Route::get('/ideas/drafts', [IdeaController::class, 'drafts'])->name('ideas.drafts');
         Route::get('/ideas/create', [IdeaController::class, 'create'])->name('ideas.create');
         Route::post('/ideas', [IdeaController::class, 'store'])->name('ideas.store');
         Route::get('/ideas/{idea}', [IdeaController::class, 'show'])->name('ideas.show');
@@ -77,7 +76,7 @@ Route::middleware(['auth'])->group(function () {
     */
 
     Route::middleware('committee.member:idea')->group(function () {
-        Route::get('/review/ideas', [IdeaController::class, 'review'])->name('ideas.review');
+        Route::get('/task-box', [IdeaController::class, 'taskBox'])->name('ideas.taskbox');
         Route::get('/review/ideas/{idea}', [IdeaController::class, 'reviewShow'])->name('ideas.review.show');
         Route::post('/review/ideas/{idea}/approve', [IdeaController::class, 'approve'])->name('ideas.review.approve');
         Route::post('/review/ideas/{idea}/reject', [IdeaController::class, 'reject'])->name('ideas.review.reject');
@@ -116,7 +115,6 @@ Route::middleware(['auth'])->group(function () {
     */
 
     Route::middleware('committee.member:idea')->group(function () {
-        Route::get('/approved-ideas', [ProjectController::class, 'approvedIdeas'])->name('projects.approved-ideas');
         Route::get('/projects/create', [ProjectController::class, 'create'])->name('projects.create');
         Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store');
     });
