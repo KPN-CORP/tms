@@ -44,19 +44,20 @@ deployment:
         "$DEPLOYPATH"/
 
       echo "Sync public assets into the live app directory"
-      rsync -a public/build public/css public/img public/images public/js public/scss \
-        "$DEPLOYPATH"/public/
+      for d in build css img images js scss; do
+        [ -d "public/$d" ] && rsync -a "public/$d" "$DEPLOYPATH"/public/ || true
+      done
 
       echo "Change to deployment directory"
       cd "$DEPLOYPATH"
 
       echo "Install composer dependencies (only if lock changed)"
-      if [ ! -d vendor ] || ! cmp -s composer.lock vendor/composer.lock.deployed 2>/dev/null; then
+      if [ ! -f .composer.lock.deployed ] || ! cmp -s composer.lock .composer.lock.deployed 2>/dev/null; then
         php -d memory_limit=-1 /usr/local/bin/composer install \
           --no-dev --no-interaction --prefer-dist --optimize-autoloader
-        cp composer.lock vendor/composer.lock.deployed
+        cp composer.lock .composer.lock.deployed
       else
-        echo "composer.lock unchanged-skipping install"
+        echo "composer.lock unchanged - skipping install"
       fi
 
       echo "Set correct permissions"
@@ -69,7 +70,8 @@ deployment:
       php artisan view:cache || true
 
       echo "Sync public assets into the site document root"
-      rsync -a public/build public/css public/img public/images public/js public/scss \
-        "$PUBHTML"/
+      for d in build css img images js scss; do
+        [ -d "public/$d" ] && rsync -a "public/$d" "$PUBHTML"/ || true
+      done
 
       echo "===== Done $(date) ====="
