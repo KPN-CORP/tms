@@ -9,38 +9,30 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles, LogsActivity;
 
-
-    /** Ladder job level: angka besar = jabatan lebih tinggi (T-1/12/71/86). */
-    public const JOB_LEVELS = [
-        1 => 'Staff',
-        2 => 'Senior Staff',
-        3 => 'Supervisor',
-        4 => 'Assistant Manager',
-        5 => 'Manager',
-        6 => 'Senior Manager',
-        7 => 'General Manager',
-        8 => 'Director',
-    ];
+    protected $connection = 'kpncorp';
+    protected $table = 'users';
 
     /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>
      */
+
     protected $fillable = [
+        'employee_id',
         'name',
         'email',
+        'email_verified_at',
         'password',
-        'employee_id',
-        'business_unit_id',
-        'department_id',
-        'job_level',
-        'summary',
+        'email_log',
+        'token',
+        'img_path',
     ];
 
     /**
@@ -51,6 +43,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'token',
     ];
 
     /**
@@ -69,12 +62,12 @@ class User extends Authenticatable
 
     public function businessUnit()
     {
-        return $this->belongsTo(BusinessUnit::class);
+        return $this->belongsTo(KpnBusinessUnit::class);
     }
 
     public function department()
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(KpnDepartment::class);
     }
 
     public function ideas()
@@ -82,19 +75,22 @@ class User extends Authenticatable
         return $this->hasMany(Idea::class);
     }
 
-    /** Label job level, mis. "5 — Manager". */
-    public function getJobLevelLabelAttribute(): ?string
-    {
-        if ($this->job_level === null) {
-            return null;
-        }
-
-        return $this->job_level . ' — ' . (self::JOB_LEVELS[$this->job_level] ?? 'Unknown');
-    }
-
     /** Label untuk audit trail (LogsActivity). */
     public function activityLabel(): string
     {
         return $this->name;
     }
+
+    public function homeRoute(): string
+    {
+        return $this->hasAnyRole(['Admin', 'Super Admin']) ? 'dashboard' : 'ideas.index';
+    }
+
+    /** Data kepegawaian (hcis employees) untuk user ini. */
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(KpnEmployee::class, 'employee_id', 'employee_id');
+    }
+
+
 }
