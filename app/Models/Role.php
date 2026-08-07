@@ -6,6 +6,11 @@ use Spatie\Permission\Models\Role as SpatieRole;
 
 class Role extends SpatieRole
 {
+    // Paksa koneksi tm_system (default). Tanpa ini, saat User (koneksi hcis)
+    // memanggil roles(), Laravel morphToMany mewariskan koneksi hcis ke Role →
+    // pivot model_has_roles salah database. Role/pivot HARUS di tm_system.
+    protected $connection = 'mysql';
+
     // RBAC (roles, permissions, assignment) ditangani sepenuhnya oleh Spatie.
     //commit
     /*

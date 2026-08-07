@@ -139,11 +139,17 @@ class ProjectController extends Controller
             return back()->withErrors($errors)->withInput();
         }
 
-        $leaderUser = $this->getOrCreateUser($leaderEmployee);
-
+        $leaderUser  = $this->getOrCreateUser($leaderEmployee);
         $sponsorUser = $this->getOrCreateUser($sponsorEmployee);
 
-        $data['project_leader_id'] = $leaderUser->id;
+        if (! $leaderUser || ! $sponsorUser) {
+            return back()->withErrors(array_filter([
+                'project_leader_id'  => $leaderUser ? null : 'Leader belum punya akun user di hcis.',
+                'project_sponsor_id' => $sponsorUser ? null : 'Sponsor belum punya akun user di hcis.',
+            ]))->withInput();
+        }
+
+        $data['project_leader_id']  = $leaderUser->id;
         $data['project_sponsor_id'] = $sponsorUser->id;
 
 
@@ -159,21 +165,11 @@ class ProjectController extends Controller
     }
 
 
-    private function getOrCreateUser(KpnEmployee $employee): User
+    private function getOrCreateUser(KpnEmployee $employee): ?User
     {
-        $user = User::where('email', $employee->email)->first();
-
-        if (! $user) {
-
-            $user = User::create([
-                'name'     => $employee->fullname,
-                'email'    => $employee->email,
-                'password' => Hash::make(Str::random(40)),
-            ]);
-
-        }
-
-        return $user;
+        // User = tabel users hcis → cari by email (TANPA insert ke hcis) + pastikan role Employee.
+        return app(\App\Services\HcisAuthService::class)
+            ->mirror($employee->email, $employee->fullname, $employee->employee_id);
     }
 
 

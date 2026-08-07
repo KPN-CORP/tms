@@ -146,9 +146,13 @@ class CommitteeAssignmentController extends Controller
                     continue;
                 }
 
-                // Employee hcis → mirror user tm_system (find-or-create + role Employee).
+                // Cari user hcis by email + pastikan role Employee (tanpa insert ke hcis).
                 $emp  = KpnEmployee::forEmail($email);
                 $user = $hcis->mirror($email, $emp?->fullname, $emp?->employee_id);
+
+                if (! $user) {
+                    continue; // email tak punya akun user di hcis → tak bisa jadi approver
+                }
 
                 CommitteeAssignment::create([
                     'approval_type'    => $data['approval_type'],

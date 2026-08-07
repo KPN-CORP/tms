@@ -53,16 +53,18 @@ class LoginRequest extends FormRequest
     }
 
     /**
-     * Login dua sumber: tm_system (lokal) dulu, lalu fallback ke hcis.
+     * Login memakai tabel users hcis (User → koneksi kpncorp). Setelah berhasil,
+     * pastikan user punya role Employee (disimpan di DB lokal, bukan hcis).
      */
     private function attemptLogin(): bool
     {
-        // 1) User tm_system (lokal).
         if (Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+            app(\App\Services\HcisAuthService::class)->ensureRole(Auth::user());
+
             return true;
         }
 
-        // 2) Fallback ke hcis — sinkron user lokal (mirror) lalu login.
+        // Fallback: verifikasi manual via hcis (mis. beda mekanisme hashing).
         $user = app(\App\Services\HcisAuthService::class)->attempt(
             (string) $this->string('email'),
             (string) $this->string('password'),

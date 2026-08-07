@@ -3,7 +3,6 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
-use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -13,27 +12,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles, LogsActivity;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
     protected $connection = 'kpncorp';
     protected $table = 'users';
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
-
-    protected $fillable = [
-        'employee_id',
-        'name',
-        'email',
-        'email_verified_at',
-        'password',
-        'email_log',
-        'token',
-        'img_path',
-    ];
+    protected static function booted(): void
+    {
+        $block = fn () => false; // return false membatalkan operasi → tak ada query tulis
+        static::saving($block);   // mencakup creating + updating
+        static::deleting($block);
+    }
 
     /**
      * The attributes that should be hidden for serialization.
@@ -55,10 +44,6 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
-
-
-    // roles(), hasRole(), hasPermissionTo(), can(), assignRole(), dll
-    // disediakan oleh trait Spatie HasRoles.
 
     public function businessUnit()
     {
@@ -85,6 +70,7 @@ class User extends Authenticatable
     {
         return $this->hasAnyRole(['Admin', 'Super Admin']) ? 'dashboard' : 'ideas.index';
     }
+
 
     /** Data kepegawaian (hcis employees) untuk user ini. */
     public function employee(): BelongsTo

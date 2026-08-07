@@ -38,7 +38,7 @@ class HcisAuthService
      * Buat/perbarui user lokal (tm_system) berdasarkan data hcis.
      * CATATAN: hcis HANYA dibaca (SELECT) — tidak ada insert/update ke hcis.
      */
-    private function syncLocalUser(object $hcis): User
+    private function syncLocalUser(object $hcis): ?User
     {
         return $this->mirror($hcis->email, $hcis->name ?? null, $hcis->employee_id ?? null);
     }
@@ -48,31 +48,25 @@ class HcisAuthService
      * Dipakai login (setelah verifikasi password) & Committee Assignment (pilih approver).
      * TIDAK menulis ke hcis.
      */
-    public function mirror(string $email, ?string $name = null, $employeeId = null): User
+    public function mirror(string $email, ?string $name = null, $employeeId = null): ?User
     {
-        $email = trim($email);
-
-        $user = User::where('email', $email)->first();
+        // User = tabel users hcis → JANGAN insert/update ke hcis. Cukup temukan by email
+        // dan pastikan role Employee (role disimpan di DB lokal via Spatie, bukan hcis).
+        $user = User::where('email', trim($email))->first();
 
         if ($user) {
-            $user->update([
-                'name'        => $name ?: $user->name,
-                'employee_id' => $user->employee_id ?: $employeeId,
-            ]);
-        } else {
-            // Password lokal acak (user hcis diverifikasi via hcis saat login).
-            $user = User::create([
-                'email'       => $email,
-                'name'        => $name ?: $email,
-                'employee_id' => $employeeId,
-                'password'    => Str::random(40),
-            ]);
+            $this->ensureDefaultRole($user);
         }
 
-        // SEMUA user hcis otomatis punya role Employee (self-healing, additive).
-        $this->ensureDefaultRole($user);
-
         return $user;
+    }
+
+    /** Pastikan user hcis punya role Employee (dipakai setelah Auth::attempt sukses). */
+    public function ensureRole(?User $user): void
+    {
+        if ($user) {
+            $this->ensureDefaultRole($user);
+        }
     }
 
     /**
