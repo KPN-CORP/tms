@@ -127,8 +127,14 @@ deployment:
       echo "Change to deployment directory"
       cd "$DEPLOYPATH"
 
-      # echo "Install composer dependencies"
-      # composer install --ignore-platform-reqs --no-dev --no-interaction --prefer-dist --optimize-autoloader
+      echo "Install composer dependencies (only if lock changed)"
+      if [ ! -d vendor ] || ! cmp -s composer.lock vendor/composer.lock.deployed 2>/dev/null; then
+        php -d memory_limit=-1 /opt/cpanel/composer/bin/composer install \
+          --no-dev --no-interaction --prefer-dist --optimize-autoloader
+        cp composer.lock vendor/composer.lock.deployed
+      else
+        echo "composer.lock unchanged — skipping install"
+      fi
 
       # echo "Install Node packages + build"
       # npm ci --legacy-peer-deps --no-audit --silent
@@ -138,13 +144,14 @@ deployment:
       chmod -R 755 storage bootstrap/cache
 
       echo "Rebuild Laravel caches (faster than clearing)"
-      php artisan optimize:clear
-      php artisan config:cache
-      php artisan route:cache
-      php artisan view:cache
+      php artisan optimize:clear || true
+      php artisan config:cache || true
+      php artisan route:cache || true
+      php artisan view:cache || true
 
       echo "Sync public assets into the site document root"
       rsync -a public/build public/css public/img public/images public/js public/scss \
         "$PUBHTML"/
 
       echo "===== Done $(date) ====="
+      
