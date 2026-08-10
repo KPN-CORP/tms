@@ -11,7 +11,6 @@ use App\Models\Department;
 use App\Models\Idea;
 use App\Models\IdeaAttachment;
 use App\Models\KpnBusinessUnit;
-use App\Models\KpnDepartment;
 use App\Models\Location;
 use App\Services\Idea\IdeaWorkflowService;
 use Illuminate\Http\Request;
@@ -74,18 +73,16 @@ class IdeaController extends Controller
             $perPage = 10;
         }
 
-        // Dropdown filter dari hcis: BU = master_bisnisunits.nama_bisnis;
-        // Unit = departments.department_name per BU (cascade, buang null/'-'/kosong).
-        $buNames   = KpnBusinessUnit::names();
-        $unitsByBu = $buNames->mapWithKeys(fn ($bu) => [$bu => KpnDepartment::namesFor($bu)]);
+        // Dropdown filter Business Unit dari hcis (master_bisnisunits.nama_bisnis).
+        // Unit di-cascade via AJAX (org.unit-names → departments.department_name).
+        $buNames = KpnBusinessUnit::names();
 
         return view('ideas.index', [
-            'ideas'     => $query->paginate($perPage)->withQueryString(),
-            'perPage'   => $perPage,
-            'buNames'   => $buNames,
-            'unitsByBu' => $unitsByBu,
-            'counts'    => $counts,
-            'tab'       => $tab,
+            'ideas'   => $query->paginate($perPage)->withQueryString(),
+            'perPage' => $perPage,
+            'buNames' => $buNames,
+            'counts'  => $counts,
+            'tab'     => $tab,
         ] + $this->listSortState($request, self::IDEA_LIST_CONFIG));
     }
 
@@ -185,6 +182,7 @@ class IdeaController extends Controller
     {
         $user    = $request->user();
         $isSuper = $user->hasRole('Super Admin');
+        $isAdminView = $user->hasAnyRole(['Admin', 'Super Admin']); // tooltip: admin lihat semua layer
 
         // --- Universe (koleksi) sesuai flow ---
         if ($isSuper) {
@@ -192,20 +190,11 @@ class IdeaController extends Controller
                 ->whereIn('status', ['submitted', 'review', 'approved', 'rejected'])
                 ->get();
         } else {
-            $queue = $wf->reviewQueueFor($user)
+            // Semua ide yang PERNAH mencapai layer committee user — apa pun statusnya.
+            // Tetap tampil setelah di-approve/reject; ide yang tak pernah masuk ke
+            // akun user (belum mencapai layernya) tidak ditampilkan.
+            $universe = $wf->taskBoxQueueFor($user)
                 ->with(['businessUnit', 'department', 'user'])->get();
-
-            $approved = Idea::where('status', 'approved')
-                ->with(['businessUnit', 'department', 'user'])->get()
-                ->filter(fn (Idea $i) => $wf->isLastLayerCommittee($i, $user));
-
-            $committeeBuIds = CommitteeAssignment::where('approval_type', 'idea')
-                ->where('user_id', $user->id)->pluck('business_unit_id')->unique();
-            $rejected = Idea::where('status', 'rejected')
-                ->whereIn('business_unit_id', $committeeBuIds)
-                ->with(['businessUnit', 'department', 'user'])->get();
-
-            $universe = $queue->concat($approved)->concat($rejected)->unique('id')->values();
         }
 
         // --- Filter search (q) + BU + Department (PHP, karena universe adalah koleksi) ---
@@ -249,9 +238,16 @@ class IdeaController extends Controller
         // --- Paginate + tandai aksi per baris (hanya halaman aktif → hemat query) ---
         $perPage = $this->listPerPage($request);
         $ideas   = $this->paginateListCollection($list, $request, $perPage);
-        $ideas->setCollection($ideas->getCollection()->map(function (Idea $i) use ($wf, $user) {
+        $ideas->setCollection($ideas->getCollection()->map(function (Idea $i) use ($wf, $user, $isAdminView) {
             $i->can_review       = $wf->isCurrentReviewer($i, $user);
             $i->can_create_shell = $i->status === 'approved' && $wf->isLastLayerCommittee($i, $user);
+
+            // Tooltip Layer: Admin lihat SEMUA layer; non-admin hanya layer yang
+            // sedang aktif (current_layer) — nama pemilik layer aktif saja.
+            $chain = $wf->layerParticipants($i);
+            $i->layer_chain = $isAdminView
+                ? $chain->values()->all()
+                : $chain->where('layer', $i->current_layer)->values()->all();
 
             return $i;
         }));
@@ -332,6 +328,20 @@ class IdeaController extends Controller
         abort_unless($isOwner || $isCommittee || $user->hasRole('Super Admin'), 403);
 
         return $this->downloadAttachmentFile($attachment->file_path, $attachment->file_name);
+    }
+
+    /** Tampilkan lampiran INLINE (untuk preview gambar/PDF di modal). Auth sama seperti download. */
+    public function viewAttachment(Request $request, Idea $idea, IdeaAttachment $attachment)
+    {
+        abort_unless($attachment->idea_id === $idea->id, 404);
+
+        $user        = $request->user();
+        $isOwner     = $idea->user_id === $user->id;
+        $isCommittee = CommitteeAssignment::where('business_unit_id', $idea->business_unit_id)
+            ->where('user_id', $user->id)->exists();
+        abort_unless($isOwner || $isCommittee || $user->hasRole('Super Admin'), 403);
+
+        return $this->viewAttachmentFile($attachment->file_path, $attachment->file_name);
     }
 
     public function destroyAttachment(Request $request, Idea $idea, IdeaAttachment $attachment)

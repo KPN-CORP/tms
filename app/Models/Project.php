@@ -86,6 +86,7 @@ class Project extends Model
         'project_name',
         'project_scope',
         'expected_outcome',
+        'notes',
         'project_summary',
         'project_category',
         'project_category_id',

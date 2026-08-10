@@ -24,11 +24,12 @@ class CommitteeAssignmentController extends Controller
             ->sortBy('name')
             ->values();
 
+        // Default kosong (tanpa pra-pilih) — user harus memilih Approval Type & BU dulu.
         $type         = array_key_exists($request->query('approval_type'), CommitteeAssignment::TYPES)
             ? $request->query('approval_type')
-            : 'idea';
-        $selectedBuId = $request->integer('business_unit_id') ?: optional($businessUnits->first())->id;
-        $selectedBu   = $businessUnits->firstWhere('id', $selectedBuId);
+            : null;
+        $selectedBuId = $request->integer('business_unit_id') ?: null;
+        $selectedBu   = $selectedBuId ? $businessUnits->firstWhere('id', $selectedBuId) : null;
 
         // Unit/Department dari employees.unit (tanpa kurung), by nama BU — untuk SEMUA approval type.
         $unitNames = $selectedBu ? KpnEmployee::unitsFor($selectedBu->name) : collect();
@@ -108,7 +109,7 @@ class CommitteeAssignmentController extends Controller
                     'dept_name'        => $first->department_id ? optional($first->department)->name : 'Semua Unit',
                     'dept_name_raw'    => optional($first->department)->name,
                     'layers'           => $rows->sortBy('layer')
-                        ->map(fn ($r) => ['layer' => $r->layer, 'name' => optional($r->user)->name])
+                        ->map(fn ($r) => ['layer' => $r->layer, 'name' => trim(optional($r->user)->name . (optional($r->user)->employee_id ? ' - ' . optional($r->user)->employee_id : ''))])
                         ->values(),
                 ];
             })

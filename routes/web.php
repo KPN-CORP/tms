@@ -47,6 +47,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Org data (hcis) untuk dropdown cascade dari Business Unit
     Route::get('/org/departments', [\App\Http\Controllers\OrgController::class, 'departments'])->name('org.departments');
+    Route::get('/org/unit-names', [\App\Http\Controllers\OrgController::class, 'unitNames'])->name('org.unit-names');
     Route::get('/org/locations', [\App\Http\Controllers\OrgController::class, 'locations'])->name('org.locations');
     Route::get('/org/companies', [\App\Http\Controllers\OrgController::class, 'companies'])->name('org.companies');
     Route::get('/org/employees', [\App\Http\Controllers\OrgController::class, 'employees'])->name('org.employees');
@@ -66,6 +67,7 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/ideas/{idea}', [IdeaController::class, 'update'])->name('ideas.update');
         Route::delete('/ideas/{idea}', [IdeaController::class, 'destroy'])->name('ideas.destroy');
         Route::get('/ideas/{idea}/attachments/{attachment}', [IdeaController::class, 'downloadAttachment'])->name('ideas.attachments.download');
+        Route::get('/ideas/{idea}/attachments/{attachment}/view', [IdeaController::class, 'viewAttachment'])->name('ideas.attachments.view');
         Route::delete('/ideas/{idea}/attachments/{attachment}', [IdeaController::class, 'destroyAttachment'])->name('ideas.attachments.destroy');
     });
 

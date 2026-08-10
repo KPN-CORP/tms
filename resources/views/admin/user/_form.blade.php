@@ -61,7 +61,7 @@
         </select>
     </div>
     <div>
-        <label class="{{ $lbl }}">Department</label>
+        <label class="{{ $lbl }}">Unit</label>
         <select name="department_id" id="dept-select" data-cascade-parent="#bu-select" class="{{ $inp }}">
             <option value="">—</option>
             @foreach($departments as $dept)

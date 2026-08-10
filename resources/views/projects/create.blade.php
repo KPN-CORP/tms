@@ -4,7 +4,7 @@
         <h2 class="text-xl font-semibold text-gray-800">Create Project Shell</h2>
     </x-slot>
 
-    <div class="p-6 space-y-6 max-w-4xl">
+    <div class="p-6 space-y-6 max-w-5xl">
 
         <div>
             <a href="{{ route('ideas.taskbox', ['tab' => 'approved']) }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Task Box</a>
@@ -23,7 +23,9 @@
                 @error('project_name')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
+            {{-- Category, Sponsor, Leader sejajar (3 kolom); stack di layar sempit --}}
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                @php $selS = $preselect[old('project_sponsor_id')] ?? null; $selL = $preselect[old('project_leader_id')] ?? null; @endphp
                 <div>
                     <label class="block font-semibold mb-1">Project Category <span class="text-red-600">*</span></label>
                     <select name="project_category_id"
@@ -35,24 +37,6 @@
                     </select>
                     @error('project_category_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
-            </div>
-
-            <div>
-                <label class="block font-semibold mb-1">Project Scope <span class="text-red-600">*</span></label>
-                <textarea name="project_scope" rows="3" placeholder="Ruang lingkup project"
-                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_scope') border-red-500 @enderror">{{ old('project_scope') }}</textarea>
-                @error('project_scope')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
-            </div>
-
-            <div>
-                <label class="block font-semibold mb-1">Expected Outcome <span class="text-red-600">*</span></label>
-                <textarea name="expected_outcome" rows="3"
-                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('expected_outcome') border-red-500 @enderror">{{ old('expected_outcome', $idea->expected_outcome) }}</textarea>
-                @error('expected_outcome')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
-            </div>
-
-            <div class="grid grid-cols-2 gap-4">
-                @php $selS = $preselect[old('project_sponsor_id')] ?? null; $selL = $preselect[old('project_leader_id')] ?? null; @endphp
                 <div>
                     <label class="block font-semibold mb-1">Project Sponsor <span class="text-red-600">*</span></label>
                     <select name="project_sponsor_id" data-no-search data-remote-search="{{ $searchUrl }}" data-remote-value="employee_id"
@@ -71,6 +55,27 @@
                     </select>
                     @error('project_leader_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
+            </div>
+
+            <div>
+                <label class="block font-semibold mb-1">Project Scope <span class="text-red-600">*</span></label>
+                <textarea name="project_scope" rows="3" placeholder="Ruang lingkup project"
+                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_scope') border-red-500 @enderror">{{ old('project_scope') }}</textarea>
+                @error('project_scope')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+            </div>
+
+            <div>
+                <label class="block font-semibold mb-1">Expected Outcome <span class="text-red-600">*</span></label>
+                <textarea name="expected_outcome" rows="3"
+                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('expected_outcome') border-red-500 @enderror">{{ old('expected_outcome', $idea->expected_outcome) }}</textarea>
+                @error('expected_outcome')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+            </div>
+
+            <div>
+                <label class="block font-semibold mb-1">Notes <span class="text-gray-400 text-sm font-normal">(optional)</span></label>
+                <textarea name="notes" rows="3" placeholder="Catatan tambahan (opsional)"
+                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('notes') border-red-500 @enderror">{{ old('notes') }}</textarea>
+                @error('notes')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div class="flex justify-end gap-3 pt-2">

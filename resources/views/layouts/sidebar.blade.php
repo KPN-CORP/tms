@@ -40,8 +40,8 @@
             ['label' => 'Task Box',       'route' => 'ideas.taskbox', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['ideas.taskbox', 'ideas.review.*', 'projects.create']],
         ],
         'Project' => [
-            ['label' => 'Manage Project',  'route' => 'projects.index',  'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.show']],
-            ['label' => 'Review Projects', 'route' => 'projects.review', 'permission' => null, 'show' => $isProjectCommittee, 'active' => ['projects.review']],
+            ['label' => 'My Project',  'route' => 'projects.index',  'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.show']],
+            ['label' => 'Task Box', 'route' => 'projects.review', 'permission' => null, 'show' => $isProjectCommittee, 'active' => ['projects.review']],
         ],
         'Admin Setting' => [
             ['label' => 'Committee Assignment', 'route' => 'admin.committee.index', 'permission' => 'committee.assign', 'active' => ['admin.committee.*']],
@@ -71,7 +71,9 @@
     $headingClass = 'px-4 pt-5 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider';
 @endphp
 
-<aside class="w-64 shrink-0 bg-white border-r border-gray-200 h-screen flex flex-col">
+<aside x-show="sidebarOpen" x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="-ml-64 opacity-0" x-transition:enter-end="ml-0 opacity-100"
+       class="w-64 shrink-0 bg-white border-r border-gray-200 h-screen flex flex-col">
 
     {{-- Logo --}}
     <div class="px-6 py-5 border-b">

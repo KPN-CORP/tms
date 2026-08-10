@@ -37,6 +37,17 @@ trait HandlesFileAttachments
         return Storage::download($path, $name);
     }
 
+    /**
+     * Kembalikan response INLINE (Content-Disposition: inline) agar bisa
+     * ditampilkan langsung di browser (gambar/PDF) tanpa memaksa unduh.
+     */
+    protected function viewAttachmentFile(string $path, string $name)
+    {
+        abort_unless(Storage::exists($path), 404, 'File tidak ditemukan.');
+
+        return Storage::response($path, $name);
+    }
+
     /** Hapus file dari disk (aman bila sudah tidak ada). */
     protected function deleteAttachmentFile(string $path): void
     {

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\KpnCompany;
+use App\Models\KpnDepartment;
 use App\Models\KpnEmployee;
 use App\Models\KpnLocation;
 use Illuminate\Http\Request;
@@ -16,6 +17,15 @@ class OrgController extends Controller
     public function departments(Request $request)
     {
         return $this->respond($request, fn ($bu) => KpnEmployee::unitsFor($bu));
+    }
+
+    /**
+     * JSON daftar Unit untuk FILTER (?bu=Cement) — dari departments.department_name
+     * (cascade via parent_company_id, buang null/'-'). Dipakai filter My Ideas.
+     */
+    public function unitNames(Request $request)
+    {
+        return $this->respond($request, fn ($bu) => KpnDepartment::namesFor($bu));
     }
 
     /** JSON daftar area (locations) untuk sebuah Business Unit. */

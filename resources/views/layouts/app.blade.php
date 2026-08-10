@@ -38,6 +38,18 @@
             box-shadow: 0 0 0 3px rgba(254,202,202,.5) !important;
         }
         .ts-dropdown{ border-radius: .5rem; font-size: .875rem; }
+        /* Tombol clear (x): tempel di ujung kanan & sediakan ruang agar tidak menimpa teks terpilih */
+        .ts-wrapper.single.has-items .ts-control{ padding-right: 2rem !important; }
+        .ts-wrapper .clear-button{
+            position: absolute !important;
+            right: .5rem !important; left: auto !important;
+            top: 50% !important; transform: translateY(-50%) !important;
+            margin: 0 !important; opacity: 1 !important; background: transparent !important;
+        }
+        .ts-wrapper .ts-control > .item{
+            max-width: 100%;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
     </style>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -45,7 +57,9 @@
 
 <body class="font-sans antialiased bg-gray-100">
 
-<div class="flex h-screen overflow-hidden">
+<div class="flex h-screen overflow-hidden"
+     x-data="{ sidebarOpen: JSON.parse(localStorage.getItem('sidebarOpen') ?? 'true') }"
+     x-init="$watch('sidebarOpen', v => localStorage.setItem('sidebarOpen', JSON.stringify(v)))">
 
     @include('layouts.sidebar')
 

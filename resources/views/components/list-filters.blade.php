@@ -20,11 +20,11 @@
 
 @if($departments !== null)
     <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Department</label>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Unit</label>
         <select name="department_id" id="filter-dept"
                 @if($businessUnits !== null) data-cascade-parent="#filter-bu" @endif
                 onchange="this.form.requestSubmit()" class="{{ $sel }}">
-            <option value="">Semua Department</option>
+            <option value="">Semua Unit</option>
             @foreach($departments as $dept)
                 <option value="{{ $dept->id }}" data-bu="{{ $dept->business_unit_id }}" @selected(request('department_id') == $dept->id)>{{ $dept->name }}</option>
             @endforeach

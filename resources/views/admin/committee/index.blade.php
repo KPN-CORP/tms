@@ -36,6 +36,7 @@
                                 <th class="px-4 py-3">Approval Type</th>
                                 <th class="px-4 py-3">Business Unit</th>
                                 <th class="px-4 py-3">Unit</th>
+                                <th class="px-4 py-3">Layer</th>
                                 <th class="px-4 py-3 text-right">Aksi</th>
                             </tr>
                         </thead>
@@ -48,6 +49,38 @@
                                     <td class="px-4 py-3 font-medium text-gray-700">{{ $set['bu_name'] }}</td>
                                     <td class="px-4 py-3 text-gray-600">{{ $set['dept_name'] }}</td>
                                     <td class="px-4 py-3">
+                                        {{-- Ringkas: badge L1..L3 + "+N"; hover → daftar lengkap (teleport agar tak terpotong) --}}
+                                        <div x-data="{ open:false, x:0, y:0 }"
+                                             @mouseenter="const r=$el.getBoundingClientRect(); x=Math.round(r.left); y=Math.round(r.bottom+6); open=true"
+                                             @mouseleave="open=false"
+                                             class="inline-flex items-center gap-1 cursor-help">
+                                            @foreach($set['layers']->take(3) as $l)
+                                                <span class="inline-flex items-center justify-center rounded bg-gray-100 text-gray-600 text-xs font-semibold px-1.5 py-0.5" title="{{ $l['name'] }}">L{{ $l['layer'] }}</span>
+                                            @endforeach
+                                            @if($set['layers']->count() > 3)
+                                                <span class="text-xs text-gray-400">+{{ $set['layers']->count() - 3 }}</span>
+                                            @endif
+                                            @if($set['layers']->isEmpty())
+                                                <span class="text-xs text-gray-400">—</span>
+                                            @endif
+
+                                            <template x-teleport="body">
+                                                <div x-show="open" x-cloak :style="'position:fixed;left:'+x+'px;top:'+y+'px;z-index:60;'"
+                                                     class="rounded-lg shadow-lg border border-gray-200 bg-white py-2 px-3 text-xs">
+                                                    <div class="font-semibold text-gray-500 mb-1">Committee per Layer</div>
+                                                    @forelse($set['layers'] as $l)
+                                                        <div class="flex items-center gap-2 py-0.5" style="white-space:nowrap;">
+                                                            <span class="inline-flex items-center justify-center rounded bg-gray-100 text-gray-600 font-semibold" style="min-width:1.75rem;padding:.05rem .3rem;">L{{ $l['layer'] }}</span>
+                                                            <span class="text-gray-700">{{ $l['name'] ?: '—' }}</span>
+                                                        </div>
+                                                    @empty
+                                                        <div class="text-gray-400">Belum ada</div>
+                                                    @endforelse
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3">
                                         <div class="flex items-center justify-end gap-2">
                                             <a href="{{ route('admin.committee.index', array_filter(['approval_type' => $set['approval_type'], 'business_unit_id' => $set['business_unit_id'], 'department' => $set['dept_name_raw']])) }}#editor"
                                                class="px-3 py-1.5 border border-red-700 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-50">Edit</a>
@@ -57,7 +90,7 @@
                                                 <input type="hidden" name="approval_type" value="{{ $set['approval_type'] }}">
                                                 <input type="hidden" name="business_unit_id" value="{{ $set['business_unit_id'] }}">
                                                 <input type="hidden" name="department_id" value="{{ $set['department_id'] }}">
-                                                <button class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700">Hapus</button>
+                                                <button class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700">Delete</button>
                                             </form>
                                         </div>
                                     </td>
@@ -77,6 +110,7 @@
                 <label class="block font-semibold mb-2">Approval Type</label>
                 <select name="approval_type" onchange="this.form.submit()"
                         class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
+                    <option value="" @selected(! $type)></option>
                     @foreach($types as $val => $label)
                         <option value="{{ $val }}" @selected($type === $val)>{{ $label }}</option>
                     @endforeach
@@ -86,16 +120,17 @@
                 <label class="block font-semibold mb-2">Business Unit</label>
                 <select name="business_unit_id" onchange="this.form.submit()"
                         class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
+                    <option value="" @selected(! $selectedBuId)></option>
                     @foreach($businessUnits as $bu)
                         <option value="{{ $bu->id }}" @selected($selectedBuId == $bu->id)>{{ $bu->name }}</option>
                     @endforeach
                 </select>
             </div>
             <div>
-                <label class="block font-semibold mb-2">Unit / Department</label>
+                <label class="block font-semibold mb-2">Unit</label>
                 <select name="department" onchange="this.form.submit()"
                         class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                    <option value="">— Semua Department (BU-wide) —</option>
+                    <option value=""></option>
                     @foreach($unitNames as $dept)
                         <option value="{{ $dept }}" @selected($selectedUnitName === $dept)>{{ $dept }}</option>
                     @endforeach
@@ -103,21 +138,28 @@
             </div>
         </form>
 
-        {{-- 10 Layer --}}
-        <form method="POST" action="{{ route('admin.committee.store') }}" class="bg-white rounded-xl shadow p-6 space-y-4">
+        {{-- Layer: tampil 3 dulu, sisanya via tombol "Tambah Layer" (maks 10).
+             Layer yang sudah terisi tetap ditampilkan walau > 3. --}}
+        @php
+            $maxAssigned    = collect($assignedByLayer)->filter()->keys()->max() ?? 0;
+            $initialVisible = max(3, (int) $maxAssigned);
+        @endphp
+        @if($type && $selectedBuId)
+        <form method="POST" action="{{ route('admin.committee.store') }}" class="bg-white rounded-xl shadow p-6 space-y-4"
+              x-data="{ visible: {{ $initialVisible }} }">
             @csrf
             <input type="hidden" name="approval_type" value="{{ $type }}">
             <input type="hidden" name="business_unit_id" value="{{ $selectedBuId }}">
             <input type="hidden" name="department" value="{{ $selectedUnitName }}">
-            <p class="text-sm text-gray-500">Approval: <span class="font-semibold">{{ $types[$type] }}</span> — BU: <span class="font-semibold">{{ optional($businessUnits->firstWhere('id', $selectedBuId))->name }}</span> — Unit: <span class="font-semibold">{{ $selectedUnitName ?: 'Semua Department (BU-wide)' }}</span></p>
+            <p class="text-sm text-gray-500">Approval: <span class="font-semibold">{{ $types[$type] }}</span> — BU: <span class="font-semibold">{{ optional($businessUnits->firstWhere('id', $selectedBuId))->name }}</span> — Unit: <span class="font-semibold">{{ $selectedUnitName ?: 'Semua Unit (BU-wide)' }}</span></p>
 
             <h3 class="text-lg font-semibold">Reviewer per Layer</h3>
 
             @for($layer = 1; $layer <= $maxLayers; $layer++)
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-4" @if($layer > 3) x-show="{{ $layer }} <= visible" x-cloak @endif>
                     <span class="w-20 text-sm font-semibold text-gray-600">Layer {{ $layer }}</span>
                     @php $a = $assignedByLayer[$layer] ?? null; @endphp
-                    <select name="layers[{{ $layer }}]" data-no-search data-remote-search="{{ $employeeSearchUrl }}"
+                    <select id="layer-select-{{ $layer }}" name="layers[{{ $layer }}]" data-no-search data-remote-search="{{ $employeeSearchUrl }}"
                             class="flex-1 border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
                         <option value="">— none —</option>
                         @if($a)<option value="{{ $a['email'] }}" selected>{{ $a['label'] }}</option>@endif
@@ -125,11 +167,24 @@
                 </div>
             @endfor
 
+            {{-- Tambah field layer berikutnya (maks 10). Sembunyi saat sudah 10. --}}
+            <div x-show="visible < {{ $maxLayers }}">
+                <button type="button" @click="visible = Math.min({{ $maxLayers }}, visible + 1)"
+                        class="inline-flex items-center gap-1 px-4 py-2 border border-red-700 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-50">
+                    + Tambah Layer
+                </button>
+            </div>
+
             <div class="flex justify-end pt-2">
                 <button type="submit"
                         class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
             </div>
         </form>
+        @else
+            <div class="bg-white rounded-xl shadow p-6 text-sm text-gray-400">
+                Pilih <span class="font-semibold text-gray-600">Approval Type</span> dan <span class="font-semibold text-gray-600">Business Unit</span> terlebih dahulu untuk mengatur committee per layer.
+            </div>
+        @endif
 
     </div>
 

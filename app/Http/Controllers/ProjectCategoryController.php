@@ -46,12 +46,11 @@ class ProjectCategoryController extends Controller
         $data = $request->validate([
             'name'              => ['required', 'string', 'max:255'],
             'code'              => ['required', 'string', 'max:20', Rule::unique('project_categories', 'code')->ignore($category?->id)],
-            'description'       => ['nullable', 'string', 'max:2000'],
-            'leader_grade_min'  => ['nullable', 'integer', 'min:0'],
-            'leader_grade_max'  => ['nullable', 'integer', 'min:0'],
-            'sponsor_grade_min' => ['nullable', 'integer', 'min:0'],
-            'sponsor_grade_max' => ['nullable', 'integer', 'min:0'],
-            'max_team_members'  => ['nullable', 'integer', 'min:0'],
+            'leader_grade_min'  => ['required', 'integer', 'min:0'],
+            'leader_grade_max'  => ['required', 'integer', 'min:0'],
+            'sponsor_grade_min' => ['required', 'integer', 'min:0'],
+            'sponsor_grade_max' => ['required', 'integer', 'min:0'],
+            'max_team_members'  => ['required', 'integer', 'min:0'],
         ]);
 
         $data['code'] = strtoupper($data['code']);

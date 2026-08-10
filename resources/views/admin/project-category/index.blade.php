@@ -36,12 +36,13 @@
                 </thead>
                 <tbody class="divide-y">
                     @forelse($categories as $cat)
-                        <tr class="hover:bg-gray-50 {{ $cat->is_active ? '' : 'opacity-50' }}">
-                            <td class="px-4 py-3 font-mono font-semibold text-red-700">{{ $cat->code }}</td>
-                            <td class="px-4 py-3">{{ $cat->name }}</td>
-                            <td class="px-4 py-3">{{ $cat->leader_grade_min ?? '-' }} &ndash; {{ $cat->leader_grade_max ?? '-' }}</td>
-                            <td class="px-4 py-3">{{ $cat->sponsor_grade_min ?? '-' }} &ndash; {{ $cat->sponsor_grade_max ?? '-' }}</td>
-                            <td class="px-4 py-3">{{ $cat->max_team_members ?? '-' }}</td>
+                        @php $muted = $cat->is_active ? '' : 'opacity-50'; @endphp
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 font-mono font-semibold text-red-700 {{ $muted }}">{{ $cat->code }}</td>
+                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->name }}</td>
+                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->leader_grade_min ?? '-' }} &ndash; {{ $cat->leader_grade_max ?? '-' }}</td>
+                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->sponsor_grade_min ?? '-' }} &ndash; {{ $cat->sponsor_grade_max ?? '-' }}</td>
+                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->max_team_members ?? '-' }}</td>
                             <td class="px-4 py-3">
                                 <span class="text-xs rounded-full px-2 py-1 {{ $cat->is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600' }}">{{ $cat->is_active ? 'Active' : 'Archived' }}</span>
                             </td>
@@ -83,17 +84,12 @@
                     </div>
                 </div>
 
-                <div>
-                    <label class="block text-sm font-semibold text-gray-600 mb-1">Description</label>
-                    <textarea name="description" rows="2" class="{{ $inp }}">{{ $val('description') }}</textarea>
-                </div>
-
                 <div class="grid grid-cols-3 gap-4">
-                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Leader Grade Min</label><input type="number" name="leader_grade_min" value="{{ $val('leader_grade_min') }}" class="{{ $inp }}"></div>
-                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Leader Grade Max</label><input type="number" name="leader_grade_max" value="{{ $val('leader_grade_max') }}" class="{{ $inp }}"></div>
-                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Max Team Members</label><input type="number" name="max_team_members" value="{{ $val('max_team_members') }}" class="{{ $inp }}"></div>
-                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Sponsor Grade Min</label><input type="number" name="sponsor_grade_min" value="{{ $val('sponsor_grade_min') }}" class="{{ $inp }}"></div>
-                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Sponsor Grade Max</label><input type="number" name="sponsor_grade_max" value="{{ $val('sponsor_grade_max') }}" class="{{ $inp }}"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Leader Grade Min <span class="text-red-600">*</span></label><input type="number" name="leader_grade_min" value="{{ $val('leader_grade_min') }}" required class="{{ $inp }} @error('leader_grade_min') border-red-500 @enderror"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Leader Grade Max <span class="text-red-600">*</span></label><input type="number" name="leader_grade_max" value="{{ $val('leader_grade_max') }}" required class="{{ $inp }} @error('leader_grade_max') border-red-500 @enderror"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Max Team Members <span class="text-red-600">*</span></label><input type="number" name="max_team_members" value="{{ $val('max_team_members') }}" required class="{{ $inp }} @error('max_team_members') border-red-500 @enderror"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Sponsor Grade Min <span class="text-red-600">*</span></label><input type="number" name="sponsor_grade_min" value="{{ $val('sponsor_grade_min') }}" required class="{{ $inp }} @error('sponsor_grade_min') border-red-500 @enderror"></div>
+                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Sponsor Grade Max <span class="text-red-600">*</span></label><input type="number" name="sponsor_grade_max" value="{{ $val('sponsor_grade_max') }}" required class="{{ $inp }} @error('sponsor_grade_max') border-red-500 @enderror"></div>
                 </div>
 
                 <div class="flex justify-end gap-3">

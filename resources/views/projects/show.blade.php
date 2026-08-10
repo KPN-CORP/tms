@@ -140,7 +140,7 @@
                             </td>
                             <td class="px-4 py-3 text-xs">{{ collect($plan->pic_user_ids)->map(fn($id) => optional($usersById[$id] ?? null)->name)->filter()->implode(', ') ?: '-' }}</td>
                             <td class="px-4 py-3"><span class="text-xs rounded-full px-2 py-1 bg-gray-100 text-gray-700">{{ $plan->status_label }}</span></td>
-                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.implementation.destroy', [$project, $plan]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Hapus</button></form></td>@endif
+                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.implementation.destroy', [$project, $plan]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Delete</button></form></td>@endif
                         </tr>
                     @empty
                         <tr><td colspan="{{ $canEdit ? 6 : 5 }}" class="px-4 py-6 text-center text-gray-400">Belum ada activity.</td></tr>
@@ -186,7 +186,7 @@
                             <td class="px-4 py-3">{{ $ind->weightage }}</td>
                             <td class="px-4 py-3 text-xs">{{ $ind->type }}</td>
                             <td class="px-4 py-3">{{ $ind->improvement !== null ? $ind->improvement.'%' : '-' }}</td>
-                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.indicators.destroy', [$project, $ind]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Hapus</button></form></td>@endif
+                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.indicators.destroy', [$project, $ind]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Delete</button></form></td>@endif
                         </tr>
                     @empty
                         <tr><td colspan="{{ $canEdit ? 8 : 7 }}" class="px-4 py-6 text-center text-gray-400">Belum ada indicator.</td></tr>
@@ -236,7 +236,7 @@
                                     {{ $b->actual_cost !== null ? number_format((float) $b->actual_cost) : '-' }}
                                 @endif
                             </td>
-                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.budgets.destroy', [$project, $b]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Hapus</button></form></td>@endif
+                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.budgets.destroy', [$project, $b]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Delete</button></form></td>@endif
                         </tr>
                     @empty
                         <tr><td colspan="{{ $canEdit ? 7 : 6 }}" class="px-4 py-6 text-center text-gray-400">Belum ada budget.</td></tr>
@@ -264,7 +264,7 @@
                 <tbody class="divide-y">
                     @forelse($project->members as $m)
                         <tr><td class="px-4 py-3">{{ optional($m->user)->name }}</td><td class="px-4 py-3">{{ $m->role }}</td>
-                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.members.destroy', [$project, $m]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Hapus</button></form></td>@endif
+                            @if($canEdit)<td class="px-4 py-3 text-right"><form method="POST" action="{{ route('projects.members.destroy', [$project, $m]) }}" onsubmit="return confirm('Hapus?')">@csrf @method('DELETE')<button class="text-red-600 text-xs">Delete</button></form></td>@endif
                         </tr>
                     @empty
                         <tr><td colspan="{{ $canEdit ? 3 : 2 }}" class="px-4 py-6 text-center text-gray-400">Belum ada member.</td></tr>
@@ -364,7 +364,7 @@
                                 @if(auth()->id() === $att->uploaded_by || $isLeader || auth()->user()->hasRole('Super Admin'))
                                     <form method="POST" action="{{ route('projects.attachments.destroy', [$project, $att]) }}" onsubmit="return confirm('Hapus lampiran?')">
                                         @csrf @method('DELETE')
-                                        <button class="text-red-600 hover:underline">Hapus</button>
+                                        <button class="text-red-600 hover:underline">Delete</button>
                                     </form>
                                 @endif
                             </span>

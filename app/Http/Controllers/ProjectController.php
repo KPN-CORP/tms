@@ -21,7 +21,9 @@ use App\Services\Project\ProjectApprovalWorkflowService;
 use App\Services\Project\ProjectUpdateService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use App\Models\KpnBusinessUnit;
 use App\Models\KpnEmployee;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -63,6 +65,7 @@ class ProjectController extends Controller
             'project_category_id' => ['required', 'integer', 'exists:project_categories,id'],
             'project_scope'       => ['required', 'string', 'max:255'],
             'expected_outcome'    => ['required', 'string', 'max:500'],
+            'notes'               => ['nullable', 'string', 'max:2000'],
             'project_sponsor_id'  => ['required', 'string', 'exists:kpncorp.employees,employee_id'],
             'project_leader_id'   => ['required', 'string', 'exists:kpncorp.employees,employee_id'],
         ]);
@@ -150,23 +153,44 @@ class ProjectController extends Controller
         $base = Project::relatedTo($request->user()->id)
             ->whereHas('idea', fn ($q) => $q->visibleTo($request->user()));
 
+        // Filter BU/Unit by NAMA (dropdown dari hcis) pada ide terkait project —
+        // logika sama seperti My Ideas.
         $query = (clone $base)
-            ->when($request->filled('business_unit_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_id', $request->integer('business_unit_id'))))
-            ->when($request->filled('department_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_id', $request->integer('department_id'))))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->when($request->filled('bu'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_name', $request->get('bu'))))
+            ->when($request->filled('unit'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_name', $request->get('unit'))))
             ->with(['idea.businessUnit', 'sponsor', 'leader']);
 
         $this->applyListSearchSort($query, $request, $config);
 
-        // Opsi BU/Dept diturunkan dari ide milik project yang terkait user.
-        $ideaIds = (clone $base)->select('idea_id');
+        // Jumlah per status (angka di tab) — sadar search & filter, sebelum tab.
+        $counts = (clone $query)->reorder()->getQuery()
+            ->select('status', DB::raw('count(*) as c'))
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        // Tab lifecycle Project Proposal → status DB. 'all' = semua.
+        $statusMap = [
+            'draft'     => 'draft',
+            'submitted' => 'submitted',
+            'approved'  => 'approved',
+            'review'    => 'committee_review', // "On Review"
+            'revision'  => 'revision',         // "Revision Required"
+            'rejected'  => 'rejected',
+        ];
+        $tab = array_key_exists($request->get('tab'), $statusMap) ? $request->get('tab') : 'all';
+        if ($tab !== 'all') {
+            $query->where('status', $statusMap[$tab]);
+        }
+
         $perPage = $this->listPerPage($request);
 
         return view('projects.index', [
-            'projects'      => $query->paginate($perPage)->withQueryString(),
-            'perPage'       => $perPage,
-            'businessUnits' => BusinessUnit::whereIn('id', Idea::whereIn('id', $ideaIds)->select('business_unit_id'))->orderBy('name')->get(),
-            'departments'   => Department::whereIn('id', Idea::whereIn('id', $ideaIds)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+            'projects'  => $query->paginate($perPage)->withQueryString(),
+            'perPage'   => $perPage,
+            'buNames'   => KpnBusinessUnit::names(), // Business Unit dari master_bisnisunits; Unit cascade via AJAX
+            'counts'    => $counts,
+            'tab'       => $tab,
+            'statusMap' => $statusMap,
         ] + $this->listSortState($request, $config));
     }
 
@@ -268,22 +292,20 @@ class ProjectController extends Controller
 
         $base = $wf->reviewQueueFor($request->user());
 
+        // Filter BU/Unit by NAMA (dropdown dari hcis) pada ide terkait — sama seperti My Project.
         $query = (clone $base)
-            ->when($request->filled('business_unit_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_id', $request->integer('business_unit_id'))))
-            ->when($request->filled('department_id'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_id', $request->integer('department_id'))))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->get('status')))
+            ->when($request->filled('bu'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_name', $request->get('bu'))))
+            ->when($request->filled('unit'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_name', $request->get('unit'))))
             ->with(['idea.businessUnit', 'leader', 'sponsor']);
 
         $this->applyListSearchSort($query, $request, $config);
 
-        $ideaIds = (clone $base)->select('idea_id');
         $perPage = $this->listPerPage($request);
 
         return view('projects.review', [
-            'projects'      => $query->paginate($perPage)->withQueryString(),
-            'perPage'       => $perPage,
-            'businessUnits' => BusinessUnit::whereIn('id', Idea::whereIn('id', $ideaIds)->select('business_unit_id'))->orderBy('name')->get(),
-            'departments'   => Department::whereIn('id', Idea::whereIn('id', $ideaIds)->whereNotNull('department_id')->select('department_id'))->orderBy('name')->get(),
+            'projects' => $query->paginate($perPage)->withQueryString(),
+            'perPage'  => $perPage,
+            'buNames'  => KpnBusinessUnit::names(), // Business Unit dari master_bisnisunits; Unit cascade via AJAX
         ] + $this->listSortState($request, $config));
     }
 
@@ -730,13 +752,55 @@ class ProjectController extends Controller
         abort_unless($isLastLayer, 403, 'Hanya committee layer terakhir yang boleh membuat project.');
     }
 
-    /** Format: P-{BU}-YYYYMMDD-{CAT}-00000. BU dari BU ide terkait. */
+    /**
+     * Override kode BU untuk nama tertentu (sama seperti template Idea ID).
+     * mis. "KPN Corporation" → CORP.
+     */
+    private const BU_CODE_MAP = [
+        'KPN Corporation' => 'CORP',
+        'Cement'          => 'CEME',
+        'Downstream'      => 'DOWN',
+        'KPN Sugar'       => 'SUGA',
+        'Plantations'     => 'PLANT',
+        'Property'        => 'PROP',
+    ];
+
+    /** Format: P-{BU}-YYYYMMDD-{CAT}-00000. BU dari nama BU ide terkait (via BU_CODE_MAP). */
     private function generateProjectId(Idea $idea, string $category): string
     {
-        $buCode = optional($idea->businessUnit)->code ?? 'GEN';
+        $buCode = $this->buCodeFromName($idea->business_unit_name);
         $date   = now()->format('Ymd');
         $seq    = Project::whereDate('created_at', now()->toDateString())->count() + 1;
 
         return sprintf('P-%s-%s-%s-%05d', $buCode, $date, $category, $seq);
+    }
+
+    /**
+     * Singkatan kode BU dari namanya (identik dengan template Idea ID):
+     *  - override BU_CODE_MAP bila terdaftar (mis. "KPN Corporation" → CORP),
+     *  - inisial tiap kata bila ≥ 3 huruf, selain itu 3 huruf pertama.
+     */
+    private function buCodeFromName(?string $name): string
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return 'GEN';
+        }
+
+        foreach (self::BU_CODE_MAP as $key => $code) {
+            if (strcasecmp($key, $name) === 0) {
+                return $code;
+            }
+        }
+
+        $words    = preg_split('/\s+/', preg_replace('/[^A-Za-z\s]/', '', $name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $initials = strtoupper(implode('', array_map(fn ($w) => $w[0], $words)));
+        if (strlen($initials) >= 3) {
+            return substr($initials, 0, 6);
+        }
+
+        $letters = strtoupper(preg_replace('/[^A-Za-z]/', '', $name));
+
+        return substr($letters, 0, 3) ?: 'GEN';
     }
 }

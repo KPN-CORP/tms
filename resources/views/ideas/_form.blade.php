@@ -70,7 +70,7 @@
                 @error('expected_outcome')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block font-semibold mb-1">Targeted Business Unit <span class="text-red-600">*</span></label>
                     <select name="business_unit" id="idea-bu"
@@ -83,12 +83,12 @@
                     @error('business_unit')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <div>
-                    <label class="block font-semibold mb-1">Targeted Department <span class="text-red-600">*</span></label>
+                    <label class="block font-semibold mb-1">Targeted Unit <span class="text-red-600">*</span></label>
                     {{-- Diisi via AJAX dari hcis sesuai Business Unit terpilih (data-remote-*) --}}
                     <select name="department" id="idea-dept"
                             data-remote-parent="#idea-bu" data-remote-url="{{ route('org.departments') }}" data-selected="{{ $selDept }}"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('department') border-red-500 @enderror">
-                        <option value="">Select Department</option>
+                        <option value="">Select Unit</option>
                         @if($selDept)<option value="{{ $selDept }}" selected>{{ $selDept }}</option>@endif
                     </select>
                     @error('department')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
@@ -96,7 +96,7 @@
             </div>
 
             {{-- Company & Location (opsional) — dari hcis, cascade dari Business Unit --}}
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block font-semibold mb-1">Targeted Company <span class="text-gray-400 text-sm font-normal">(opsional)</span></label>
                     <select name="company" id="idea-company"
@@ -128,14 +128,48 @@
                             <li class="flex items-center justify-between text-sm border rounded px-3 py-1.5">
                                 <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}" class="text-red-700 hover:underline">{{ $att->file_name }}</a>
                                 <button type="button" form="del-att-{{ $att->id }}" class="text-red-600 text-xs hover:underline"
-                                        onclick="if(confirm('Hapus lampiran?')) document.getElementById('del-att-{{ $att->id }}').submit()">Hapus</button>
+                                        onclick="if(confirm('Hapus lampiran?')) document.getElementById('del-att-{{ $att->id }}').submit()">Delete</button>
                             </li>
                         @endforeach
                     </ul>
                 @endif
-                <input type="file" name="attachments[]" multiple
-                       class="w-full text-sm border rounded-lg px-3 py-2 @error('attachments.*') border-red-500 @enderror">
-                <p class="text-xs text-gray-400 mt-1">Opsional. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
+                {{-- Multi-file: pilih/tarik banyak file, bisa batalkan salah satu sebelum submit --}}
+                <div x-data="{
+                        files: [], drag: false,
+                        add(e){ this.push(e.target.files); },
+                        drop(e){ this.drag = false; this.push(e.dataTransfer.files); },
+                        push(list){ for (const f of list){ if (!this.files.some(x => x.name === f.name && x.size === f.size)) this.files.push(f); } this.sync(); },
+                        remove(i){ this.files.splice(i, 1); this.sync(); },
+                        sync(){ const dt = new DataTransfer(); this.files.forEach(f => dt.items.add(f)); this.$refs.input.files = dt.files; },
+                        human(b){ return b >= 1048576 ? (b/1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b/1024)) + ' KB'; }
+                     }">
+                    <input type="file" name="attachments[]" multiple x-ref="input" @change="add($event)"
+                           accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.zip,.csv,.txt"
+                           class="hidden">
+
+                    {{-- Drop zone / tombol pilih --}}
+                    <div @click="$refs.input.click()"
+                         @dragover.prevent="drag = true" @dragleave.prevent="drag = false" @drop.prevent="drop($event)"
+                         :class="drag ? 'border-red-400 bg-red-50' : 'border-gray-300'"
+                         class="cursor-pointer border-2 border-dashed rounded-lg px-4 py-6 text-center text-sm text-gray-500 hover:bg-gray-50 @error('attachments.*') border-red-500 @enderror">
+                        <span class="font-semibold text-red-700">Choose files</span> atau tarik &amp; letakkan di sini
+                    </div>
+
+                    {{-- Daftar file terpilih + tombol batal per file --}}
+                    <ul class="mt-3 space-y-2" x-show="files.length" x-cloak>
+                        <template x-for="(f, i) in files" :key="f.name + f.size + i">
+                            <li class="flex items-center justify-between gap-3 border rounded-lg px-3 py-2 text-sm bg-white">
+                                <span class="truncate" x-text="f.name"></span>
+                                <span class="flex items-center gap-3 shrink-0">
+                                    <span class="text-gray-400" x-text="human(f.size)"></span>
+                                    <button type="button" @click="remove(i)" title="Batalkan file ini"
+                                            class="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 text-red-600 text-lg leading-none">&times;</button>
+                                </span>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+                <p class="text-xs text-gray-400 mt-1">Opsional. Bisa banyak file. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
                 @error('attachments.*')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 

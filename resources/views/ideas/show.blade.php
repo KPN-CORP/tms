@@ -107,7 +107,7 @@
                         <div class="{{ $box }}">{{ $idea->business_unit_name ?? optional($idea->businessUnit)->name ?? '-' }}</div>
                     </div>
                     <div>
-                        <label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Department</label>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Unit</label>
                         <div class="{{ $box }}">{{ $idea->department_name ?? optional($idea->department)->name ?? '-' }}</div>
                     </div>
                     <div>
@@ -121,15 +121,7 @@
                 </div>
 
                 <div>
-                    <label class="block text-sm font-semibold text-gray-600 mb-1">Supporting Documents</label>
-                    @forelse($idea->attachments as $att)
-                        <div class="flex items-center justify-between border-b py-2 last:border-0 text-sm">
-                            <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}" class="text-red-700 hover:underline">{{ $att->file_name }}</a>
-                            <span class="text-gray-400">{{ $att->file_size ? number_format($att->file_size / 1024, 0) . ' KB' : '' }}</span>
-                        </div>
-                    @empty
-                        <div class="{{ $box }} text-gray-400">Tidak ada lampiran.</div>
-                    @endforelse
+                    @include('ideas._attachments', ['idea' => $idea])
                 </div>
 
             </div>

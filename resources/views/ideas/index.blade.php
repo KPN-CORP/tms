@@ -24,12 +24,10 @@
         @endif
 
         @php
-            // Kartu ringkasan (mini dashboard). $counts = [status => jumlah] milik user.
             $total = $counts->sum();
             $cards = [
                 ['label' => 'Total Idea Draft',            'value' => $counts->get('draft', 0),            'accent' => 'text-gray-700',  'dot' => 'bg-gray-400'],
                 ['label' => 'Cumulative Submitted',        'value' => $total - $counts->get('draft', 0),   'accent' => 'text-blue-700',  'dot' => 'bg-blue-500'],
-                ['label' => 'In Submitted Status',         'value' => $counts->get('submitted', 0),        'accent' => 'text-amber-700', 'dot' => 'bg-amber-500'],
                 ['label' => 'Approved for Implementation', 'value' => $counts->get('approved', 0),         'accent' => 'text-green-700', 'dot' => 'bg-green-500'],
                 ['label' => 'Converted to Project',        'value' => $counts->get('project_created', 0),  'accent' => 'text-red-700',   'dot' => 'bg-red-500'],
             ];
@@ -46,8 +44,8 @@
             $tabUrl   = fn ($key) => request()->url() . '?' . http_build_query(array_merge(request()->query(), ['tab' => $key, 'page' => 1]));
         @endphp
 
-        {{-- Kartu ringkasan (5 kartu satu baris) --}}
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {{-- Kartu ringkasan (4 kartu, selalu satu baris) --}}
+        <div class="grid grid-cols-4 gap-4">
             @foreach($cards as $card)
                 <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
                     <div>
@@ -95,7 +93,9 @@
 
                 <div class="w-60">
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Business Unit</label>
-                    <select name="bu" id="filter-bu" onchange="this.form.requestSubmit()"
+                    {{-- Ganti BU → reset Unit lalu submit (agar filter Unit lama tidak ikut) --}}
+                    <select name="bu" id="filter-bu"
+                            onchange="var u=document.getElementById('filter-unit'); if(u.tomselect){u.tomselect.clear(true);}else{u.value='';} this.form.requestSubmit()"
                             class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
                         <option value=""></option>
                         @foreach($buNames as $bu)
@@ -106,16 +106,13 @@
 
                 <div class="w-60">
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Unit</label>
-                    {{-- Cascade dari Business Unit (client-side, data-bu = nama BU) --}}
-                    <select name="unit" id="filter-unit" data-cascade-parent="#filter-bu" onchange="this.form.requestSubmit()"
+                    {{-- Cascade via AJAX dari hcis (departments.department_name) sesuai BU terpilih --}}
+                    <select name="unit" id="filter-unit"
+                            data-remote-parent="#filter-bu" data-remote-url="{{ route('org.unit-names') }}" data-selected="{{ request('unit') }}"
+                            onchange="this.form.requestSubmit()"
                             class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
                         <option value=""></option>
-                        @foreach($unitsByBu as $buName => $units)
-                            @foreach($units as $unit)
-                                <option value="{{ $unit }}" data-bu="{{ $buName }}"
-                                    @selected(request('unit') === $unit && request('bu') === $buName)>{{ $unit }}</option>
-                            @endforeach
-                        @endforeach
+                        @if(request('unit'))<option value="{{ request('unit') }}" selected>{{ request('unit') }}</option>@endif
                     </select>
                 </div>
 

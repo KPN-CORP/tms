@@ -17,5 +17,5 @@
             <span class="ml-1 text-gray-400">({{ $paginator->firstItem() }}–{{ $paginator->lastItem() }} dari {{ $paginator->total() }})</span>
         @endif
     </div>
-    <div>{{ $paginator->links() }}</div>
+    <div>{{ $paginator->links('partials.pagination') }}</div>
 </div>
