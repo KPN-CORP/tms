@@ -76,7 +76,7 @@
                 <h3 class="text-lg font-semibold mb-4">Your Decision (Layer {{ $idea->current_layer }})</h3>
                 <div class="mb-3">
                     <label class="block text-sm font-semibold text-gray-600 mb-1">Note (optional)</label>
-                    <textarea form="approveForm" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200"></textarea>
+                    <textarea form="approveForm" id="idea-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200"></textarea>
                 </div>
                 <div class="flex gap-3">
                     <form id="approveForm" method="POST" action="{{ route('ideas.review.approve', $idea) }}">
@@ -84,7 +84,7 @@
                         <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button>
                     </form>
                     <form method="POST" action="{{ route('ideas.review.reject', $idea) }}"
-                          onsubmit="this.note.value=document.querySelector('#approveForm [name=note]').value">
+                          onsubmit="this.note.value=document.getElementById('idea-decision-note').value">
                         @csrf
                         <input type="hidden" name="note">
                         <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button>

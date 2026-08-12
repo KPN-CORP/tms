@@ -47,18 +47,18 @@
                 @elseif($isSponsor && $project->status === 'submitted')
                     <h3 class="text-lg font-semibold mb-3">Keputusan Sponsor</h3>
                     <div class="mb-3"><label class="block text-sm font-semibold text-gray-600 mb-1">Note</label>
-                        <textarea form="approveForm" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Catatan (wajib bila minta revisi)"></textarea></div>
+                        <textarea form="approveForm" id="sponsor-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Catatan (wajib bila minta revisi)"></textarea></div>
                     <div class="flex gap-3">
                         <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
-                        <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}" onsubmit="this.note.value=document.querySelector('#approveForm [name=note]').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Request Revision</button></form>
+                        <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}" onsubmit="this.note.value=document.getElementById('sponsor-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Request Revision</button></form>
                     </div>
                 @elseif($isReviewer)
                     <h3 class="text-lg font-semibold mb-3">Keputusan Committee {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }} (Layer {{ $project->current_layer }})</h3>
                     <div class="mb-3"><label class="block text-sm font-semibold text-gray-600 mb-1">Note</label>
-                        <textarea form="pApprove" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Catatan (opsional)"></textarea></div>
+                        <textarea form="pApprove" id="committee-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Catatan (opsional)"></textarea></div>
                     <div class="flex gap-3">
                         <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
-                        <form method="POST" action="{{ route('projects.review.reject', $project) }}" onsubmit="this.note.value=document.querySelector('#pApprove [name=note]').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
+                        <form method="POST" action="{{ route('projects.review.reject', $project) }}" onsubmit="this.note.value=document.getElementById('committee-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
                     </div>
                 @elseif($canSubmitCompletion)
                     <h3 class="text-lg font-semibold mb-3">Completion Request</h3>
@@ -280,6 +280,27 @@
                 </form>
             @endif
         </div>
+
+        {{-- Approval History — keputusan committee (approve/reject) + isi catatan/notes --}}
+        @if($project->approvals->isNotEmpty())
+            <div class="bg-white rounded-xl shadow overflow-hidden">
+                <div class="bg-red-800 text-white px-6 py-3 font-semibold">Approval History</div>
+                <div class="p-6">
+                    @foreach($project->approvals as $a)
+                        <div class="flex items-start gap-3 border-b py-2 last:border-0 text-sm">
+                            <span class="text-xs rounded-full px-2 py-1 shrink-0 {{ $a->decision === 'approve' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">
+                                Layer {{ $a->layer }} · {{ ucfirst($a->decision) }}
+                            </span>
+                            <div>
+                                <span class="font-semibold">{{ optional($a->user)->name }}</span>
+                                <span class="text-gray-400">· {{ $a->created_at?->format('d M Y H:i') }}</span>
+                                @if($a->note)<div class="text-gray-600 mt-0.5">{{ $a->note }}</div>@endif
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         {{-- 7. Project Progress --}}
         <div class="bg-white rounded-xl shadow overflow-hidden">

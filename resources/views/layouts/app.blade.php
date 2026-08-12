@@ -147,6 +147,12 @@
      dengan tiap <option data-bu="..."> untuk menyaring anak mengikuti parent. --}}
 <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script>
+    // Bila halaman dipulihkan dari bfcache (tombol Back/Forward browser), paksa reload
+    // agar data terbaru (mis. status ide submitted → On Review) selalu tampil, bukan versi cache.
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) { window.location.reload(); }
+    });
+
     document.addEventListener('DOMContentLoaded', function () {
         // 1) Semua dropdown jadi searchable.
         document.querySelectorAll('select:not([data-no-search])').forEach(function (el) {

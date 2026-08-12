@@ -127,6 +127,25 @@
             </div>
         </div>
 
+        {{-- Review History — keputusan committee (approve/reject) + isi catatan/notes --}}
+        @if($idea->approvals->isNotEmpty())
+            <div class="bg-white rounded-xl shadow p-6">
+                <h3 class="text-lg font-semibold mb-4">Review History</h3>
+                @foreach($idea->approvals as $a)
+                    <div class="flex items-start gap-3 border-b py-2 last:border-0">
+                        <span class="text-xs rounded-full px-2 py-1 shrink-0 {{ $a->decision === 'approve' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">
+                            Layer {{ $a->layer }} · {{ ucfirst($a->decision) }}
+                        </span>
+                        <div class="text-sm">
+                            <span class="font-semibold">{{ optional($a->user)->name }}</span>
+                            <span class="text-gray-400">· {{ $a->created_at?->format('d M Y H:i') }}</span>
+                            @if($a->note)<div class="text-gray-600 mt-0.5">{{ $a->note }}</div>@endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
     </div>
 
 </x-app-layout>

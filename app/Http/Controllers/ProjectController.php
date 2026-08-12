@@ -208,7 +208,7 @@ class ProjectController extends Controller
             'idea.businessUnit', 'idea.department', 'idea.user',
             'sponsor', 'leader', 'members.user', 'budgets',
             'implementationPlans', 'indicators', 'statusLogs.changedBy', 'attachments.uploader',
-            'updates.requester', 'updates.reviewer',
+            'updates.requester', 'updates.reviewer', 'approvals.user',
         ]);
 
         $user = $request->user();

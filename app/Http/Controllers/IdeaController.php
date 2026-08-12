@@ -93,7 +93,7 @@ class IdeaController extends Controller
     {
         abort_unless($idea->user_id === $request->user()->id, 403);
 
-        $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'attachments']);
+        $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'attachments', 'approvals.user']);
 
         return view('ideas.show', compact('idea'));
     }

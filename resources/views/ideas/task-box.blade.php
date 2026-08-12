@@ -23,7 +23,7 @@
                 'submitted' => 'Submitted',
                 'approved'  => 'Approved',
                 'review'    => 'On Review',
-                'rejected'  => 'Reject',
+                'rejected'  => 'Rejected',
             ];
             // URL tab: pertahankan filter/sort yang aktif, reset ke halaman 1.
             $tabUrl = fn ($key) => request()->url() . '?' . http_build_query(array_merge(request()->query(), ['tab' => $key, 'page' => 1]));
