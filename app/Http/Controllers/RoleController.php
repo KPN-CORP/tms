@@ -9,7 +9,9 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\PermissionRegistrar;
 
 class RoleController extends Controller
 {
@@ -107,7 +109,11 @@ class RoleController extends Controller
         return view('admin.role.assign-user', [
             'role'        => $role,
             'users'       => User::orderBy('name')->get(),
-            'assignedIds' => $role->users()->pluck('users.id')->all(),
+            // Baca dari model_has_roles di koneksi mysql (bukan via relasi users() yang jatuh ke kpncorp).
+            'assignedIds' => DB::connection('mysql')->table('model_has_roles')
+                ->where('role_id', $role->id)
+                ->where('model_type', User::class)
+                ->pluck('model_id')->all(),
         ]);
     }
 
@@ -118,10 +124,12 @@ class RoleController extends Controller
     {
         $validated = $request->validate([
             'users'   => ['array'],
-            'users.*' => ['integer', 'exists:users,id'],
+            'users.*' => ['integer', 'exists:kpncorp.users,id'],
         ]);
 
-        $role->users()->sync($validated['users'] ?? []);
+        // model_has_roles di koneksi mysql (relasi users() jatuh ke kpncorp yang tak punya tabelnya).
+        $this->syncPivotMysql('model_has_roles', 'model_id', $role->id, $validated['users'] ?? [], ['model_type' => User::class]);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         return redirect()
             ->route('admin.roles.index')
@@ -154,7 +162,7 @@ class RoleController extends Controller
             'locations'        => ['array'],
             'locations.*'      => ['integer', 'exists:locations,id'],
             'employees'        => ['array'],
-            'employees.*'      => ['integer', 'exists:users,id'],
+            'employees.*'      => ['integer', 'exists:kpncorp.users,id'],
         ]);
     }
 
@@ -168,6 +176,33 @@ class RoleController extends Controller
         $role->businessUnits()->sync($validated['business_units'] ?? []);
         $role->companies()->sync($validated['companies'] ?? []);
         $role->locations()->sync($validated['locations'] ?? []);
-        $role->employees()->sync($validated['employees'] ?? []);
+
+        // role_employees: pivot Role↔User. User ada di koneksi hcis, jadi relasi
+        // employees() akan menjalankan pivot di kpncorp (tak ada tabelnya). Kelola
+        // langsung via koneksi mysql (tempat tabel role_employees berada).
+        $this->syncPivotMysql('role_employees', 'user_id', $role->id, $validated['employees'] ?? []);
+    }
+
+    /**
+     * Sinkron pivot Role↔User pada koneksi MYSQL (bukan kpncorp), via delete+insert.
+     *
+     * @param  string  $table   nama tabel pivot (role_employees / model_has_roles)
+     * @param  string  $col     kolom user (user_id / model_id)
+     * @param  array<string>  $extra  kolom tambahan tetap (mis. model_type)
+     */
+    private function syncPivotMysql(string $table, string $col, int $roleId, array $userIds, array $extra = []): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $userIds)));
+
+        DB::connection('mysql')->table($table)
+            ->where('role_id', $roleId)
+            ->when(! empty($extra), fn ($q) => $q->where($extra))
+            ->delete();
+
+        if ($ids) {
+            DB::connection('mysql')->table($table)->insert(
+                array_map(fn ($uid) => ['role_id' => $roleId, $col => $uid] + $extra, $ids)
+            );
+        }
     }
 }
