@@ -68,7 +68,8 @@ class SsoController extends Controller
                 $user->save();
                 $request->session()->put('system', $sessionValue);
                 $request->session()->regenerate();
-                return redirect()->intended($redirectRoute);
+                // Arahkan sesuai role: Admin → dashboard, non-admin → My Ideas.
+                return redirect()->intended(route($user->homeRoute()));
             } else {
                 Alert::error('Login Failed, Please Contact Administrator')->showConfirmButton('OK');
                 return redirect('https://kpncorporation.darwinbox.com/');

@@ -10,6 +10,13 @@ class DashboardController extends Controller
 {
     public function index()
     {
+        // Dashboard hanya untuk Admin/Super Admin. Non-admin diarahkan ke My Ideas
+        // (menutup semua jalur: SSO, RedirectIfAuthenticated, akses URL langsung).
+        $user = auth()->user();
+        if (! $user || ! $user->hasAnyRole(['Admin', 'Super Admin'])) {
+            return redirect()->route('ideas.index');
+        }
+
         return view('dashboard', [
             'idea'    => $this->ideaMetrics(),
             'project' => $this->projectMetrics(),
