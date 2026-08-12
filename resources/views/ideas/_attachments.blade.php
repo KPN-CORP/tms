@@ -12,7 +12,7 @@
     @php $ext = strtolower(pathinfo($att->file_name, PATHINFO_EXTENSION)); @endphp
     <div class="flex items-center justify-between border-b py-2 last:border-0 text-sm">
         @if(in_array($ext, $viewable))
-            {{-- PDF & gambar → buka di tab baru (inline) --}}
+            {{-- PDF & gambar → klik nama buka di tab baru (inline) --}}
             <a href="{{ route('ideas.attachments.view', [$idea, $att]) }}" target="_blank" rel="noopener"
                class="text-red-700 hover:underline truncate">{{ $att->file_name }}</a>
         @else
@@ -20,7 +20,14 @@
             <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}"
                class="text-red-700 hover:underline truncate">{{ $att->file_name }}</a>
         @endif
-        <span class="text-gray-400 shrink-0 ml-3">{{ $att->file_size ? number_format($att->file_size / 1024, 0) . ' KB' : '' }}</span>
+        <span class="flex items-center gap-3 shrink-0 ml-3">
+            <span class="text-gray-400">{{ $att->file_size ? number_format($att->file_size / 1024, 0) . ' KB' : '' }}</span>
+            @if(in_array($ext, $viewable))
+                {{-- Selain view di tab baru, sediakan juga tombol Download --}}
+                <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}"
+                   class="text-xs text-gray-500 hover:text-red-700 hover:underline">Download</a>
+            @endif
+        </span>
     </div>
 @empty
     <div class="{{ $box ?? 'border rounded-lg px-4 py-3' }} text-gray-400">Tidak ada lampiran.</div>

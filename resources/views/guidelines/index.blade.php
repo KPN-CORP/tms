@@ -51,35 +51,62 @@
         {{-- List --}}
         <div class="space-y-3">
             @forelse($guidelines as $g)
-                <div class="bg-white rounded-xl shadow p-4 flex items-start justify-between gap-4 {{ $g->is_active ? '' : 'opacity-60' }}">
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2">
-                            <h4 class="font-semibold text-gray-800 truncate">{{ $g->title }}</h4>
-                            @unless($g->is_active)
-                                <span class="text-xs rounded-full px-2 py-0.5 bg-gray-200 text-gray-600">Archived</span>
-                            @endunless
+                @php
+                    $canView     = $canManage || $g->viewableBy($isCommittee);
+                    $canDownload = $canManage || $g->downloadableBy($isCommittee);
+                @endphp
+                <div class="bg-white rounded-xl shadow p-4 {{ $g->is_active ? '' : 'opacity-60' }}">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-semibold text-gray-800 truncate">{{ $g->title }}</h4>
+                                @unless($g->is_active)
+                                    <span class="text-xs rounded-full px-2 py-0.5 bg-gray-200 text-gray-600">Archived</span>
+                                @endunless
+                            </div>
+                            @if($g->description)<p class="text-sm text-gray-500 mt-1">{{ $g->description }}</p>@endif
+                            <p class="text-xs text-gray-400 mt-2">
+                                {{ $g->file_name }} · {{ $g->readable_size }}
+                                @if($g->uploader) · oleh {{ $g->uploader->name }}@endif
+                                · {{ $g->created_at?->format('d M Y') }}
+                            </p>
                         </div>
-                        @if($g->description)<p class="text-sm text-gray-500 mt-1">{{ $g->description }}</p>@endif
-                        <p class="text-xs text-gray-400 mt-2">
-                            {{ $g->file_name }} · {{ $g->readable_size }}
-                            @if($g->uploader) · oleh {{ $g->uploader->name }}@endif
-                            · {{ $g->created_at?->format('d M Y') }}
-                        </p>
+                        <div class="flex items-center gap-2 shrink-0">
+                            @if($canView && $g->isInlineViewable())
+                                <a href="{{ route('guidelines.view', $g) }}" target="_blank" rel="noopener"
+                                   class="px-3 py-1 text-xs bg-red-700 text-white rounded-lg hover:bg-red-800">View</a>
+                            @endif
+                            @if($canDownload)
+                                <a href="{{ route('guidelines.download', $g) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Download</a>
+                            @endif
+                            @if($canManage)
+                                <form method="POST" action="{{ route('guidelines.toggle', $g) }}">
+                                    @csrf
+                                    <button class="px-3 py-1 text-xs border {{ $g->is_active ? 'border-amber-300 text-amber-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $g->is_active ? 'Archive' : 'Restore' }}</button>
+                                </form>
+                                <form method="POST" action="{{ route('guidelines.destroy', $g) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button data-confirm="Hapus guideline ini?" data-confirm-title="Hapus Guideline" data-confirm-ok="Ya, Hapus" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
+                                </form>
+                            @endif
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                        <a href="{{ route('guidelines.download', $g) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Download</a>
-                        @if($canManage)
-                            <form method="POST" action="{{ route('guidelines.toggle', $g) }}">
-                                @csrf
-                                <button class="px-3 py-1 text-xs border {{ $g->is_active ? 'border-amber-300 text-amber-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $g->is_active ? 'Archive' : 'Restore' }}</button>
-                            </form>
-                            <form method="POST" action="{{ route('guidelines.destroy', $g) }}">
-                                @csrf
-                                @method('DELETE')
-                                <button data-confirm="Hapus guideline ini?" data-confirm-title="Hapus Guideline" data-confirm-ok="Ya, Hapus" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
-                            </form>
-                        @endif
-                    </div>
+
+                    {{-- Pengaturan hak akses (Employee & Committee × View/Download) — hanya pengelola --}}
+                    @if($canManage)
+                        <form method="POST" action="{{ route('guidelines.access', $g) }}" class="mt-3 pt-3 border-t flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-600">
+                            @csrf
+                            <span class="font-semibold text-gray-500">Hak Akses:</span>
+                            <span class="font-semibold text-gray-700">Employee</span>
+                            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" name="employee_can_view" value="1" @checked($g->employee_can_view)> View</label>
+                            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" name="employee_can_download" value="1" @checked($g->employee_can_download)> Download</label>
+                            <span class="font-semibold text-gray-700 ml-1">Committee</span>
+                            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" name="committee_can_view" value="1" @checked($g->committee_can_view)> View</label>
+                            <label class="inline-flex items-center gap-1 cursor-pointer"><input type="checkbox" name="committee_can_download" value="1" @checked($g->committee_can_download)> Download</label>
+                            <button class="ml-auto px-3 py-1 bg-gray-800 text-white rounded-lg hover:bg-gray-900">Save Access</button>
+                        </form>
+                    @endif
                 </div>
             @empty
                 <div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">Belum ada guideline.</div>

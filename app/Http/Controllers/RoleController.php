@@ -18,9 +18,17 @@ class RoleController extends Controller
      */
     public function manageRole()
     {
+        // employees_count & users_count dihitung dari tabel PIVOT (role_employees,
+        // model_has_roles) di koneksi default — TIDAK join tabel users (yang ada di
+        // database hcis), agar tak terjadi query lintas-DB yang ditolak izinnya di staging.
         $roles = Role::query()
             ->with('permissions')
-            ->withCount(['businessUnits', 'companies', 'locations', 'employees', 'users'])
+            ->withCount(['businessUnits', 'companies', 'locations'])
+            ->selectRaw('(select count(*) from role_employees where role_employees.role_id = roles.id) as employees_count')
+            ->selectRaw(
+                '(select count(*) from model_has_roles where model_has_roles.role_id = roles.id and model_has_roles.model_type = ?) as users_count',
+                [\App\Models\User::class]
+            )
             ->orderBy('name')
             ->get();
 

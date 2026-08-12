@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
@@ -31,7 +32,14 @@ class UserController extends Controller
                 });
             })
             ->when($roleFilter, function ($q) use ($roleFilter) {
-                $q->whereHas('roles', fn ($r) => $r->where('roles.id', $roleFilter));
+                // model_has_roles ada di DB default (tms), sedangkan User di hcis — hindari
+                // JOIN lintas-DB (whereHas): ambil id user dari pivot via koneksi mysql,
+                // lalu filter User by id.
+                $userIds = DB::connection('mysql')->table('model_has_roles')
+                    ->where('role_id', $roleFilter)
+                    ->where('model_type', User::class)
+                    ->pluck('model_id');
+                $q->whereIn('id', $userIds);
             })
             ->orderBy('name')
             ->paginate(20)

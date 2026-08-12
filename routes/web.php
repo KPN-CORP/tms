@@ -226,11 +226,13 @@ Route::middleware(['auth'])->group(function () {
     Route::middleware('permission:guideline.view|guideline.upload')->group(function () {
         Route::get('/guidelines', [GuidelineController::class, 'index'])->name('guidelines.index');
         Route::get('/guidelines/{guideline}/download', [GuidelineController::class, 'download'])->name('guidelines.download');
+        Route::get('/guidelines/{guideline}/view', [GuidelineController::class, 'view'])->name('guidelines.view');
     });
 
     Route::middleware('permission:guideline.upload')->group(function () {
         Route::post('/guidelines', [GuidelineController::class, 'store'])->name('guidelines.store');
         Route::post('/guidelines/{guideline}/toggle', [GuidelineController::class, 'toggle'])->name('guidelines.toggle');
+        Route::post('/guidelines/{guideline}/access', [GuidelineController::class, 'updateAccess'])->name('guidelines.access');
         Route::delete('/guidelines/{guideline}', [GuidelineController::class, 'destroy'])->name('guidelines.destroy');
     });
 

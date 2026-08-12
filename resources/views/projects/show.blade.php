@@ -17,7 +17,7 @@
 
         <div class="flex items-start justify-between">
             <div>
-                <a href="{{ route('projects.index') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Manage Project</a>
+                <a href="{{ route('projects.index') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to My Project</a>
                 <h1 class="text-2xl font-bold text-gray-800 mt-1">{{ $project->project_name }}</h1>
                 <p class="font-mono text-red-700">{{ $project->project_id }}</p>
             </div>
