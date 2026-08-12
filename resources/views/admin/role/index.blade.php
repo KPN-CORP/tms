@@ -61,10 +61,10 @@
                                        class="px-3 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Assign Users</a>
                                     <a href="{{ route('admin.roles.edit', $role) }}"
                                        class="px-3 py-1 text-sm border rounded-lg hover:bg-gray-100">Edit</a>
-                                    <form method="POST" action="{{ route('admin.roles.destroy', $role) }}"
-                                          onsubmit="return confirm('Delete role {{ $role->name }}?');">
+                                    <form method="POST" action="{{ route('admin.roles.destroy', $role) }}">
                                         @csrf @method('DELETE')
                                         <button type="submit"
+                                                data-confirm="Delete role {{ $role->name }}?" data-confirm-title="Delete Role" data-confirm-ok="Ya, Hapus"
                                                 class="px-3 py-1 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                     </form>
                                 </div>

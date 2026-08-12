@@ -73,10 +73,10 @@
                                 @csrf
                                 <button class="px-3 py-1 text-xs border {{ $g->is_active ? 'border-amber-300 text-amber-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $g->is_active ? 'Archive' : 'Restore' }}</button>
                             </form>
-                            <form method="POST" action="{{ route('guidelines.destroy', $g) }}" onsubmit="return confirm('Hapus guideline ini?')">
+                            <form method="POST" action="{{ route('guidelines.destroy', $g) }}">
                                 @csrf
                                 @method('DELETE')
-                                <button class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
+                                <button data-confirm="Hapus guideline ini?" data-confirm-title="Hapus Guideline" data-confirm-ok="Ya, Hapus" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                             </form>
                         @endif
                     </div>

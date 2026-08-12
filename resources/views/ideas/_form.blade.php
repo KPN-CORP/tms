@@ -127,8 +127,8 @@
                         @foreach($idea->attachments as $att)
                             <li class="flex items-center justify-between text-sm border rounded px-3 py-1.5">
                                 <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}" class="text-red-700 hover:underline">{{ $att->file_name }}</a>
-                                <button type="button" form="del-att-{{ $att->id }}" class="text-red-600 text-xs hover:underline"
-                                        onclick="if(confirm('Hapus lampiran?')) document.getElementById('del-att-{{ $att->id }}').submit()">Delete</button>
+                                <button type="submit" form="del-att-{{ $att->id }}" class="text-red-600 text-xs hover:underline"
+                                        data-confirm="Hapus lampiran?" data-confirm-title="Hapus Lampiran" data-confirm-ok="Ya, Hapus">Delete</button>
                             </li>
                         @endforeach
                     </ul>

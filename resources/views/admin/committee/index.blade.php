@@ -84,13 +84,12 @@
                                         <div class="flex items-center justify-end gap-2">
                                             <a href="{{ route('admin.committee.index', array_filter(['approval_type' => $set['approval_type'], 'business_unit_id' => $set['business_unit_id'], 'department' => $set['dept_name_raw']])) }}#editor"
                                                class="px-3 py-1.5 border border-red-700 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-50">Edit</a>
-                                            <form method="POST" action="{{ route('admin.committee.destroy') }}"
-                                                  onsubmit="return confirm('Hapus committee {{ $set['type_label'] }} — {{ $set['bu_name'] }} / {{ $set['dept_name'] }}?')">
+                                            <form method="POST" action="{{ route('admin.committee.destroy') }}">
                                                 @csrf @method('DELETE')
                                                 <input type="hidden" name="approval_type" value="{{ $set['approval_type'] }}">
                                                 <input type="hidden" name="business_unit_id" value="{{ $set['business_unit_id'] }}">
                                                 <input type="hidden" name="department_id" value="{{ $set['department_id'] }}">
-                                                <button class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700">Delete</button>
+                                                <button data-confirm="Hapus committee {{ $set['type_label'] }} — {{ $set['bu_name'] }} / {{ $set['dept_name'] }}?" data-confirm-title="Hapus Committee" data-confirm-ok="Ya, Hapus" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700">Delete</button>
                                             </form>
                                         </div>
                                     </td>

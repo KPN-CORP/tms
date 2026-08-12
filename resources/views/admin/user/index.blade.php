@@ -83,11 +83,10 @@
                                     <div class="flex items-center justify-end gap-2">
                                         <a href="{{ route('admin.users.edit', $user) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Edit</a>
                                         @if($user->id !== auth()->id())
-                                            <form method="POST" action="{{ route('admin.users.destroy', $user) }}"
-                                                  onsubmit="return confirm('Hapus user {{ $user->name }}?')">
+                                            <form method="POST" action="{{ route('admin.users.destroy', $user) }}">
                                                 @csrf
                                                 @method('DELETE')
-                                                <button class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
+                                                <button data-confirm="Hapus user {{ $user->name }}?" data-confirm-title="Hapus User" data-confirm-ok="Ya, Hapus" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                             </form>
                                         @endif
                                     </div>

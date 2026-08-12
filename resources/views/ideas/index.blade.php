@@ -161,10 +161,10 @@
                                         <div class="flex items-center justify-end gap-2">
                                             <a href="{{ route('ideas.edit', $idea) }}"
                                                class="px-3 py-1 text-sm border rounded-lg hover:bg-gray-100">Edit</a>
-                                            <form method="POST" action="{{ route('ideas.destroy', $idea) }}"
-                                                  onsubmit="return confirm('Delete this draft?');">
+                                            <form method="POST" action="{{ route('ideas.destroy', $idea) }}">
                                                 @csrf @method('DELETE')
                                                 <button type="submit"
+                                                        data-confirm="Delete this draft?" data-confirm-title="Delete Draft" data-confirm-ok="Ya, Hapus"
                                                         class="px-3 py-1 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                             </form>
                                         </div>
