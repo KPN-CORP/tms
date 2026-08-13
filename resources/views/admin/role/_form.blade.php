@@ -150,44 +150,54 @@
             </div>
         </div>
 
-        {{-- Tabs --}}
-        <div class="flex flex-wrap gap-1 border-b mb-4">
-            @foreach($permissionGroups as $group => $perms)
-                <button type="button" @click="active = @js($group)"
-                        class="px-4 py-2 -mb-px border-b-2 font-medium transition-colors"
-                        :class="active === @js($group)
-                            ? 'border-red-700 text-red-700'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'">
-                    {{ $group }}
-                    <span class="ml-1 text-xs rounded-full px-1.5 py-0.5"
-                          :class="groupCount(@js($group)) > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-400'"
-                          x-text="groupCount(@js($group)) + '/' + {{ $perms->count() }}"></span>
-                </button>
-            @endforeach
-        </div>
+        {{-- Layout: tab vertikal di kiri (scrollable) + panel isi di kanan --}}
+        <div class="flex gap-6">
 
-        {{-- Panels --}}
-        @foreach($permissionGroups as $group => $perms)
-            <div x-show="active === @js($group)" x-cloak>
-                <div class="flex justify-end mb-3">
-                    <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-                        <input type="checkbox" class="rounded border-gray-300"
-                               :checked="groupAllChecked(@js($group))"
-                               @change="toggleGroup(@js($group), $event.target.checked)">
-                        Pilih semua di {{ $group }}
-                    </label>
-                </div>
-                <div class="grid grid-cols-3 gap-4">
-                    @foreach($perms as $permission)
-                        <label class="flex items-center gap-3">
-                            <input type="checkbox" name="permissions[]" value="{{ $permission->id }}"
-                                   class="rounded border-gray-300" x-model="selected[{{ $permission->id }}]">
-                            <span>{{ $permission->name }}</span>
-                        </label>
+            {{-- Tab list vertikal — bisa di-scroll ke bawah bila kategori banyak --}}
+            <div class="w-56 shrink-0 border-r pr-2 max-h-80 overflow-y-auto">
+                <div class="flex flex-col gap-1">
+                    @foreach($permissionGroups as $group => $perms)
+                        <button type="button" @click="active = @js($group)"
+                                class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-left font-medium transition-colors"
+                                :class="active === @js($group)
+                                    ? 'bg-red-50 text-red-700'
+                                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'">
+                            <span class="truncate">{{ $group }}</span>
+                            <span class="shrink-0 text-xs rounded-full px-1.5 py-0.5"
+                                  :class="groupCount(@js($group)) > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-400'"
+                                  x-text="groupCount(@js($group)) + '/' + {{ $perms->count() }}"></span>
+                        </button>
                     @endforeach
                 </div>
             </div>
-        @endforeach
+
+            {{-- Panel isi kategori aktif --}}
+            <div class="flex-1 min-w-0">
+                @foreach($permissionGroups as $group => $perms)
+                    <div x-show="active === @js($group)" x-cloak>
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-sm font-semibold text-gray-700">{{ $group }}</span>
+                            <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                                <input type="checkbox" class="rounded border-gray-300"
+                                       :checked="groupAllChecked(@js($group))"
+                                       @change="toggleGroup(@js($group), $event.target.checked)">
+                                Pilih semua di {{ $group }}
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            @foreach($perms as $permission)
+                                <label class="flex items-center gap-3">
+                                    <input type="checkbox" name="permissions[]" value="{{ $permission->id }}"
+                                           class="rounded border-gray-300" x-model="selected[{{ $permission->id }}]">
+                                    <span>{{ $permission->displayLabel() }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+        </div>
     </div>
 
 </form>
