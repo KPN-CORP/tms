@@ -89,9 +89,9 @@
                         @error('approval_type')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
                     </div>
                     <div>
-                        <label class="block text-sm font-semibold text-gray-600 mb-1">Status <span class="text-gray-400 font-normal">(optional)</span></label>
-                        <select name="status" data-no-search class="{{ $inp }} @error('status') border-red-500 @enderror">
-                            <option value="">— tanpa status —</option>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Status <span class="text-red-600">*</span></label>
+                        <select name="status" data-no-search required class="{{ $inp }} @error('status') border-red-500 @enderror">
+                            <option value="">Pilih status…</option>
                             @foreach($statusOptions as $key => $label)
                                 <option value="{{ $key }}" @selected($val('status') === $key)>{{ $label }}</option>
                             @endforeach

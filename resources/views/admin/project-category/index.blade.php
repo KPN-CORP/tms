@@ -7,9 +7,18 @@
     @php
         $inp = 'w-full border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200';
         $val = fn ($f) => old($f, $editing?->$f);
+
+        // Baris Require Role awal (dari old input / data edit) — dipakai repeater & lebar form.
+        if (old('roles') !== null) {
+            $roleRows = collect(old('roles'))->map(fn ($r, $i) => ['role' => (string) $r, 'total' => (string) (old('totals')[$i] ?? '')])->values()->all();
+        } else {
+            $roleRows = collect($editing?->required_roles ?? [])->map(fn ($r) => ['role' => (string) ($r['role'] ?? ''), 'total' => (string) ($r['total'] ?? '')])->values()->all();
+        }
+        if (empty($roleRows)) $roleRows = [['role' => '', 'total' => '']];
     @endphp
 
-    <div class="p-6 space-y-6 max-w-4xl">
+    <div class="p-6 space-y-6 max-w-6xl"
+         x-data="{ rows: {{ Illuminate\Support\Js::from($roleRows) }} }">
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Project Category</h1>
@@ -103,17 +112,9 @@
                 </div>
 
                 {{-- Require roles (opsional, MULTI) — memprapopulasi "Role in Project" di Team Members --}}
-                @php
-                    if (old('roles') !== null) {
-                        $roleRows = collect(old('roles'))->map(fn ($r, $i) => ['role' => (string) $r, 'total' => (string) (old('totals')[$i] ?? '')])->values()->all();
-                    } else {
-                        $roleRows = collect($editing?->required_roles ?? [])->map(fn ($r) => ['role' => (string) ($r['role'] ?? ''), 'total' => (string) ($r['total'] ?? '')])->values()->all();
-                    }
-                    if (empty($roleRows)) $roleRows = [['role' => '', 'total' => '']];
-                @endphp
-                <div x-data="{ rows: {{ Illuminate\Support\Js::from($roleRows) }} }">
+                <div>
                     <label class="block text-sm font-semibold text-gray-600 mb-1">Require Role <span class="text-gray-400 font-normal">(optional, bisa lebih dari satu)</span></label>
-                    <p class="text-xs text-gray-400 mb-2">Mis. <b>Satpam</b> × <b>2</b> → di Team Members muncul 2 baris "Satpam", tinggal pilih nama. Tambahkan baris untuk role lain.</p>
+                    <p class="text-xs text-gray-400 mb-2">Mis. <b>Co-Leader</b> × <b>2</b> → di Team Members muncul 2 baris "Co-Leader", tinggal pilih nama. Tambahkan baris untuk role lain.</p>
 
                     <div class="space-y-2">
                         @php $inpRow = 'border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200'; @endphp
@@ -121,10 +122,11 @@
                             <div class="flex items-center gap-2">
                                 <input name="roles[]" x-model="row.role" placeholder="Nama role (mis. Co - Leader)" class="{{ $inpRow }} flex-1 min-w-0">
                                 <input name="totals[]" x-model="row.total" placeholder="Jumlah" class="{{ $inpRow }} w-28 shrink-0">
-                                <button type="button" @click="rows.splice(i, 1)"
+                                {{-- Baris terakhir: tombol tetap ada tapi mengosongkan isi (bukan menghapus baris). --}}
+                                <button type="button"
+                                        @click="if (rows.length > 1) { rows.splice(i, 1) } else { rows[i].role = ''; rows[i].total = '' }"
                                         class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
-                                        title="Hapus role" x-show="rows.length > 1">&times;</button>
-                                <span class="shrink-0 w-9 h-9" x-show="rows.length <= 1"></span>
+                                        :title="rows.length > 1 ? 'Hapus role' : 'Kosongkan'">&times;</button>
                             </div>
                         </template>
                     </div>

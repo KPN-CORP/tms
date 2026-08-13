@@ -64,11 +64,11 @@ class SlaSettingController extends Controller
                 Rule::in(array_keys(CommitteeAssignment::TYPES)),
                 // Kombinasi (approval_type + status) tidak boleh duplikat.
                 Rule::unique('sla_settings')
-                    ->where(fn ($q) => $q->where('status', $request->input('status') ?: null))
+                    ->where(fn ($q) => $q->where('status', $request->input('status')))
                     ->ignore($sla?->id),
             ],
             'days'   => ['required', 'integer', 'min:1', 'max:365'],
-            'status' => ['nullable', Rule::in(array_keys(SlaSetting::STATUS_OPTIONS))],
+            'status' => ['required', Rule::in(array_keys(SlaSetting::STATUS_OPTIONS))],
         ], [
             'approval_type.unique' => 'SLA untuk jenis & status ini sudah ada.',
         ]);
