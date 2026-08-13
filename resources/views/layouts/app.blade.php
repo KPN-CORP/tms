@@ -32,6 +32,19 @@
         .ts-wrapper .ts-control > *{ margin: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; }
         .ts-wrapper .ts-control input{ line-height: 1.5rem; height: auto; }
         .ts-wrapper .ts-control > input::placeholder{ color: #9ca3af; }  /* placeholder abu-abu */
+        /* Multi-select: tinggi MENGIKUTI isi (item wrap ke bawah), tidak terpotong saat banyak.
+           Single-select tetap 38px agar sama dengan input lain. */
+        .ts-wrapper.multi .ts-control{
+            height: auto !important;
+            min-height: 38px !important;
+            flex-wrap: wrap !important;
+            align-items: center !important;
+            align-content: center !important;
+            gap: .3rem !important;
+            padding: .3rem .5rem !important;
+        }
+        .ts-wrapper.multi .ts-control > .item{ margin: 0 !important; max-width: 100%; }
+        .ts-wrapper.multi .ts-control > input{ height: 1.5rem !important; }
         .ts-wrapper.focus .ts-control,
         .ts-wrapper.input-active .ts-control{
             border-color: #fca5a5 !important;       /* red-300 */

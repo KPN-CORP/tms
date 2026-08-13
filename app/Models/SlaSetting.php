@@ -21,11 +21,8 @@ class SlaSetting extends Model
 
     /** Opsi status (basis perhitungan SLA) untuk dropdown — value => label. */
     public const STATUS_OPTIONS = [
-        'submitted'         => 'Submitted',
-        'review'            => 'On Review',
-        'committee_review'  => 'Committee Review',
-        'completion_review' => 'Completion Review',
-        'ongoing'           => 'Ongoing',
+        'submitted' => 'Submitted',
+        'review'    => 'On Review',
     ];
 
     /** Label status terpilih (mis. "On Review"), atau '-' bila kosong. */
