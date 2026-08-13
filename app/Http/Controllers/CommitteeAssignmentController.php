@@ -165,12 +165,9 @@ class CommitteeAssignmentController extends Controller
             }
         });
 
+        // Redirect TANPA query params → form "Tambah / Ubah Committee" kembali kosong (default).
         return redirect()
-            ->route('admin.committee.index', array_filter([
-                'approval_type'    => $data['approval_type'],
-                'business_unit_id' => $data['business_unit_id'],
-                'department'       => $data['department'] ?? null,
-            ]))
+            ->route('admin.committee.index')
             ->with('success', 'Committee assignment saved.');
     }
 

@@ -27,6 +27,9 @@ class RoleController extends Controller
         // model_has_roles) di koneksi default — TIDAK join tabel users (yang ada di
         // database hcis), agar tak terjadi query lintas-DB yang ditolak izinnya di staging.
         $roles = Role::query()
+            // Sembunyikan role Employee dari daftar — wajib & otomatis untuk SEMUA user
+            // (via SSO), jadi tak perlu dikelola di sini. Super Admin & role lain tetap tampil.
+            ->where('name', '!=', 'Employee')
             ->with('permissions')
             ->withCount(['businessUnits', 'companies', 'locations'])
             ->selectRaw('(select count(*) from role_employees where role_employees.role_id = roles.id) as employees_count')
@@ -99,11 +102,30 @@ class RoleController extends Controller
 
     /**
      * Hapus Role.
+     *
+     * FK antar tabel sudah di-drop, sehingga $role->delete() TIDAK membersihkan
+     * baris pivot terkait. Tanpa ini, menghapus role meninggalkan assignment
+     * menggantung di model_has_roles (mis. user seolah masih punya role yang sudah
+     * dihapus). Maka bersihkan SEMUA pivot role (koneksi mysql) lebih dulu.
      */
     public function deleteRole(Role $role)
     {
         $name = $role->name;
+
+        $conn = DB::connection('mysql');
+        foreach ([
+            'model_has_roles',       // pivot Spatie: role ↔ user
+            'role_has_permissions',  // pivot Spatie: role ↔ permission
+            'role_business_units',   // restrict scope
+            'role_companies',
+            'role_locations',
+            'role_employees',
+        ] as $pivot) {
+            $conn->table($pivot)->where('role_id', $role->id)->delete();
+        }
+
         $role->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         return redirect()
             ->route('admin.roles.index')

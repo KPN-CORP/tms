@@ -11,22 +11,21 @@
 @forelse($idea->attachments as $att)
     @php $ext = strtolower(pathinfo($att->file_name, PATHINFO_EXTENSION)); @endphp
     <div class="flex items-center justify-between border-b py-2 last:border-0 text-sm">
+        {{-- KIRI: nama file --}}
         @if(in_array($ext, $viewable))
             {{-- PDF & gambar → klik nama buka di tab baru (inline) --}}
             <a href="{{ route('ideas.attachments.view', [$idea, $att]) }}" target="_blank" rel="noopener"
                class="text-red-700 hover:underline truncate">{{ $att->file_name }}</a>
         @else
-            {{-- xlsx/pptx/dll → langsung download --}}
+            {{-- xlsx/pptx/dll → klik nama langsung download --}}
             <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}"
                class="text-red-700 hover:underline truncate">{{ $att->file_name }}</a>
         @endif
+        {{-- KANAN: tombol Download, lalu ukuran file paling kanan --}}
         <span class="flex items-center gap-3 shrink-0 ml-3">
+            <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}"
+               class="text-xs text-red-700 hover:text-red-700 hover:underline">Download</a>
             <span class="text-gray-400">{{ $att->file_size ? number_format($att->file_size / 1024, 0) . ' KB' : '' }}</span>
-            @if(in_array($ext, $viewable))
-                {{-- Selain view di tab baru, sediakan juga tombol Download --}}
-                <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}"
-                   class="text-xs text-gray-500 hover:text-red-700 hover:underline">Download</a>
-            @endif
         </span>
     </div>
 @empty
