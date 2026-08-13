@@ -313,7 +313,7 @@
                 {{-- Tambah member manual (role bebas) --}}
                 <form method="POST" action="{{ route('projects.members.store', $project) }}" class="p-4 border-t bg-gray-50 flex flex-wrap items-end gap-2">
                     @csrf
-                    <select name="user_id" required class="{{ $inp }} flex-1 min-w-[160px]"><option value="">Select member…</option>@foreach($users as $u)<option value="{{ $u->id }}">{{ $u->name }}</option>@endforeach</select>
+                    <select name="user_id" required data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id" class="{{ $inp }} flex-1 min-w-[200px]"><option value="">Ketik nama / employee ID…</option></select>
                     <input name="role" placeholder="Role (mis. Member, Co-Leader)" required class="{{ $inp }} flex-1 min-w-[160px]">
                     <button class="px-4 py-2 bg-red-700 text-white rounded-lg text-sm hover:bg-red-800">Add</button>
                 </form>

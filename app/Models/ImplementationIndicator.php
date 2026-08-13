@@ -2,10 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 
 class ImplementationIndicator extends Model
 {
+    use LogsActivity;
+
+    public function activityLabel(): string
+    {
+        return $this->indicator ?? ('Indicator #' . $this->getKey());
+    }
+
     public const TYPES = ['Higher Better', 'Lower Better'];
 
     protected $fillable = [

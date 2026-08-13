@@ -50,8 +50,7 @@
             // User Management di-hide sementara (menu saja). Uncomment untuk mengaktifkan kembali.
             // ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
             ['label' => 'SLA Setting',          'route' => 'admin.sla.index', 'permission' => 'sla.manage', 'active' => ['admin.sla.*']],
-            // Activity Log di-hide sementara (menu & fitur). Uncomment untuk mengaktifkan kembali.
-            // ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
+            ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
         ],
         'Guidelines' => [
             ['label' => 'Guidelines', 'route' => 'guidelines.index', 'permission' => 'guideline.view', 'active' => ['guidelines.*']],

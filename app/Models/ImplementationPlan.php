@@ -2,10 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 
 class ImplementationPlan extends Model
 {
+    use LogsActivity;
+
+    public function activityLabel(): string
+    {
+        return $this->activity ?? ('Activity #' . $this->getKey());
+    }
+
     protected $fillable = [
         'project_id', 'activity', 'planning_start', 'planning_end',
         'actual_start', 'actual_end', 'pic_user_ids', 'remarks', 'sequence_no',

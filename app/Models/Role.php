@@ -2,10 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Spatie\Permission\Models\Role as SpatieRole;
 
 class Role extends SpatieRole
 {
+    use LogsActivity;
+
+    public function activityLabel(): string
+    {
+        return $this->name ?? ('Role #' . $this->getKey());
+    }
+
     // Paksa koneksi tm_system (default). Tanpa ini, saat User (koneksi hcis)
     // memanggil roles(), Laravel morphToMany mewariskan koneksi hcis ke Role →
     // pivot model_has_roles salah database. Role/pivot HARUS di tm_system.

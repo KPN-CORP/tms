@@ -143,10 +143,11 @@ class UserController extends Controller
     {
         return $request->validate([
             'name'             => ['required', 'string', 'max:255'],
-            'email'            => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->id)],
+            // users ada di hcis (kpncorp) — cek unik di koneksi itu, bukan default (tms).
+            'email'            => ['required', 'email', 'max:255', Rule::unique('kpncorp.users', 'email')->ignore($user?->id)],
             // Password wajib saat create, opsional saat edit.
             'password'         => [$user ? 'nullable' : 'required', 'nullable', 'string', 'min:8', 'confirmed'],
-            'employee_id'      => ['nullable', 'string', 'max:50', Rule::unique('users', 'employee_id')->ignore($user?->id)],
+            'employee_id'      => ['nullable', 'string', 'max:50', Rule::unique('kpncorp.users', 'employee_id')->ignore($user?->id)],
             'business_unit_id' => ['nullable', 'integer', 'exists:business_units,id'],
             'department_id'    => ['nullable', 'integer', 'exists:departments,id'],
             'job_level'        => ['nullable', 'integer', Rule::in(array_keys(User::JOB_LEVELS))],

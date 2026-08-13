@@ -2,10 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 
 class CommitteeAssignment extends Model
 {
+    use LogsActivity;
+
+    public function activityLabel(): string
+    {
+        return (self::TYPES[$this->approval_type] ?? $this->approval_type) . ' — Layer ' . $this->layer;
+    }
+
     public const TYPES = [
         'idea'               => 'Idea',
         'project_proposal'   => 'Project Proposal',

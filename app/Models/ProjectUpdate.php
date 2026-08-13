@@ -2,10 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 
 class ProjectUpdate extends Model
 {
+    use LogsActivity;
+
+    public function activityLabel(): string
+    {
+        return (self::CHANGE_TYPES[$this->change_type] ?? $this->change_type) . ' request';
+    }
+
     public const CHANGE_TYPES = [
         'budget'   => 'Budget',
         'planning' => 'Planning / Target (Impl. Plan & Indicators)',

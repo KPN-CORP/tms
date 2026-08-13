@@ -2,10 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsActivity;
 use Illuminate\Database\Eloquent\Model;
 
 class ProjectCategory extends Model
 {
+    use LogsActivity;
+
+    public function activityLabel(): string
+    {
+        return $this->code ?? ('Category #' . $this->getKey());
+    }
+
     protected $fillable = [
         'name', 'code', 'description',
         'leader_grade_min', 'leader_grade_max',

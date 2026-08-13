@@ -223,6 +223,11 @@ class ProjectController extends Controller
 
         $updateSvc = app(ProjectUpdateService::class);
 
+        // Hanya muat user PIC yang benar-benar dipakai (untuk resolusi nama di tabel plan) —
+        // BUKAN seluruh user hcis. Penambahan member memakai search AJAX (org.users).
+        $picIds = $project->implementationPlans
+            ->pluck('pic_user_ids')->filter()->flatten()->unique()->values();
+
         return view('projects.show', [
             'project'            => $project,
             'canEdit'            => $project->canLeaderEditProposal($user),
@@ -235,7 +240,7 @@ class ProjectController extends Controller
             'canCancel'          => $this->canCancel($project, $user) && ! in_array($project->status, ['completed', 'cancelled'], true),
             'reviewableUpdateIds' => $project->updates->filter(fn ($u) => $updateSvc->isReviewer($u, $user))->pluck('id'),
             'updateTypes'        => ProjectUpdate::CHANGE_TYPES,
-            'users'              => User::orderBy('name')->get(),
+            'users'              => User::whereIn('id', $picIds)->get(),
             'teamMembers'        => $teamMembers,
             'canUploadAttachment' => $project->isTeamMember($user) || $user->hasRole('Super Admin'),
         ]);
@@ -504,7 +509,8 @@ class ProjectController extends Controller
             'actual_start'   => ['nullable', 'date'],
             'actual_end'     => ['nullable', 'date'],
             'pic_user_ids'   => ['nullable', 'array'],
-            'pic_user_ids.*' => ['integer', 'exists:users,id'],
+            // users ada di hcis (kpncorp) — validasi ke koneksi itu, bukan default (tms).
+            'pic_user_ids.*' => ['integer', 'exists:kpncorp.users,id'],
             'remarks'        => ['nullable', 'string', 'max:2000'],
         ]);
 
@@ -659,7 +665,8 @@ class ProjectController extends Controller
         $this->authorizeLeader($request, $project);
 
         $data = $request->validate([
-            'user_id' => ['required', 'integer', 'exists:users,id'],
+            // users ada di hcis (kpncorp) — validasi ke koneksi itu, bukan default (tms).
+            'user_id' => ['required', 'integer', 'exists:kpncorp.users,id'],
             'role'    => ['required', 'string', 'max:100'],
         ]);
 

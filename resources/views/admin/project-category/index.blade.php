@@ -111,8 +111,8 @@
                         @php $inpRow = 'border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200'; @endphp
                         <template x-for="(row, i) in rows" :key="i">
                             <div class="flex items-center gap-2">
-                                <input name="roles[]" x-model="row.role" placeholder="Nama role (mis. Satpam)" class="{{ $inpRow }} flex-1 min-w-0">
-                                <input name="totals[]" x-model="row.total" placeholder="Jumlah (mis. 2)" class="{{ $inpRow }} w-28 shrink-0">
+                                <input name="roles[]" x-model="row.role" placeholder="Nama role (mis. Co - Leader)" class="{{ $inpRow }} flex-1 min-w-0">
+                                <input name="totals[]" x-model="row.total" placeholder="Jumlah" class="{{ $inpRow }} w-28 shrink-0">
                                 <button type="button" @click="rows.splice(i, 1)"
                                         class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
                                         title="Hapus role" x-show="rows.length > 1">&times;</button>

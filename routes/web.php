@@ -204,18 +204,22 @@ Route::middleware(['auth'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | User Management (izin: user.manage) — §9.5
+    | User Management (izin: user.manage) — §9.5 — DINONAKTIFKAN
     |--------------------------------------------------------------------------
+    | User = data hcis (READ-ONLY); create/update/delete di sini menulis ke hcis
+    | (diblok write-guard), jadi fitur ini tak kompatibel. Menu sidebar juga sudah
+    | di-hide. Route dimatikan agar URL /admin/users tidak dapat diakses.
+    | Untuk mengaktifkan kembali: uncomment blok di bawah (dan menu di sidebar).
     */
 
-    Route::prefix('admin')->name('admin.')->middleware('permission:user.manage')->group(function () {
-        Route::get('/users', [UserController::class, 'index'])->name('users.index');
-        Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
-        Route::post('/users', [UserController::class, 'store'])->name('users.store');
-        Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
-        Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
-        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
-    });
+    // Route::prefix('admin')->name('admin.')->middleware('permission:user.manage')->group(function () {
+    //     Route::get('/users', [UserController::class, 'index'])->name('users.index');
+    //     Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+    //     Route::post('/users', [UserController::class, 'store'])->name('users.store');
+    //     Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
+    //     Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+    //     Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+    // });
 
     /*
     |--------------------------------------------------------------------------
@@ -240,15 +244,12 @@ Route::middleware(['auth'])->group(function () {
     /*
     |--------------------------------------------------------------------------
     | Activity Log — audit trail (izin: audit.view) — §9.2
-    | DI-HIDE SEMENTARA: route dinonaktifkan agar fitur tidak bisa diakses.
-    | Pencatatan audit (trait LogsActivity) tetap berjalan di background.
-    | Uncomment blok di bawah untuk mengaktifkan kembali.
     |--------------------------------------------------------------------------
     */
 
-    // Route::prefix('admin')->name('admin.')->middleware('permission:audit.view')->group(function () {
-    //     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
-    // });
+    Route::prefix('admin')->name('admin.')->middleware('permission:audit.view')->group(function () {
+        Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+    });
 
     /*
     |--------------------------------------------------------------------------
