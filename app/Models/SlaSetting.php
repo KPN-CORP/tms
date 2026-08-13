@@ -12,12 +12,27 @@ class SlaSetting extends Model
 {
     use LogsActivity;
 
-    protected $fillable = ['approval_type', 'days', 'is_active'];
+    protected $fillable = ['approval_type', 'days', 'status', 'is_active'];
 
     protected $casts = [
         'days'      => 'integer',
         'is_active' => 'boolean',
     ];
+
+    /** Opsi status (basis perhitungan SLA) untuk dropdown — value => label. */
+    public const STATUS_OPTIONS = [
+        'submitted'         => 'Submitted',
+        'review'            => 'On Review',
+        'committee_review'  => 'Committee Review',
+        'completion_review' => 'Completion Review',
+        'ongoing'           => 'Ongoing',
+    ];
+
+    /** Label status terpilih (mis. "On Review"), atau '-' bila kosong. */
+    public function statusLabel(): string
+    {
+        return self::STATUS_OPTIONS[$this->status] ?? '-';
+    }
 
     /** Jumlah hari SLA aktif untuk sebuah approval_type, atau null bila tak diatur/nonaktif. */
     public static function daysFor(string $approvalType): ?int

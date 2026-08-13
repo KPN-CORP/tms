@@ -8,6 +8,7 @@ use App\Models\Location;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Menghitung scope data efektif untuk seorang User berdasarkan
@@ -103,7 +104,11 @@ class RoleScopeService
 
     private function roleEmployeeIds(Role $role): Collection
     {
-        $restricted = $role->employees->pluck('id');
+        // role_employees ada di koneksi mysql; relasi employees() (User) jatuh ke kpncorp.
+        // Baca langsung via mysql agar tak error di staging.
+        $restricted = DB::connection('mysql')->table('role_employees')
+            ->where('role_id', $role->id)
+            ->pluck('user_id');
 
         return $restricted->isNotEmpty()
             ? $restricted->values()

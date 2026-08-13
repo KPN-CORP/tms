@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\BusinessUnit;
 use App\Models\Company;
+use App\Models\KpnBusinessUnit;
+use App\Models\KpnCompany;
+use App\Models\KpnLocation;
 use App\Models\Location;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\OrgResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -42,7 +45,7 @@ class RoleController extends Controller
      */
     public function createRole()
     {
-        return view('admin.role.create', $this->formData());
+        return view('admin.role.create', $this->formData() + ['assignedEmployees' => collect()]);
     }
 
     /**
@@ -69,7 +72,13 @@ class RoleController extends Controller
      */
     public function editRole(Role $role)
     {
-        return view('admin.role.edit', $this->formData() + ['role' => $role]);
+        // Employee terpilih dibaca dari role_employees (mysql), lalu load User-nya (hcis).
+        $empIds = DB::connection('mysql')->table('role_employees')->where('role_id', $role->id)->pluck('user_id');
+
+        return view('admin.role.edit', $this->formData() + [
+            'role'              => $role,
+            'assignedEmployees' => User::whereIn('id', $empIds)->orderBy('name')->get(),
+        ]);
     }
 
     /**
@@ -106,14 +115,16 @@ class RoleController extends Controller
      */
     public function assignUser(Role $role)
     {
+        // User terpilih dibaca dari model_has_roles (mysql), lalu load User-nya (hcis).
+        // TIDAK memuat semua user — pemilihan via search AJAX (org.users).
+        $assignedIds = DB::connection('mysql')->table('model_has_roles')
+            ->where('role_id', $role->id)
+            ->where('model_type', User::class)
+            ->pluck('model_id');
+
         return view('admin.role.assign-user', [
-            'role'        => $role,
-            'users'       => User::orderBy('name')->get(),
-            // Baca dari model_has_roles di koneksi mysql (bukan via relasi users() yang jatuh ke kpncorp).
-            'assignedIds' => DB::connection('mysql')->table('model_has_roles')
-                ->where('role_id', $role->id)
-                ->where('model_type', User::class)
-                ->pluck('model_id')->all(),
+            'role'          => $role,
+            'assignedUsers' => User::whereIn('id', $assignedIds)->orderBy('name')->get(),
         ]);
     }
 
@@ -140,27 +151,51 @@ class RoleController extends Controller
 
     private function formData(): array
     {
+        // 'employees' TIDAK dimuat penuh (User ada ribuan di hcis) — pemilihan employee
+        // memakai search AJAX (org.users). Yang di-pass hanya opsi terpilih via caller.
         return [
             'permissions'   => Permission::orderBy('name')->get(),
-            'businessUnits' => BusinessUnit::orderBy('name')->get(),
-            'companies'     => Company::orderBy('name')->get(),
-            'locations'     => Location::orderBy('name')->get(),
-            'employees'     => User::orderBy('name')->get(),
+            // Dropdown "Restrict Group Company" bersumber dari hcis (master_bisnisunits.nama_bisnis),
+            // sama seperti field Business Unit di form ide. Value = NAMA; saat simpan di-resolve
+            // (find-or-create) ke business_units lokal untuk dapat id pivot.
+            'businessUnits' => KpnBusinessUnit::names(),
+            // 'companies' & 'locations' TIDAK dimuat: dropdown di-cascade via AJAX
+            // (Restrict Company←BU: org.companies; Restrict Location←BU: org.locations).
         ];
     }
 
     private function validateRole(Request $request, ?Role $role = null): array
     {
+        // Restrict Company cascade dari Restrict Group Company: opsi valid = contribution_level
+        // dari companies (hcis) yang company_name-nya memuat salah satu BU terpilih.
+        $allowedCompanies = collect($request->input('business_units', []))
+            ->flatMap(fn ($bu) => KpnCompany::contributionsFor((string) $bu))
+            ->unique()
+            ->values()
+            ->all();
+
+        // Restrict Location cascade dari Restrict Group Company: opsi valid = area (locations)
+        // yang company_name-nya (= nama BU) termasuk salah satu BU terpilih.
+        $allowedLocations = collect($request->input('business_units', []))
+            ->flatMap(fn ($bu) => KpnLocation::areasFor((string) $bu))
+            ->unique()
+            ->values()
+            ->all();
+
         return $request->validate([
             'name'             => ['required', 'string', 'max:100', Rule::unique('roles', 'name')->ignore($role?->id)],
             'permissions'      => ['array'],
             'permissions.*'    => ['integer', 'exists:permissions,id'],
             'business_units'   => ['array'],
-            'business_units.*' => ['integer', 'exists:business_units,id'],
+            // Nilai = NAMA business unit dari hcis (bukan id lokal). Divalidasi terhadap
+            // daftar nama master_bisnisunits; di-resolve ke id lokal saat sync.
+            'business_units.*' => ['string', Rule::in(KpnBusinessUnit::names()->all())],
             'companies'        => ['array'],
-            'companies.*'      => ['integer', 'exists:companies,id'],
+            // Nilai = contribution_level (nama) dari hcis, tergantung BU terpilih.
+            'companies.*'      => ['string', Rule::in($allowedCompanies)],
             'locations'        => ['array'],
-            'locations.*'      => ['integer', 'exists:locations,id'],
+            // Nilai = area (nama) dari hcis, tergantung Group Company (BU) terpilih.
+            'locations.*'      => ['string', Rule::in($allowedLocations)],
             'employees'        => ['array'],
             'employees.*'      => ['integer', 'exists:kpncorp.users,id'],
         ]);
@@ -173,14 +208,69 @@ class RoleController extends Controller
         $permissions = Permission::whereIn('id', $validated['permissions'] ?? [])->get();
 
         $role->syncPermissions($permissions);
-        $role->businessUnits()->sync($validated['business_units'] ?? []);
-        $role->companies()->sync($validated['companies'] ?? []);
-        $role->locations()->sync($validated['locations'] ?? []);
+
+        // business_units berisi NAMA dari hcis → find-or-create ke business_units lokal
+        // (via OrgResolver, konsisten dengan flow ide) untuk mendapat id pivot.
+        $org     = app(OrgResolver::class);
+        $buNames = collect($validated['business_units'] ?? [])->filter()->values();
+        $buIds   = $buNames->map(fn ($name) => $org->businessUnit($name)->id)->unique()->values()->all();
+        $role->businessUnits()->sync($buIds);
+
+        // companies berisi contribution_level (nama) dari hcis, cascade dari BU terpilih.
+        // Tiap nama di-find-or-create ke Company lokal (per nama + business_unit_id BU pemiliknya)
+        // agar dapat id pivot & tetap konsisten dengan hierarki scope (BU → Company).
+        // $companyByBu: buLocalId → companyLocalId (pertama), dipakai saat resolve Location.
+        $companyIds  = [];
+        $companyByBu = [];
+        foreach (($validated['companies'] ?? []) as $cName) {
+            $ownerBu = $buNames->first(fn ($bu) => KpnCompany::query()
+                ->where('company_name', 'like', '%' . $bu . '%')
+                ->where('contribution_level', $cName)
+                ->exists());
+            $buId    = $ownerBu ? $org->businessUnit($ownerBu)->id : null;
+            $company = Company::firstOrCreate(
+                ['name' => $cName, 'business_unit_id' => $buId],
+                ['code' => $this->orgCode($cName)]
+            );
+            $companyIds[] = $company->id;
+            if ($buId !== null && ! isset($companyByBu[$buId])) {
+                $companyByBu[$buId] = $company->id;
+            }
+        }
+        $role->companies()->sync(array_values(array_unique($companyIds)));
+
+        // locations berisi area (nama) dari hcis, cascade dari Group Company (BU) terpilih.
+        // area → BU pemilik (locations.company_name = nama BU) → Company lokal di BU itu
+        // (dari $companyByBu; bila company tak direstriksi, pakai container Company se-BU)
+        // → find-or-create Location agar dapat id pivot & tetap dalam hierarki scope.
+        $locationIds = [];
+        foreach (($validated['locations'] ?? []) as $area) {
+            $buName = KpnLocation::query()
+                ->where('area', $area)
+                ->whereIn('company_name', $buNames->all())
+                ->value('company_name');
+            if (! $buName) {
+                continue; // area di luar BU terpilih — lewati
+            }
+            $buId      = $org->businessUnit($buName)->id;
+            $companyId = $companyByBu[$buId] ?? Company::firstOrCreate(
+                ['name' => $buName, 'business_unit_id' => $buId],
+                ['code' => $this->orgCode($buName)]
+            )->id;
+            $locationIds[] = Location::firstOrCreate(['name' => $area, 'company_id' => $companyId])->id;
+        }
+        $role->locations()->sync(array_values(array_unique($locationIds)));
 
         // role_employees: pivot Role↔User. User ada di koneksi hcis, jadi relasi
         // employees() akan menjalankan pivot di kpncorp (tak ada tabelnya). Kelola
         // langsung via koneksi mysql (tempat tabel role_employees berada).
         $this->syncPivotMysql('role_employees', 'user_id', $role->id, $validated['employees'] ?? []);
+    }
+
+    /** Kode ringkas dari sebuah nama org (untuk kolom code find-or-create). */
+    private function orgCode(string $name): string
+    {
+        return strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 10)) ?: 'GEN';
     }
 
     /**

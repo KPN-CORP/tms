@@ -47,8 +47,8 @@
             ['label' => 'Committee Assignment', 'route' => 'admin.committee.index', 'permission' => 'committee.assign', 'active' => ['admin.committee.*']],
             ['label' => 'Project Category',     'route' => 'admin.project-categories.index', 'permission' => 'project-category.manage', 'active' => ['admin.project-categories.*']],
             ['label' => 'Role Management',      'route' => 'admin.roles.index', 'permission' => 'role.manage', 'active' => ['admin.roles.*']],
-            // Menyusul (otomatis muncul saat route-nya dibuat):
-            ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
+            // User Management di-hide sementara (menu saja). Uncomment untuk mengaktifkan kembali.
+            // ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
             ['label' => 'SLA Setting',          'route' => 'admin.sla.index', 'permission' => 'sla.manage', 'active' => ['admin.sla.*']],
             // Activity Log di-hide sementara (menu & fitur). Uncomment untuk mengaktifkan kembali.
             // ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],

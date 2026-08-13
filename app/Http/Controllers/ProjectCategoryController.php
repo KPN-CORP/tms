@@ -51,9 +51,28 @@ class ProjectCategoryController extends Controller
             'sponsor_grade_min' => ['required', 'integer', 'min:0'],
             'sponsor_grade_max' => ['required', 'integer', 'min:0'],
             'max_team_members'  => ['required', 'integer', 'min:0'],
+            // Multi require-role: array paralel roles[] + totals[] dari repeater.
+            'roles'             => ['nullable', 'array'],
+            'roles.*'           => ['nullable', 'string', 'max:255'],
+            'totals'            => ['nullable', 'array'],
+            'totals.*'          => ['nullable', 'string', 'max:50'],
         ]);
 
         $data['code'] = strtoupper($data['code']);
+
+        // Rakit required_roles (JSON) dari input paralel; baris tanpa nama role dibuang.
+        $totals = $request->input('totals', []);
+        $required = [];
+        foreach ($request->input('roles', []) as $i => $role) {
+            $role = trim((string) $role);
+            if ($role === '') {
+                continue;
+            }
+            $required[] = ['role' => $role, 'total' => trim((string) ($totals[$i] ?? ''))];
+        }
+        $data['required_roles'] = $required ?: null;
+
+        unset($data['roles'], $data['totals']);
 
         return $data;
     }

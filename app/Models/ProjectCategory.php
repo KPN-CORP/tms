@@ -10,7 +10,7 @@ class ProjectCategory extends Model
         'name', 'code', 'description',
         'leader_grade_min', 'leader_grade_max',
         'sponsor_grade_min', 'sponsor_grade_max',
-        'max_team_members', 'is_active',
+        'max_team_members', 'required_roles', 'is_active',
     ];
 
     protected $casts = [
@@ -20,7 +20,29 @@ class ProjectCategory extends Model
         'sponsor_grade_min' => 'integer',
         'sponsor_grade_max' => 'integer',
         'max_team_members'  => 'integer',
+        'required_roles'    => 'array',
     ];
+
+    /**
+     * Daftar role yang dibutuhkan kategori ini, dinormalisasi:
+     * [['role' => 'Satpam', 'total' => 2], ...]. Item tanpa nama role dibuang;
+     * total di-parse dari free text (default 1 bila role diisi tapi jumlah kosong/0).
+     *
+     * @return array<int, array{role: string, total: int}>
+     */
+    public function requiredRoles(): array
+    {
+        return collect($this->required_roles ?? [])
+            ->map(function ($r) {
+                $role = trim((string) ($r['role'] ?? ''));
+                $n    = (int) preg_replace('/\D/', '', (string) ($r['total'] ?? ''));
+
+                return ['role' => $role, 'total' => $role !== '' && $n < 1 ? 1 : $n];
+            })
+            ->filter(fn ($r) => $r['role'] !== '')
+            ->values()
+            ->all();
+    }
 
     /** Job level $level memenuhi syarat sebagai Leader kategori ini? (batas kosong = tak dibatasi) */
     public function eligibleAsLeader(?int $level): bool

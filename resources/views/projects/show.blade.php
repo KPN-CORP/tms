@@ -272,6 +272,45 @@
                 </tbody>
             </table>
             @if($canEdit)
+                @php
+                    $requiredRoles = optional($project->category) ? $project->category->requiredRoles() : [];
+                    // Sisa per role = total - jumlah member yang role-nya sama (case-insensitive).
+                    $roleSlots = collect($requiredRoles)->map(function ($rr) use ($project) {
+                        $filled = $project->members->filter(fn ($m) => mb_strtolower(trim((string) $m->role)) === mb_strtolower($rr['role']))->count();
+                        return $rr + ['filled' => $filled, 'remaining' => max(0, $rr['total'] - $filled)];
+                    })->filter(fn ($rr) => $rr['remaining'] > 0)->values();
+                @endphp
+
+                {{-- Quick-add dari kategori (multi-role): Role in Project sudah terisi, tinggal pilih nama --}}
+                @if($roleSlots->isNotEmpty())
+                    <div class="p-4 border-t bg-amber-50 space-y-4">
+                        <p class="text-sm text-gray-700">Kebutuhan role dari kategori <b>{{ optional($project->category)->code }}</b> — tinggal pilih nama:</p>
+                        @foreach($roleSlots as $rr)
+                            <div>
+                                <p class="text-xs font-semibold text-gray-600 mb-1">
+                                    {{ $rr['role'] }} — {{ $rr['total'] }} orang
+                                    <span class="text-gray-400 font-normal">(terisi {{ $rr['filled'] }}, sisa {{ $rr['remaining'] }})</span>
+                                </p>
+                                <div class="space-y-2">
+                                    @for($i = 0; $i < $rr['remaining']; $i++)
+                                        <form method="POST" action="{{ route('projects.members.store', $project) }}" class="flex flex-wrap items-end gap-2">
+                                            @csrf
+                                            <input type="hidden" name="role" value="{{ $rr['role'] }}">
+                                            <span class="inline-flex items-center px-3 py-2 rounded-lg bg-white border text-sm text-gray-600 min-w-[120px]">{{ $rr['role'] }}</span>
+                                            <select name="user_id" required data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id"
+                                                    class="{{ $inp }} flex-1 min-w-[200px]">
+                                                <option value="">Pilih nama…</option>
+                                            </select>
+                                            <button class="px-4 py-2 bg-red-700 text-white rounded-lg text-sm hover:bg-red-800">Add</button>
+                                        </form>
+                                    @endfor
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+
+                {{-- Tambah member manual (role bebas) --}}
                 <form method="POST" action="{{ route('projects.members.store', $project) }}" class="p-4 border-t bg-gray-50 flex flex-wrap items-end gap-2">
                     @csrf
                     <select name="user_id" required class="{{ $inp }} flex-1 min-w-[160px]"><option value="">Select member…</option>@foreach($users as $u)<option value="{{ $u->id }}">{{ $u->name }}</option>@endforeach</select>

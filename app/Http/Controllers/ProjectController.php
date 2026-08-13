@@ -205,6 +205,7 @@ class ProjectController extends Controller
         );
 
         $project->load([
+            'category',
             'idea.businessUnit', 'idea.department', 'idea.user',
             'sponsor', 'leader', 'members.user', 'budgets',
             'implementationPlans', 'indicators', 'statusLogs.changedBy', 'attachments.uploader',

@@ -175,7 +175,8 @@
             var valueKey = el.getAttribute('data-remote-value') || 'email'; // field yg dipakai jadi value option
             new TomSelect(el, {
                 valueField: 'value', labelField: 'text', searchField: ['text'],
-                create: false, maxOptions: 50, dropdownParent: 'body', plugins: ['clear_button'],
+                create: false, maxOptions: 50, dropdownParent: 'body',
+                plugins: el.multiple ? ['remove_button'] : ['clear_button'],
                 load: function (query, callback) {
                     if (!query.length) { callback(); return; }
                     fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(query), {
@@ -220,39 +221,78 @@
             apply();
         });
 
-        // 3) Remote cascade: child diisi via AJAX dari data-remote-url?bu=<parent value>
-        //    (mis. Department diambil dari hcis sesuai Business Unit terpilih).
+        // 3) Remote cascade: child diisi via AJAX dari data-remote-url?bu=<parent value>.
+        //    Mendukung parent/child SINGLE (mis. Department←BU di form ide) maupun
+        //    MULTI-select (mis. Restrict Company←Restrict Group Company di form role,
+        //    contribution_level dari SEMUA BU terpilih di-union).
         document.querySelectorAll('select[data-remote-url][data-remote-parent]').forEach(function (child) {
             var parent = document.querySelector(child.getAttribute('data-remote-parent'));
             if (!parent) return;
             var url = child.getAttribute('data-remote-url');
 
-            function load(keep) {
-                var bu = parent.value;
-                var ts = child.tomselect;
-                if (!bu) {
-                    if (ts) { ts.clear(true); ts.clearOptions(); ts.refreshOptions(false); }
-                    return;
+            function parentValues() {
+                if (parent.multiple) {
+                    return Array.from(parent.selectedOptions).map(function (o) { return o.value; }).filter(Boolean);
                 }
-                fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'bu=' + encodeURIComponent(bu), {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
-                })
-                .then(function (r) { return r.json(); })
-                .then(function (list) {
-                    if (ts) {
-                        ts.clear(true); ts.clearOptions();
-                        list.forEach(function (name) { ts.addOption({ value: name, text: name }); });
-                        ts.refreshOptions(false);
-                        if (keep && list.indexOf(keep) !== -1) ts.setValue(keep, true);
-                    }
-                })
-                .catch(function () {});
+                return parent.value ? [parent.value] : [];
             }
 
-            // Ganti BU → muat ulang department (reset pilihan).
-            parent.addEventListener('change', function () { load(null); });
-            // Saat load: bila BU sudah terisi (edit / old input), muat & pertahankan pilihan.
-            if (parent.value) load(child.getAttribute('data-selected') || '');
+            function selectedValues(ts) {
+                if (!ts) return [];
+                return child.multiple ? ts.items.slice() : (ts.getValue() ? [ts.getValue()] : []);
+            }
+
+            function apply(ts, names, keep) {
+                ts.clear(true); ts.clearOptions();
+                names.forEach(function (n) { ts.addOption({ value: n, text: n }); });
+                // Pastikan nilai yang dipertahankan tetap punya opsi (mis. edit tanpa parent / data lama).
+                keep.forEach(function (v) { if (v && !ts.options[v]) ts.addOption({ value: v, text: v }); });
+                ts.refreshOptions(false);
+                var valid = keep.filter(Boolean);
+                if (valid.length) ts.setValue(child.multiple ? valid : valid[0], true);
+            }
+
+            function load(initial) {
+                var ts = child.tomselect;
+                if (!ts) return;
+                var bus = parentValues();
+
+                // Nilai yang ingin dipertahankan: pilihan saat ini; saat initial tambah data-selected.
+                var desired = selectedValues(ts);
+                if (initial) {
+                    var ds = child.getAttribute('data-selected');
+                    if (ds) ds.split('||').forEach(function (v) { if (v && desired.indexOf(v) === -1) desired.push(v); });
+                }
+
+                if (!bus.length) {
+                    // Tanpa parent: initial (edit) pertahankan pilihan; saat change kosongkan.
+                    apply(ts, [], initial ? desired : []);
+                    return;
+                }
+
+                Promise.all(bus.map(function (bu) {
+                    return fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'bu=' + encodeURIComponent(bu), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                    })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () { return []; });
+                })).then(function (lists) {
+                    var names = [];
+                    lists.forEach(function (list) {
+                        (list || []).forEach(function (n) { if (names.indexOf(n) === -1) names.push(n); });
+                    });
+                    names.sort();
+                    // initial: pertahankan pilihan walau tak ada di list (data lama);
+                    // change: hanya pertahankan yang masih valid.
+                    var keep = initial ? desired : desired.filter(function (v) { return names.indexOf(v) !== -1; });
+                    apply(ts, names, keep);
+                });
+            }
+
+            // Ganti parent → muat ulang child (buang pilihan yang tak lagi valid).
+            parent.addEventListener('change', function () { load(false); });
+            // Saat load awal: bila parent sudah terisi / ada data-selected (edit / old input), muat & pertahankan.
+            if (parentValues().length || child.getAttribute('data-selected')) load(true);
         });
     });
 </script>

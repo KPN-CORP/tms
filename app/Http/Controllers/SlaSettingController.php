@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CommitteeAssignment;
 use App\Models\SlaSetting;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * SLA Setting (izin: sla.manage). Admin mengatur batas hari review per jenis
@@ -32,8 +33,9 @@ class SlaSettingController extends Controller
         }
 
         return view('admin.sla.index', [
-            'settings' => SlaSetting::orderBy('id')->get(),
-            'labels'   => CommitteeAssignment::TYPES,
+            'settings'      => SlaSetting::orderBy('id')->get(),
+            'labels'        => CommitteeAssignment::TYPES,
+            'statusOptions' => SlaSetting::STATUS_OPTIONS,
         ]);
     }
 
@@ -42,12 +44,15 @@ class SlaSettingController extends Controller
         $data = $request->validate([
             'days'        => ['array'],
             'days.*'      => ['nullable', 'integer', 'min:1', 'max:365'],
+            'status'      => ['array'],
+            'status.*'    => ['nullable', 'string', Rule::in(array_keys(SlaSetting::STATUS_OPTIONS))],
             'active'      => ['array'],
         ]);
 
         foreach (SlaSetting::all() as $setting) {
             $setting->update([
                 'days'      => $data['days'][$setting->approval_type] ?? $setting->days,
+                'status'    => $data['status'][$setting->approval_type] ?? null,
                 'is_active' => isset($data['active'][$setting->approval_type]),
             ]);
         }

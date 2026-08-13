@@ -21,25 +21,20 @@
 
             @csrf
 
-            <p class="text-gray-500 mb-6">
-                Centang user yang memiliki role <span class="font-semibold">{{ $role->name }}</span>.
+            <p class="text-gray-500 mb-4">
+                Cari & pilih user yang memiliki role <span class="font-semibold">{{ $role->name }}</span>.
             </p>
 
-            <div class="grid grid-cols-2 gap-4">
-                @forelse($users as $user)
-                    <label class="flex items-center gap-3 border rounded-lg px-4 py-3">
-                        <input type="checkbox" name="users[]" value="{{ $user->id }}"
-                               class="rounded border-gray-300"
-                               @checked(in_array($user->id, $assignedIds))>
-                        <span>
-                            {{ $user->name }}
-                            <span class="text-gray-400 text-sm">({{ $user->email }})</span>
-                        </span>
-                    </label>
-                @empty
-                    <p class="text-gray-400">No users found.</p>
-                @endforelse
-            </div>
+            <label class="block text-sm font-semibold text-gray-600 mb-1">User</label>
+            <select name="users[]" multiple data-no-search
+                    data-remote-search="{{ route('org.users') }}" data-remote-value="id"
+                    placeholder="Ketik nama atau employee ID untuk mencari user..."
+                    class="w-full border rounded-lg">
+                @foreach($assignedUsers as $u)
+                    <option value="{{ $u->id }}" selected>{{ $u->name }}{{ $u->employee_id ? ' - '.$u->employee_id : '' }}</option>
+                @endforeach
+            </select>
+            <p class="text-xs text-gray-400 mt-1">User yang sudah ter-assign otomatis tampil terpilih. Ketik untuk menambah/mengganti.</p>
 
             <div class="mt-8 flex justify-end gap-3">
                 <a href="{{ route('admin.roles.index') }}"

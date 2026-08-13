@@ -30,6 +30,7 @@
                         <th class="px-4 py-3">Leader Grade</th>
                         <th class="px-4 py-3">Sponsor Grade</th>
                         <th class="px-4 py-3">Max Team</th>
+                        <th class="px-4 py-3">Require Role</th>
                         <th class="px-4 py-3">Status</th>
                         <th class="px-4 py-3 text-right">Actions</th>
                     </tr>
@@ -43,6 +44,7 @@
                             <td class="px-4 py-3 {{ $muted }}">{{ $cat->leader_grade_min ?? '-' }} &ndash; {{ $cat->leader_grade_max ?? '-' }}</td>
                             <td class="px-4 py-3 {{ $muted }}">{{ $cat->sponsor_grade_min ?? '-' }} &ndash; {{ $cat->sponsor_grade_max ?? '-' }}</td>
                             <td class="px-4 py-3 {{ $muted }}">{{ $cat->max_team_members ?? '-' }}</td>
+                            <td class="px-4 py-3 {{ $muted }}">{{ collect($cat->requiredRoles())->map(fn ($r) => $r['role'].' ('.$r['total'].')')->implode(', ') ?: '-' }}</td>
                             <td class="px-4 py-3">
                                 <span class="text-xs rounded-full px-2 py-1 {{ $cat->is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600' }}">{{ $cat->is_active ? 'Active' : 'Archived' }}</span>
                             </td>
@@ -57,7 +59,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">Belum ada category.</td></tr>
+                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">Belum ada category.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -92,12 +94,47 @@
                     <div><label class="block text-xs font-semibold text-gray-600 mb-1">Sponsor Grade Max <span class="text-red-600">*</span></label><input type="number" name="sponsor_grade_max" value="{{ $val('sponsor_grade_max') }}" required class="{{ $inp }} @error('sponsor_grade_max') border-red-500 @enderror"></div>
                 </div>
 
+                {{-- Require roles (opsional, MULTI) — memprapopulasi "Role in Project" di Team Members --}}
+                @php
+                    if (old('roles') !== null) {
+                        $roleRows = collect(old('roles'))->map(fn ($r, $i) => ['role' => (string) $r, 'total' => (string) (old('totals')[$i] ?? '')])->values()->all();
+                    } else {
+                        $roleRows = collect($editing?->required_roles ?? [])->map(fn ($r) => ['role' => (string) ($r['role'] ?? ''), 'total' => (string) ($r['total'] ?? '')])->values()->all();
+                    }
+                    if (empty($roleRows)) $roleRows = [['role' => '', 'total' => '']];
+                @endphp
+                <div x-data="{ rows: {{ Illuminate\Support\Js::from($roleRows) }} }">
+                    <label class="block text-sm font-semibold text-gray-600 mb-1">Require Role <span class="text-gray-400 font-normal">(optional, bisa lebih dari satu)</span></label>
+                    <p class="text-xs text-gray-400 mb-2">Mis. <b>Satpam</b> × <b>2</b> → di Team Members muncul 2 baris "Satpam", tinggal pilih nama. Tambahkan baris untuk role lain.</p>
+
+                    <div class="space-y-2">
+                        @php $inpRow = 'border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200'; @endphp
+                        <template x-for="(row, i) in rows" :key="i">
+                            <div class="flex items-center gap-2">
+                                <input name="roles[]" x-model="row.role" placeholder="Nama role (mis. Satpam)" class="{{ $inpRow }} flex-1 min-w-0">
+                                <input name="totals[]" x-model="row.total" placeholder="Jumlah (mis. 2)" class="{{ $inpRow }} w-28 shrink-0">
+                                <button type="button" @click="rows.splice(i, 1)"
+                                        class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
+                                        title="Hapus role" x-show="rows.length > 1">&times;</button>
+                                <span class="shrink-0 w-9 h-9" x-show="rows.length <= 1"></span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <button type="button" @click="rows.push({ role: '', total: '' })"
+                            class="mt-2 inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50">
+                        <span class="text-base leading-none">+</span> Tambah Role
+                    </button>
+                    @error('roles.*')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
+                    @error('totals.*')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
+                </div>
+
                 <div class="flex justify-end gap-3">
                     @if($editing)<a href="{{ route('admin.project-categories.index') }}" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</a>@endif
                     <button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">{{ $editing ? 'Update' : 'Add Category' }}</button>
                 </div>
             </form>
-            <p class="text-xs text-gray-400 mt-3">Catatan: grade range bersifat informatif — penyaringan eligibility Leader/Sponsor berdasarkan grade menyusul (butuh field grade di user).</p>
+            <!--<p class="text-xs text-gray-400 mt-3">Catatan: grade range bersifat informatif — penyaringan eligibility Leader/Sponsor berdasarkan grade menyusul (butuh field grade di user).</p>-->
         </div>
 
     </div>

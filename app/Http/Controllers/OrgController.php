@@ -6,6 +6,7 @@ use App\Models\KpnCompany;
 use App\Models\KpnDepartment;
 use App\Models\KpnEmployee;
 use App\Models\KpnLocation;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 /**
@@ -38,6 +39,33 @@ class OrgController extends Controller
     public function companies(Request $request)
     {
         return $this->respond($request, fn ($bu) => KpnCompany::contributionsFor($bu));
+    }
+
+    /**
+     * JSON user (akun) searchable untuk dropdown Assign User / Restrict Employee (?q=...).
+     * Value = users.id (bukan employee_id) karena role_employees & model_has_roles memakai id user.
+     */
+    public function users(Request $request)
+    {
+        $q = trim((string) $request->get('q'));
+        if ($q === '') {
+            return response()->json([]);
+        }
+
+        return response()->json(
+            User::query()
+                ->where(fn ($w) => $w->where('name', 'like', "%{$q}%")
+                    ->orWhere('email', 'like', "%{$q}%")
+                    ->orWhere('employee_id', 'like', "%{$q}%"))
+                ->orderBy('name')
+                ->limit(30)
+                ->get(['id', 'name', 'email', 'employee_id'])
+                ->map(fn ($u) => [
+                    'id'    => $u->id,
+                    'label' => trim($u->name . ($u->employee_id ? ' - ' . $u->employee_id : '')),
+                ])
+                ->all()
+        );
     }
 
     /** JSON employee searchable (semua BU) untuk dropdown approver Committee (?q=...). */
