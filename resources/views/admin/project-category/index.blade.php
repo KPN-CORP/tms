@@ -19,6 +19,9 @@
         @if(session('success'))
             <div class="rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3">{{ session('success') }}</div>
         @endif
+        @if(session('error'))
+            <div class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3">{{ session('error') }}</div>
+        @endif
 
         {{-- List --}}
         <div class="bg-white rounded-xl shadow overflow-hidden">
@@ -54,6 +57,11 @@
                                     <form method="POST" action="{{ route('admin.project-categories.toggle', $cat) }}">
                                         @csrf
                                         <button class="px-3 py-1 text-xs border {{ $cat->is_active ? 'border-red-300 text-red-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $cat->is_active ? 'Archive' : 'Restore' }}</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('admin.project-categories.destroy', $cat) }}">
+                                        @csrf @method('DELETE')
+                                        <button data-confirm="Hapus category {{ $cat->code }}? Tindakan ini permanen." data-confirm-title="Hapus Category" data-confirm-ok="Ya, Hapus"
+                                                class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                     </form>
                                 </div>
                             </td>

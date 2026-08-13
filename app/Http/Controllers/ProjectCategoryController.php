@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Project;
 use App\Models\ProjectCategory;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -39,6 +40,19 @@ class ProjectCategoryController extends Controller
         $category->update(['is_active' => ! $category->is_active]);
 
         return back()->with('success', $category->is_active ? 'Category restored.' : 'Category archived.');
+    }
+
+    public function destroy(ProjectCategory $category)
+    {
+        // Cegah hapus bila masih dipakai project (hindari data project menggantung) — arsipkan saja.
+        if (Project::where('project_category_id', $category->id)->exists()) {
+            return back()->with('error', "Category {$category->code} masih dipakai project — tidak bisa dihapus. Arsipkan saja.");
+        }
+
+        $code = $category->code;
+        $category->delete();
+
+        return redirect()->route('admin.project-categories.index')->with('success', "Category {$code} deleted.");
     }
 
     private function validated(Request $request, ?ProjectCategory $category = null): array

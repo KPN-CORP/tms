@@ -109,6 +109,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/project-categories', [ProjectCategoryController::class, 'store'])->name('project-categories.store');
         Route::put('/project-categories/{category}', [ProjectCategoryController::class, 'update'])->name('project-categories.update');
         Route::post('/project-categories/{category}/toggle', [ProjectCategoryController::class, 'toggle'])->name('project-categories.toggle');
+        Route::delete('/project-categories/{category}', [ProjectCategoryController::class, 'destroy'])->name('project-categories.destroy');
     });
 
     /*
@@ -259,7 +260,10 @@ Route::middleware(['auth'])->group(function () {
 
     Route::prefix('admin')->name('admin.')->middleware('permission:sla.manage')->group(function () {
         Route::get('/sla', [SlaSettingController::class, 'index'])->name('sla.index');
-        Route::put('/sla', [SlaSettingController::class, 'update'])->name('sla.update');
+        Route::post('/sla', [SlaSettingController::class, 'store'])->name('sla.store');
+        Route::put('/sla/{sla}', [SlaSettingController::class, 'update'])->name('sla.update');
+        Route::post('/sla/{sla}/toggle', [SlaSettingController::class, 'toggle'])->name('sla.toggle');
+        Route::delete('/sla/{sla}', [SlaSettingController::class, 'destroy'])->name('sla.destroy');
     });
 
 });
