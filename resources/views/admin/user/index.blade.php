@@ -25,13 +25,13 @@
         <form method="GET" class="flex flex-wrap items-end gap-3 bg-white rounded-xl shadow p-4">
             <div class="flex-1 min-w-[200px]">
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Search</label>
-                <input name="q" value="{{ $search }}" placeholder="Nama, email, atau employee ID…"
+                <input name="q" value="{{ $search }}" placeholder="Name, email, or employee ID…"
                        class="w-full border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200">
             </div>
             <div>
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Role</label>
                 <select name="role" class="border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200">
-                    <option value="">Semua role</option>
+                    <option value="">All roles</option>
                     @foreach($roles as $role)
                         <option value="{{ $role->id }}" @selected($roleFilter === $role->id)>{{ $role->name }}</option>
                     @endforeach
@@ -86,14 +86,14 @@
                                             <form method="POST" action="{{ route('admin.users.destroy', $user) }}">
                                                 @csrf
                                                 @method('DELETE')
-                                                <button data-confirm="Hapus user {{ $user->name }}?" data-confirm-title="Hapus User" data-confirm-ok="Ya, Hapus" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
+                                                <button data-confirm="Delete user {{ $user->name }}?" data-confirm-title="Delete User" data-confirm-ok="Yes, Delete" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                             </form>
                                         @endif
                                     </div>
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Tidak ada user yang cocok.</td></tr>
+                            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No matching users.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

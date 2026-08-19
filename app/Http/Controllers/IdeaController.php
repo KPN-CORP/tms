@@ -352,7 +352,7 @@ class IdeaController extends Controller
         $this->deleteAttachmentFile($attachment->file_path);
         $attachment->delete();
 
-        return back()->with('success', 'Lampiran dihapus.');
+        return back()->with('success', 'Attachment deleted.');
     }
 
     /** Simpan file dari input attachments[] (opsional, multi-file). */

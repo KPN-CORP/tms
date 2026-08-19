@@ -46,7 +46,7 @@ class ProjectCategoryController extends Controller
     {
         // Cegah hapus bila masih dipakai project (hindari data project menggantung) — arsipkan saja.
         if (Project::where('project_category_id', $category->id)->exists()) {
-            return back()->with('error', "Category {$category->code} masih dipakai project — tidak bisa dihapus. Arsipkan saja.");
+            return back()->with('error', "Category {$category->code} is still used by projects — it cannot be deleted. Archive it instead.");
         }
 
         $code = $category->code;

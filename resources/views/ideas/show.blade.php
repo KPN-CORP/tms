@@ -24,7 +24,7 @@
         $box = 'w-full border rounded-lg px-4 py-2 bg-gray-50 text-gray-600';
     @endphp
 
-    <div class="p-6 space-y-6 max-w-5xl">
+    <div class="p-6 space-y-6 max-w-7xl mx-auto w-full">
 
         {{-- Back + Title --}}
         <div>

@@ -13,7 +13,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">SLA Setting</h1>
-            <p class="text-gray-500">Batas waktu (hari) review per jenis approval &amp; status. Boleh lebih dari satu per jenis (mis. 3 hari saat "On Review", 30 hari saat "Submitted"). Info-only untuk status On Time / Due Soon / Overdue.</p>
+            <p class="text-gray-500">Review time limit (days) per approval type &amp; status. You may set more than one per type (e.g. 3 days at "On Review", 30 days at "Submitted"). Informational only for On Time / Due Soon / Overdue.</p>
         </div>
 
         @if(session('success'))
@@ -56,14 +56,14 @@
                                     </form>
                                     <form method="POST" action="{{ route('admin.sla.destroy', $s) }}">
                                         @csrf @method('DELETE')
-                                        <button data-confirm="Hapus SLA ini? Tindakan ini permanen." data-confirm-title="Hapus SLA" data-confirm-ok="Ya, Hapus"
+                                        <button data-confirm="Delete this SLA? This action is permanent." data-confirm-title="Delete SLA" data-confirm-ok="Yes, Delete"
                                                 class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                     </form>
                                 </div>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">Belum ada SLA. Tambahkan di bawah.</td></tr>
+                        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">No SLA yet. Add one below.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -81,7 +81,7 @@
                     <div>
                         <label class="block text-sm font-semibold text-gray-600 mb-1">Jenis Approval <span class="text-red-600">*</span></label>
                         <select name="approval_type" data-no-search class="{{ $inp }} @error('approval_type') border-red-500 @enderror">
-                            <option value="">Pilih jenis…</option>
+                            <option value="">Select type…</option>
                             @foreach($typeOptions as $key => $label)
                                 <option value="{{ $key }}" @selected($val('approval_type') === $key)>{{ $label }}</option>
                             @endforeach
@@ -91,7 +91,7 @@
                     <div>
                         <label class="block text-sm font-semibold text-gray-600 mb-1">Status <span class="text-red-600">*</span></label>
                         <select name="status" data-no-search required class="{{ $inp }} @error('status') border-red-500 @enderror">
-                            <option value="">Pilih status…</option>
+                            <option value="">Select status…</option>
                             @foreach($statusOptions as $key => $label)
                                 <option value="{{ $key }}" @selected($val('status') === $key)>{{ $label }}</option>
                             @endforeach
@@ -112,7 +112,7 @@
             </form>
         </div>
 
-        <p class="text-xs text-gray-400">Catatan: hitungan mulai saat item masuk layer review. "Due Soon" = sisa ≤ 1 hari. SLA yang di-<b>Archive</b> tidak dipakai perhitungan (bisa di-Restore).</p>
+        <p class="text-xs text-gray-400">Note: the countdown starts when an item enters the review layer. "Due Soon" = ≤ 1 day left. An SLA that is <b>Archive</b> is not used in the calculation (can be Restored).</p>
 
     </div>
 

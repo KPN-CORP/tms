@@ -7,7 +7,7 @@
     <div class="p-6 max-w-3xl">
         <div class="mb-6">
             <h1 class="text-2xl font-bold text-gray-800">Edit User: {{ $user->name }}</h1>
-            <p class="text-gray-500">Perbarui data user, ganti password (opsional), dan role.</p>
+            <p class="text-gray-500">Update user details, change the password (optional), and roles.</p>
         </div>
 
         <form method="POST" action="{{ route('admin.users.update', $user) }}" class="bg-white rounded-xl shadow p-6 space-y-4">

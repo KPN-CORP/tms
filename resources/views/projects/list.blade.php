@@ -1,14 +1,14 @@
 <x-app-layout>
 
     <x-slot name="header">
-        <h2 class="text-xl font-semibold text-gray-800">My Project</h2>
+        <h2 class="text-xl font-semibold text-gray-800">{{ $pageTitle }}</h2>
     </x-slot>
 
     <div class="p-6 space-y-6">
 
         <div>
-            <h1 class="text-2xl font-bold text-gray-800">My Project</h1>
-            <p class="text-gray-500">Projects related to you (as submitter, member, leader, sponsor, or committee).</p>
+            <h1 class="text-2xl font-bold text-gray-800">{{ $pageTitle }}</h1>
+            <p class="text-gray-500">{{ $pageSubtitle }}</p>
         </div>
 
         @if(session('success'))
@@ -18,16 +18,7 @@
         @endif
 
         @php
-            // Tab lifecycle Project Proposal (label => key). Angka dari $counts (status DB via $statusMap).
-            $tabDefs = [
-                'all'       => 'All',
-                'draft'     => 'Draft',
-                'submitted' => 'Submitted',
-                'approved'  => 'Approved',
-                'review'    => 'On Review',
-                'revision'  => 'Revision Required',
-                'rejected'  => 'Rejected',
-            ];
+            // Angka tab dari $counts (status DB via $statusMap). $tabDefs = [key => label].
             $tabCount = fn ($key) => $key === 'all' ? $counts->sum() : $counts->get($statusMap[$key] ?? '', 0);
             $tabUrl   = fn ($key) => request()->url() . '?' . http_build_query(array_merge(request()->query(), ['tab' => $key, 'page' => 1]));
         @endphp
@@ -97,7 +88,7 @@
                 @if(request('q') || request('bu') || request('unit'))
                     <div>
                         <label class="block text-xs font-semibold text-transparent mb-1 select-none">.</label>
-                        <a href="{{ route('projects.index', ['tab' => $tab]) }}"
+                        <a href="{{ route($routeName, ['tab' => $tab]) }}"
                            class="inline-flex items-center h-[38px] px-4 border rounded-lg text-sm hover:bg-gray-100">Reset</a>
                     </div>
                 @endif
@@ -138,7 +129,7 @@
                                     <span class="inline-flex px-2 py-1 text-xs rounded-full font-medium {{ $stCls }}">{{ $stLabel }}</span>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <a href="{{ route('projects.show', $project) }}"
+                                    <a href="{{ route('projects.show', ($detailPhase ?? null) ? ['project' => $project, 'phase' => $detailPhase] : $project) }}"
                                        class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Detail</a>
                                 </td>
                             </tr>

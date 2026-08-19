@@ -22,7 +22,7 @@
 
 <div class="grid grid-cols-2 gap-4">
     <div>
-        <label class="{{ $lbl }}">Password @if(!$u)<span class="text-red-600">*</span>@else<span class="text-gray-400 text-xs">(kosongkan bila tidak diganti)</span>@endif</label>
+        <label class="{{ $lbl }}">Password @if(!$u)<span class="text-red-600">*</span>@else<span class="text-gray-400 text-xs">(leave blank to keep unchanged)</span>@endif</label>
         <input type="password" name="password" class="{{ $inp }} @error('password') border-red-500 @enderror" autocomplete="new-password">
         @error('password')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
     </div>
@@ -88,7 +88,7 @@
             </label>
         @endforeach
     </div>
-    <p class="text-xs text-gray-400 mt-1">Izin efektif = gabungan (union) semua role yang dipilih.</p>
+    <p class="text-xs text-gray-400 mt-1">Effective permissions = the union of all selected roles.</p>
 </div>
 
 {{-- Cascade Business Unit → Department ditangani global (data-cascade-parent) di app layout. --}}

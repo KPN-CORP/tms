@@ -17,6 +17,7 @@ class ImplementationPlan extends Model
     protected $fillable = [
         'project_id', 'activity', 'planning_start', 'planning_end',
         'actual_start', 'actual_end', 'pic_user_ids', 'remarks', 'sequence_no',
+        'attachment_path', 'attachment_name',
     ];
 
     protected $casts = [

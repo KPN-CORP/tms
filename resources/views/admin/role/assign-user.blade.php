@@ -22,19 +22,19 @@
             @csrf
 
             <p class="text-gray-500 mb-4">
-                Cari & pilih user yang memiliki role <span class="font-semibold">{{ $role->name }}</span>.
+                Search & select users who have the <span class="font-semibold">{{ $role->name }}</span> role.
             </p>
 
             <label class="block text-sm font-semibold text-gray-600 mb-1">User</label>
             <select name="users[]" multiple data-no-search
                     data-remote-search="{{ route('org.users') }}" data-remote-value="id"
-                    placeholder="Ketik nama atau employee ID untuk mencari user..."
+                    placeholder="Type a name or employee ID to search users..."
                     class="w-full border rounded-lg">
                 @foreach($assignedUsers as $u)
                     <option value="{{ $u->id }}" selected>{{ $u->name }}{{ $u->employee_id ? ' - '.$u->employee_id : '' }}</option>
                 @endforeach
             </select>
-            <p class="text-xs text-gray-400 mt-1">User yang sudah ter-assign otomatis tampil terpilih. Ketik untuk menambah/mengganti.</p>
+            <p class="text-xs text-gray-400 mt-1">Already-assigned users appear selected automatically. Type to add or change.</p>
 
             <div class="mt-8 flex justify-end gap-3">
                 <a href="{{ route('admin.roles.index') }}"

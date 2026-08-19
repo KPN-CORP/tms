@@ -84,7 +84,7 @@ class ClearConfig extends Command
             $this->line("file guideline dihapus: {$deleted}/" . count($filePaths));
         }
 
-        $this->info('SELESAI. Data master/config sudah dikosongkan. Silakan set ulang via menu.');
+        $this->info('DONE. Master/config data has been cleared. Please reconfigure via the menu.');
 
         return self::SUCCESS;
     }

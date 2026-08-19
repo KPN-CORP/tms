@@ -8,7 +8,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Task Box</h1>
-            <p class="text-gray-500">Ide yang perlu Anda review, sudah disetujui, atau ditolak — dalam satu tempat.</p>
+            <p class="text-gray-500">Ideas that need your review, or that are approved or rejected — all in one place.</p>
         </div>
 
         @if(session('success'))
@@ -52,7 +52,7 @@
 
             {{-- Filter: search + BU + Department (TANPA dropdown status; status pakai tab) --}}
             <x-list-filter-bar :business-units="$businessUnits" :departments="$departments"
-                :reset-route="route('ideas.taskbox', ['tab' => $tab])" placeholder="Cari ID Idea, nama, atau problem…" />
+                :reset-route="route('ideas.taskbox', ['tab' => $tab])" placeholder="Search Idea ID, name, or problem…" />
 
             <div class="overflow-x-auto">
                 <table class="w-full text-left">
@@ -95,7 +95,7 @@
                                                         <span class="{{ $c['layer'] == $idea->current_layer ? 'font-semibold text-red-700' : 'text-gray-700' }}">{{ $c['name'] }}</span>
                                                     </div>
                                                 @empty
-                                                    <div class="text-gray-400">Tidak ada committee</div>
+                                                    <div class="text-gray-400">No committee</div>
                                                 @endforelse
                                             </div>
                                         </template>
@@ -123,7 +123,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="px-6 py-8 text-center text-gray-400">Tidak ada ide pada tab ini.</td></tr>
+                            <tr><td colspan="9" class="px-6 py-8 text-center text-gray-400">No ideas in this tab.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

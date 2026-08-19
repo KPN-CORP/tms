@@ -14,6 +14,9 @@
 
     <style>
         [x-cloak]{ display: none !important; }
+        /* App muat penuh 100vh: hanya <main> yang scroll — matikan scrollbar terluar (body). */
+        html, body { height: 100%; }
+        body { overflow: hidden; }
         /* Samakan tampilan Tom Select dengan input Tailwind: BORDER TUNGGAL, tinggi = search (38px) */
         .ts-wrapper{ border: 0 !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
         .ts-wrapper .ts-control{
@@ -50,7 +53,8 @@
             border-color: #fca5a5 !important;       /* red-300 */
             box-shadow: 0 0 0 3px rgba(254,202,202,.5) !important;
         }
-        .ts-dropdown{ border-radius: .5rem; font-size: .875rem; }
+        /* Dropdown TomSelect (dirender ke <body>) harus DI ATAS modal/dialog (z-[60]). */
+        .ts-dropdown{ border-radius: .5rem; font-size: .875rem; z-index: 9999 !important; }
         /* Tombol clear (x): tempel di ujung kanan & sediakan ruang agar tidak menimpa teks terpilih */
         .ts-wrapper.single.has-items .ts-control{ padding-right: 2rem !important; }
         .ts-wrapper .clear-button{
@@ -80,7 +84,7 @@
 
         @include('layouts.topbar')
 
-        <main class="flex-1 p-6 overflow-y-auto">
+        <main class="flex-1 min-h-0 p-6 overflow-y-auto">
             {{ $slot }}
         </main>
 
@@ -106,7 +110,7 @@
                 </div>
                 <div class="flex justify-end gap-3 mt-6">
                     <button type="button" @click="cancel()"
-                            class="px-5 py-2 border rounded-lg hover:bg-gray-100">Batal</button>
+                            class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
                     <button type="button" @click="confirm()" x-init="$nextTick(() => $el.focus())"
                             class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800"
                             x-text="okLabel"></button>
@@ -118,11 +122,11 @@
 <script>
     function confirmDialog() {
         return {
-            show: false, title: 'Konfirmasi', message: '', okLabel: 'Ya, Lanjutkan', _btn: null,
+            show: false, title: 'Confirmation', message: '', okLabel: 'Yes, Continue', _btn: null,
             open(detail) {
-                this.title   = detail.title || 'Konfirmasi';
-                this.message = detail.message || 'Apakah Anda yakin?';
-                this.okLabel = detail.ok || 'Ya, Lanjutkan';
+                this.title   = detail.title || 'Confirmation';
+                this.message = detail.message || 'Are you sure?';
+                this.okLabel = detail.ok || 'Yes, Continue';
                 this._btn    = detail.button;
                 this.show    = true;
             },
@@ -166,9 +170,12 @@
         if (e.persisted) { window.location.reload(); }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
+    // Init TomSelect untuk semua <select> di dalam `root` (default: seluruh dokumen).
+    // Idempotent (skip yang sudah ter-init) → AMAN dipanggil ulang untuk baris repeater baru.
+    window.tmsInit = function (root) {
+        root = root || document;
         // 1) Semua dropdown jadi searchable.
-        document.querySelectorAll('select:not([data-no-search])').forEach(function (el) {
+        root.querySelectorAll('select:not([data-no-search])').forEach(function (el) {
             if (el.tomselect) return;
             var hasEmpty = el.querySelector('option[value=""]') !== null;
             new TomSelect(el, {
@@ -182,7 +189,7 @@
         });
 
         // 1b) Dropdown searchable via AJAX — opsi muncul saat user mengetik (data besar).
-        document.querySelectorAll('select[data-remote-search]').forEach(function (el) {
+        root.querySelectorAll('select[data-remote-search]').forEach(function (el) {
             if (el.tomselect) return;
             var url = el.getAttribute('data-remote-search');
             var valueKey = el.getAttribute('data-remote-value') || 'email'; // field yg dipakai jadi value option
@@ -201,6 +208,10 @@
                 },
             });
         });
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        window.tmsInit();
 
         // 2) Cascade parent → child (mis. Business Unit → Department).
         document.querySelectorAll('select[data-cascade-parent]').forEach(function (child) {

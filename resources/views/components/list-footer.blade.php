@@ -14,7 +14,7 @@
         </select>
         <span>entries</span>
         @if($paginator->total())
-            <span class="ml-1 text-gray-400">({{ $paginator->firstItem() }}–{{ $paginator->lastItem() }} dari {{ $paginator->total() }})</span>
+            <span class="ml-1 text-gray-400">({{ $paginator->firstItem() }}–{{ $paginator->lastItem() }} of {{ $paginator->total() }})</span>
         @endif
     </div>
     <div>{{ $paginator->links('partials.pagination') }}</div>

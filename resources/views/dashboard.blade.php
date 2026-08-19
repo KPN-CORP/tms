@@ -21,7 +21,7 @@
                     @forelse($user->getRoleNames() as $roleName)
                         <span class="inline-flex px-3 py-1 text-xs rounded-full bg-red-100 text-red-700">{{ $roleName }}</span>
                     @empty
-                        <span class="text-gray-400">belum ada role</span>
+                        <span class="text-gray-400">no roles yet</span>
                     @endforelse
                 </p>
             </div>

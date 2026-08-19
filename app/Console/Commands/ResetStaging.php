@@ -27,7 +27,7 @@ class ResetStaging extends Command
         $this->warn('RESET DATA STAGING — akan mengosongkan:');
         $this->line('  • Transaksi: Ideas & Projects (+ tabel anak)');
         $this->line('  • Master/config: Project Categories, Committee Assignments, SLA Settings, Guidelines');
-        $this->comment('Struktur/flow/kode TIDAK diubah — hanya data. Set ulang lewat menu setelahnya.');
+        $this->comment('Structure/flow/code are NOT changed — data only. Reconfigure via the menu afterwards.');
 
         if (! $this->option('force') && ! $this->confirm('Lanjutkan reset SEMUA data di atas? PERMANEN.')) {
             $this->info('Dibatalkan.');
@@ -50,7 +50,7 @@ class ResetStaging extends Command
         $this->call('tms:clear-config', $opts);
 
         $this->newLine();
-        $this->info('SELESAI. Data staging sudah direset. Silakan set ulang Committee, Category, SLA, Guideline via menu.');
+        $this->info('DONE. Staging data has been reset. Please reconfigure Committee, Category, SLA, and Guideline via the menu.');
 
         return self::SUCCESS;
     }

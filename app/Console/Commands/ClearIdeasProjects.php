@@ -99,7 +99,7 @@ class ClearIdeasProjects extends Command
             $this->line("file fisik dihapus: {$deleted}/" . count($filePaths));
         }
 
-        $this->info('SELESAI. Data Ideas & Projects sudah dikosongkan.');
+        $this->info('DONE. Ideas & Projects data has been cleared.');
 
         return self::SUCCESS;
     }

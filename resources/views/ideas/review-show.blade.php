@@ -66,7 +66,7 @@
                     </div>
                 </div>
             @empty
-                <p class="text-gray-400 text-sm">Belum ada keputusan.</p>
+                <p class="text-gray-400 text-sm">No decision yet.</p>
             @endforelse
         </div>
 
@@ -93,7 +93,7 @@
             </div>
         @else
             <div class="bg-white rounded-xl shadow p-4 text-sm text-gray-500">
-                Anda bukan reviewer layer aktif untuk ide ini (hanya bisa melihat).
+                You are not the active-layer reviewer for this idea (view only).
             </div>
         @endif
 

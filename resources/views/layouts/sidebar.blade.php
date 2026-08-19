@@ -40,7 +40,13 @@
             ['label' => 'Task Box',       'route' => 'ideas.taskbox', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['ideas.taskbox', 'ideas.review.*', 'projects.create']],
         ],
         'Project' => [
-            ['label' => 'My Project',  'route' => 'projects.index',  'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.show']],
+            ['label' => 'My Project', 'route' => null, 'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.implementation', 'projects.completion', 'projects.show'],
+                'children' => [
+                    ['label' => 'Project Proposal',       'route' => 'projects.index',          'active' => ['projects.index'],          'phase' => null],
+                    ['label' => 'Project Implementation', 'route' => 'projects.implementation', 'active' => ['projects.implementation'], 'phase' => 'implementation'],
+                    ['label' => 'Project Completion',     'route' => 'projects.completion',     'active' => ['projects.completion'],     'phase' => 'completion'],
+                ],
+            ],
             ['label' => 'Task Box', 'route' => 'projects.review', 'permission' => null, 'show' => $isProjectCommittee, 'active' => ['projects.review']],
         ],
         'Admin Setting' => [
@@ -60,15 +66,26 @@
 
     // Cek visibilitas satu item.
     $visible = function ($item) use ($user) {
-        if (! Route::has($item['route'])) return false;
+        // Parent ber-children: route boleh null (hanya toggle), lewati cek route.
+        if (empty($item['children']) && ! Route::has($item['route'])) return false;
         if (array_key_exists('show', $item) && ! $item['show']) return false;
-        if ($item['permission'] && ! $user->can($item['permission'])) return false;
+        if (! empty($item['permission']) && ! $user->can($item['permission'])) return false;
         return true;
     };
 
     $itemClass    = 'flex items-center px-4 py-3 rounded-xl mb-1 transition text-gray-700 hover:bg-gray-100';
     $activeClass  = 'flex items-center px-4 py-3 rounded-xl mb-1 transition bg-red-50 text-red-700 font-semibold';
     $headingClass = 'px-4 pt-5 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider';
+
+    // Sub-menu aktif: di halaman detail (projects.show), tentukan dari ?phase agar
+    // menu tetap pada fase yang membuka detail (Proposal/Implementation/Completion).
+    $currentPhase = request()->query('phase');
+    $childActive  = function ($child) use ($currentPhase) {
+        if (request()->routeIs('projects.show')) {
+            return ($child['phase'] ?? null) === $currentPhase;
+        }
+        return ! empty($child['active']) && request()->routeIs(...$child['active']);
+    };
 @endphp
 
 <aside x-show="sidebarOpen" x-transition:enter="transition ease-out duration-200"
@@ -100,10 +117,32 @@
             @if(count($groupItems))
                 <p class="{{ $headingClass }}">{{ $groupLabel }}</p>
                 @foreach($groupItems as $item)
-                    <a href="{{ route($item['route']) }}"
-                       class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }}">
-                        {{ $item['label'] }}
-                    </a>
+                    @if(! empty($item['children']))
+                        {{-- Item dengan sub-menu (collapsible) --}}
+                        <div x-data="{ open: {{ request()->routeIs(...$item['active']) ? 'true' : 'false' }} }">
+                            <button type="button" @click="open = ! open"
+                                    class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }} w-full justify-between">
+                                <span>{{ $item['label'] }}</span>
+                                <svg class="w-4 h-4 shrink-0 transition-transform" :class="open ? 'rotate-90' : ''"
+                                     fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                                </svg>
+                            </button>
+                            <div x-show="open" x-cloak class="ml-4 pl-2 border-l border-gray-200">
+                                @foreach($item['children'] as $child)
+                                    <a href="{{ $child['route'] ? route($child['route']) : '#' }}"
+                                       class="{{ $childActive($child) ? $activeClass : $itemClass }} text-sm py-2">
+                                        {{ $child['label'] }}
+                                    </a>
+                                @endforeach
+                            </div>
+                        </div>
+                    @else
+                        <a href="{{ route($item['route']) }}"
+                           class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }}">
+                            {{ $item['label'] }}
+                        </a>
+                    @endif
                 @endforeach
             @endif
         @endforeach
@@ -112,8 +151,7 @@
 
     {{-- Footer --}}
     <div class="border-t p-4">
-        <a href="{{ route('profile.edit') }}"
-           class="block px-4 py-3 rounded-xl hover:bg-gray-100 mb-2">Profile</a>
+        {{-- Menu Profile disembunyikan untuk semua user. --}}
 
         <form method="POST" action="{{ route('logout') }}">
             @csrf

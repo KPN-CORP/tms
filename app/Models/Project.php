@@ -23,7 +23,7 @@ class Project extends Model
         'draft'             => ['Draft', 'bg-gray-100 text-gray-700'],
         'submitted'         => ['Submitted', 'bg-blue-100 text-blue-700'],
         'revision'          => ['Revision Required', 'bg-amber-100 text-amber-700'],
-        'committee_review'  => ['Committee Review', 'bg-purple-100 text-purple-700'],
+        'committee_review'  => ['On Review', 'bg-amber-100 text-amber-700'],
         'approved'          => ['Approved', 'bg-green-100 text-green-700'],
         'rejected'          => ['Rejected', 'bg-red-100 text-red-700'],
         'ongoing'           => ['Ongoing', 'bg-blue-100 text-blue-700'],
@@ -140,6 +140,14 @@ class Project extends Model
     public function budgets()
     {
         return $this->hasMany(ProjectBudget::class);
+    }
+
+    /** Total budget rencana (Σ qty × unit_price) — dihitung di sisi DB. */
+    public function budgetTotal(): float
+    {
+        return (float) $this->budgets()
+            ->selectRaw('COALESCE(SUM(qty * unit_price), 0) as t')
+            ->value('t');
     }
 
     public function statusLogs()

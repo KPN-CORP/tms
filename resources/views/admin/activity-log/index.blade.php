@@ -8,7 +8,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Activity Log</h1>
-            <p class="text-gray-500">Audit trail: setiap perubahan data (create / update / delete) beserta field yang berubah.</p>
+            <p class="text-gray-500">Audit trail: every data change (create / update / delete) with the fields that changed.</p>
         </div>
 
         {{-- Filter --}}
@@ -16,7 +16,7 @@
             <div>
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
                 <select name="type" class="border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200">
-                    <option value="">Semua</option>
+                    <option value="">All</option>
                     @foreach($types as $t)
                         <option value="{{ $t }}" @selected($type === $t)>{{ class_basename($t) }}</option>
                     @endforeach
@@ -25,7 +25,7 @@
             <div>
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Event</label>
                 <select name="event" class="border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200">
-                    <option value="">Semua</option>
+                    <option value="">All</option>
                     @foreach(['created', 'updated', 'deleted'] as $e)
                         <option value="{{ $e }}" @selected($event === $e)>{{ ucfirst($e) }}</option>
                     @endforeach
@@ -86,7 +86,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">Belum ada aktivitas tercatat.</td></tr>
+                            <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">No activity recorded yet.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

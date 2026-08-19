@@ -80,7 +80,7 @@ class GuidelineController extends Controller
         abort_unless(
             $canManage || $guideline->downloadableBy($this->isCommittee($user)),
             403,
-            'Anda tidak memiliki akses download untuk guideline ini.'
+            'You do not have download access to this guideline.'
         );
 
         return $this->downloadAttachmentFile($guideline->file_path, $guideline->file_name);
@@ -96,7 +96,7 @@ class GuidelineController extends Controller
         abort_unless(
             $canManage || $guideline->viewableBy($this->isCommittee($user)),
             403,
-            'Anda tidak memiliki akses melihat guideline ini.'
+            'You do not have view access to this guideline.'
         );
 
         return $this->viewAttachmentFile($guideline->file_path, $guideline->file_name);

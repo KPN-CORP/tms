@@ -8,7 +8,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Task Box</h1>
-            <p class="text-gray-500">Proposal project yang menunggu review Anda (sesuai layer committee proposal).</p>
+            <p class="text-gray-500">Project proposals awaiting your review (per your proposal committee layer).</p>
         </div>
 
         @if(session('success'))
@@ -113,7 +113,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="px-6 py-8 text-center text-gray-400">Tidak ada proposal yang menunggu review Anda.</td></tr>
+                            <tr><td colspan="9" class="px-6 py-8 text-center text-gray-400">No proposals awaiting your review.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

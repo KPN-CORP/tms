@@ -130,6 +130,9 @@ Route::middleware(['auth'])->group(function () {
     */
 
     Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');
+    // Daftar per fase (tampilan sama dengan My Project). Harus sebelum '/projects/{project}'.
+    Route::get('/projects/implementation', [ProjectController::class, 'implementationIndex'])->name('projects.implementation');
+    Route::get('/projects/completion', [ProjectController::class, 'completionIndex'])->name('projects.completion');
 
     // Review project (proposal & completion — akses dicek via committee assignment)
     Route::get('/review/projects', [ProjectController::class, 'reviewQueue'])->name('projects.review');
@@ -148,17 +151,25 @@ Route::middleware(['auth'])->group(function () {
 
     // Section proposal (hanya Project Leader project ybs — dicek di controller)
     Route::post('/projects/{project}/implementation', [ProjectController::class, 'storeImplementation'])->name('projects.implementation.store');
+    Route::put('/projects/{project}/implementation/{plan}', [ProjectController::class, 'updateImplementation'])->name('projects.implementation.update');
     Route::delete('/projects/{project}/implementation/{plan}', [ProjectController::class, 'destroyImplementation'])->name('projects.implementation.destroy');
     Route::put('/projects/{project}/implementation/{plan}/actual', [ProjectController::class, 'updateImplementationActual'])->name('projects.implementation.actual');
+    Route::get('/projects/{project}/implementation/{plan}/attachment', [ProjectController::class, 'downloadImplementationAttachment'])->name('projects.implementation.attachment');
     Route::post('/projects/{project}/indicators', [ProjectController::class, 'storeIndicator'])->name('projects.indicators.store');
+    Route::put('/projects/{project}/indicators/{indicator}', [ProjectController::class, 'updateIndicator'])->name('projects.indicators.update');
+    Route::put('/projects/{project}/indicators/{indicator}/achievement', [ProjectController::class, 'updateIndicatorAchievement'])->name('projects.indicators.achievement');
     Route::delete('/projects/{project}/indicators/{indicator}', [ProjectController::class, 'destroyIndicator'])->name('projects.indicators.destroy');
     Route::post('/projects/{project}/budgets', [ProjectController::class, 'storeBudget'])->name('projects.budgets.store');
+    Route::put('/projects/{project}/budgets/{budget}', [ProjectController::class, 'updateBudget'])->name('projects.budgets.update');
     Route::delete('/projects/{project}/budgets/{budget}', [ProjectController::class, 'destroyBudget'])->name('projects.budgets.destroy');
     Route::put('/projects/{project}/budgets/{budget}/actual', [ProjectController::class, 'updateBudgetActual'])->name('projects.budgets.actual');
     Route::post('/projects/{project}/members', [ProjectController::class, 'storeMember'])->name('projects.members.store');
+    Route::put('/projects/{project}/members/{member}', [ProjectController::class, 'updateMember'])->name('projects.members.update');
     Route::delete('/projects/{project}/members/{member}', [ProjectController::class, 'destroyMember'])->name('projects.members.destroy');
+    Route::post('/projects/{project}/draft', [ProjectController::class, 'saveDraft'])->name('projects.draft');
     Route::post('/projects/{project}/attachments', [ProjectController::class, 'storeAttachment'])->name('projects.attachments.store');
     Route::get('/projects/{project}/attachments/{attachment}', [ProjectController::class, 'downloadAttachment'])->name('projects.attachments.download');
+    Route::get('/projects/{project}/attachments/{attachment}/view', [ProjectController::class, 'viewAttachment'])->name('projects.attachments.view');
     Route::delete('/projects/{project}/attachments/{attachment}', [ProjectController::class, 'destroyAttachment'])->name('projects.attachments.destroy');
 
     // Submit proposal (Leader) & keputusan Sponsor

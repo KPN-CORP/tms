@@ -46,8 +46,15 @@ class ProjectUpdateService
             return collect();
         }
 
+        $total = $project->budgetTotal();
+
+        // Cocokkan range budget (min–max) terhadap total budget project.
+        $budgetMatch = fn ($q) => $q->where('budget_min', '<=', $total)->where('budget_max', '>=', $total);
+
         $maxLayer = CommitteeAssignment::where('approval_type', 'project_proposal')
-            ->where('business_unit_id', $buId)->max('layer');
+            ->where('business_unit_id', $buId)
+            ->tap($budgetMatch)
+            ->max('layer');
 
         if (! $maxLayer) {
             return collect();
@@ -55,6 +62,7 @@ class ProjectUpdateService
 
         return CommitteeAssignment::where('approval_type', 'project_proposal')
             ->where('business_unit_id', $buId)
+            ->tap($budgetMatch)
             ->where('layer', $maxLayer)
             ->pluck('user_id');
     }

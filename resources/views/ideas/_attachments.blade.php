@@ -29,5 +29,5 @@
         </span>
     </div>
 @empty
-    <div class="{{ $box ?? 'border rounded-lg px-4 py-3' }} text-gray-400">Tidak ada lampiran.</div>
+    <div class="{{ $box ?? 'border rounded-lg px-4 py-3' }} text-gray-400">No attachments.</div>
 @endforelse

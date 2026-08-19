@@ -98,7 +98,7 @@
             {{-- Company & Location (opsional) — dari hcis, cascade dari Business Unit --}}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label class="block font-semibold mb-1">Targeted Company <span class="text-gray-400 text-sm font-normal">(opsional)</span></label>
+                    <label class="block font-semibold mb-1">Targeted Company <span class="text-gray-400 text-sm font-normal">(optional)</span></label>
                     <select name="company" id="idea-company"
                             data-remote-parent="#idea-bu" data-remote-url="{{ route('org.companies') }}" data-selected="{{ $selCompany }}"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('company') border-red-500 @enderror">
@@ -108,7 +108,7 @@
                     @error('company')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <div>
-                    <label class="block font-semibold mb-1">Targeted Location <span class="text-gray-400 text-sm font-normal">(opsional)</span></label>
+                    <label class="block font-semibold mb-1">Targeted Location <span class="text-gray-400 text-sm font-normal">(optional)</span></label>
                     <select name="location" id="idea-location"
                             data-remote-parent="#idea-bu" data-remote-url="{{ route('org.locations') }}" data-selected="{{ $selLocation }}"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('location') border-red-500 @enderror">
@@ -128,7 +128,7 @@
                             <li class="flex items-center justify-between text-sm border rounded px-3 py-1.5">
                                 <a href="{{ route('ideas.attachments.download', [$idea, $att]) }}" class="text-red-700 hover:underline">{{ $att->file_name }}</a>
                                 <button type="submit" form="del-att-{{ $att->id }}" class="text-red-600 text-xs hover:underline"
-                                        data-confirm="Hapus lampiran?" data-confirm-title="Hapus Lampiran" data-confirm-ok="Ya, Hapus">Delete</button>
+                                        data-confirm="Delete this attachment?" data-confirm-title="Delete Attachment" data-confirm-ok="Yes, Delete">Delete</button>
                             </li>
                         @endforeach
                     </ul>
@@ -152,7 +152,7 @@
                          @dragover.prevent="drag = true" @dragleave.prevent="drag = false" @drop.prevent="drop($event)"
                          :class="drag ? 'border-red-400 bg-red-50' : 'border-gray-300'"
                          class="cursor-pointer border-2 border-dashed rounded-lg px-4 py-6 text-center text-sm text-gray-500 hover:bg-gray-50 @error('attachments.*') border-red-500 @enderror">
-                        <span class="font-semibold text-red-700">Choose files</span> atau tarik &amp; letakkan di sini
+                        <span class="font-semibold text-red-700">Choose files</span> or drag &amp; drop here
                     </div>
 
                     {{-- Daftar file terpilih + tombol batal per file --}}
@@ -162,7 +162,7 @@
                                 <span class="truncate" x-text="f.name"></span>
                                 <span class="flex items-center gap-3 shrink-0">
                                     <span class="text-gray-400" x-text="human(f.size)"></span>
-                                    <button type="button" @click="remove(i)" title="Batalkan file ini"
+                                    <button type="button" @click="remove(i)" title="Remove this file"
                                             class="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 text-red-600 text-lg leading-none">&times;</button>
                                 </span>
                             </li>
@@ -182,9 +182,9 @@
         <button type="submit" name="action" value="draft"
                 class="px-5 py-2 border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Save as Draft</button>
         <button type="submit" name="action" value="submit"
-                data-confirm="Setelah di-submit, ide akan masuk antrean review committee dan tidak bisa diedit lagi. Lanjutkan submit?"
+                data-confirm="Once submitted, this idea enters the committee review queue and can no longer be edited. Continue?"
                 data-confirm-title="Submit Idea?"
-                data-confirm-ok="Ya, Submit Idea"
+                data-confirm-ok="Yes, Submit Idea"
                 class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Idea</button>
     </div>
 

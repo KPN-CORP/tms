@@ -31,7 +31,7 @@ class EnsureCommitteeMember
             ->when($type, fn ($q) => $q->where('approval_type', $type))
             ->exists();
 
-        abort_unless($isMember, 403, 'Halaman ini hanya untuk anggota committee.');
+        abort_unless($isMember, 403, 'This page is for committee members only.');
 
         return $next($request);
     }

@@ -93,7 +93,7 @@
         </label>
         <select id="select-companies" name="companies[]" multiple
                 data-remote-url="{{ route('org.companies') }}" data-remote-parent="#select-business-units"
-                placeholder="Pilih group company dulu, lalu pilih company..." class="w-full border rounded-lg">
+                placeholder="Select a group company first, then a company..." class="w-full border rounded-lg">
             {{-- Opsi terpilih (edit/old) di-render agar tetap tampil; opsi lain dimuat via AJAX sesuai BU. --}}
             @foreach($selCo as $name)
                 <option value="{{ $name }}" selected>{{ $name }}</option>
@@ -108,7 +108,7 @@
         </label>
         <select id="select-locations" name="locations[]" multiple
                 data-remote-url="{{ route('org.locations') }}" data-remote-parent="#select-business-units"
-                placeholder="Pilih group company dulu, lalu pilih location..." class="w-full border rounded-lg">
+                placeholder="Select a group company first, then a location..." class="w-full border rounded-lg">
             {{-- Opsi terpilih (edit/old) di-render agar tetap tampil; opsi lain dimuat via AJAX sesuai BU. --}}
             @foreach($selLoc as $name)
                 <option value="{{ $name }}" selected>{{ $name }}</option>
@@ -123,7 +123,7 @@
         </label>
         <select id="select-employees" name="employees[]" multiple data-no-search
                 data-remote-search="{{ route('org.users') }}" data-remote-value="id"
-                placeholder="Ketik nama atau employee ID untuk mencari user..." class="w-full border rounded-lg">
+                placeholder="Type a name or employee ID to search users..." class="w-full border rounded-lg">
             @foreach($assignedEmployees as $employee)
                 <option value="{{ $employee->id }}" selected>{{ $employee->name }}{{ $employee->employee_id ? ' - '.$employee->employee_id : '' }}</option>
             @endforeach
@@ -181,7 +181,7 @@
                                 <input type="checkbox" class="rounded border-gray-300"
                                        :checked="groupAllChecked(@js($group))"
                                        @change="toggleGroup(@js($group), $event.target.checked)">
-                                Pilih semua di {{ $group }}
+                                Select all in {{ $group }}
                             </label>
                         </div>
                         <div class="grid grid-cols-2 gap-4">

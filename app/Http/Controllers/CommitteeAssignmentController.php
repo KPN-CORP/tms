@@ -49,15 +49,26 @@ class CommitteeAssignmentController extends Controller
         //     Uncomment untuk kembali ke daftar terfilter.
         // $employees = KpnEmployee::forSelection($selectedBu->name, $selectedUnitName);
 
+        // Budget range (min–max) — khusus approval type budget-scoped (project_proposal).
+        $usesRange = $type && CommitteeAssignment::usesBudgetRange($type);
+        $selectedMin = ($p = preg_replace('/[^0-9]/', '', (string) $request->query('budget_min'))) !== '' ? (int) $p : null;
+        $selectedMax = ($p = preg_replace('/[^0-9]/', '', (string) $request->query('budget_max'))) !== '' ? (int) $p : null;
+
+        // Set siap di-edit hanya bila min & max lengkap (dan min ≤ max).
+        $rangeReady = ! $usesRange || ($selectedMin !== null && $selectedMax !== null && $selectedMin <= $selectedMax);
+
         // [layer => user_id] existing → dipetakan ke [layer => {email,label}] untuk pre-select.
-        $assignments = CommitteeAssignment::where('approval_type', $type)
-            ->where('business_unit_id', $selectedBuId)
-            ->when(
-                $selectedDeptId === null,
-                fn ($q) => $q->whereNull('department_id'),
-                fn ($q) => $q->where('department_id', $selectedDeptId)
-            )
-            ->pluck('user_id', 'layer');
+        $assignments = ($type && $selectedBuId && $rangeReady)
+            ? CommitteeAssignment::where('approval_type', $type)
+                ->where('business_unit_id', $selectedBuId)
+                ->when(
+                    $selectedDeptId === null,
+                    fn ($q) => $q->whereNull('department_id'),
+                    fn ($q) => $q->where('department_id', $selectedDeptId)
+                )
+                ->when($usesRange, fn ($q) => $q->where('budget_min', $selectedMin)->where('budget_max', $selectedMax))
+                ->pluck('user_id', 'layer')
+            : collect();
 
         $userEmails = User::whereIn('id', $assignments->values()->filter())->pluck('email', 'id');
         $empByEmail = KpnEmployee::query()->whereIn('email', $userEmails->values()->filter()->all())->get()->keyBy('email');
@@ -82,6 +93,10 @@ class CommitteeAssignmentController extends Controller
             'employeeSearchUrl' => route('org.employees'),
             'maxLayers'         => self::MAX_LAYERS,
             'configured'        => $this->configuredSets(),
+            'usesRange'         => $usesRange,
+            'selectedMin'       => $selectedMin,
+            'selectedMax'       => $selectedMax,
+            'rangeReady'        => $rangeReady,
         ]);
     }
 
@@ -94,9 +109,11 @@ class CommitteeAssignmentController extends Controller
         return CommitteeAssignment::with(['user', 'businessUnit', 'department'])
             ->orderBy('approval_type')
             ->orderBy('business_unit_id')
+            ->orderBy('budget_min')
+            ->orderBy('budget_max')
             ->orderBy('layer')
             ->get()
-            ->groupBy(fn ($r) => $r->approval_type . '|' . $r->business_unit_id . '|' . ($r->department_id ?? ''))
+            ->groupBy(fn ($r) => $r->approval_type . '|' . $r->business_unit_id . '|' . ($r->department_id ?? '') . '|' . ($r->budget_min ?? '') . '|' . ($r->budget_max ?? ''))
             ->map(function ($rows) {
                 $first = $rows->first();
 
@@ -106,8 +123,11 @@ class CommitteeAssignmentController extends Controller
                     'business_unit_id' => $first->business_unit_id,
                     'bu_name'          => optional($first->businessUnit)->name,
                     'department_id'    => $first->department_id,
-                    'dept_name'        => $first->department_id ? optional($first->department)->name : 'Semua Unit',
+                    'dept_name'        => $first->department_id ? optional($first->department)->name : 'All Units',
                     'dept_name_raw'    => optional($first->department)->name,
+                    'budget_min'       => $first->budget_min !== null ? (int) $first->budget_min : null,
+                    'budget_max'       => $first->budget_max !== null ? (int) $first->budget_max : null,
+                    'budget_label'     => CommitteeAssignment::budgetRangeLabel($first->budget_min, $first->budget_max),
                     'layers'           => $rows->sortBy('layer')
                         ->map(fn ($r) => ['layer' => $r->layer, 'name' => trim(optional($r->user)->name . (optional($r->user)->employee_id ? ' - ' . optional($r->user)->employee_id : ''))])
                         ->values(),
@@ -118,12 +138,25 @@ class CommitteeAssignmentController extends Controller
 
     public function store(Request $request, OrgResolver $org, HcisAuthService $hcis)
     {
+        $usesRange = CommitteeAssignment::usesBudgetRange((string) $request->input('approval_type'));
+
+        // Range: terima "20.000.000" / "20000000" → digit saja sebelum validasi.
+        $request->merge([
+            'budget_min' => preg_replace('/[^0-9]/', '', (string) $request->input('budget_min')),
+            'budget_max' => preg_replace('/[^0-9]/', '', (string) $request->input('budget_max')),
+        ]);
+
         $data = $request->validate([
             'approval_type'    => ['required', Rule::in(array_keys(CommitteeAssignment::TYPES))],
             'business_unit_id' => ['required', 'integer', 'exists:business_units,id'],
             'department'       => ['nullable', 'string', 'max:255'],
+            // Range budget (min–max) wajib untuk approval type budget-scoped (project_proposal).
+            'budget_min'       => [Rule::requiredIf(fn () => $usesRange), 'nullable', 'integer', 'min:0'],
+            'budget_max'       => [Rule::requiredIf(fn () => $usesRange), 'nullable', 'integer', 'gte:budget_min'],
             'layers'           => ['array'],
             'layers.*'         => ['nullable', 'email'], // email employee (hcis)
+        ], [
+            'budget_max.gte' => 'Budget Max must be greater than or equal to Budget Min.',
         ]);
 
         // Unit/Department (NAMA) → find-or-create FK lokal — untuk SEMUA approval type.
@@ -132,13 +165,21 @@ class CommitteeAssignmentController extends Controller
             $departmentId = $org->department($data['department'], (int) $data['business_unit_id'])->id;
         }
 
-        DB::transaction(function () use ($data, $departmentId, $hcis) {
+        // Range hanya untuk approval type budget-scoped; selain itu NULL.
+        $min = $usesRange ? (int) $data['budget_min'] : null;
+        $max = $usesRange ? (int) $data['budget_max'] : null;
+
+        DB::transaction(function () use ($data, $departmentId, $min, $max, $usesRange, $hcis) {
             CommitteeAssignment::where('approval_type', $data['approval_type'])
                 ->where('business_unit_id', $data['business_unit_id'])
                 ->when(
                     $departmentId === null,
                     fn ($q) => $q->whereNull('department_id'),
                     fn ($q) => $q->where('department_id', $departmentId)
+                )
+                ->when(
+                    $usesRange,
+                    fn ($q) => $q->where('budget_min', $min)->where('budget_max', $max)
                 )
                 ->delete();
 
@@ -159,16 +200,31 @@ class CommitteeAssignmentController extends Controller
                     'approval_type'    => $data['approval_type'],
                     'business_unit_id' => $data['business_unit_id'],
                     'department_id'    => $departmentId,
+                    'budget_min'       => $min,
+                    'budget_max'       => $max,
                     'layer'            => (int) $layer,
                     'user_id'          => $user->id,
                 ]);
             }
         });
 
-        // Redirect TANPA query params → form "Tambah / Ubah Committee" kembali kosong (default).
-        return redirect()
-            ->route('admin.committee.index')
-            ->with('success', 'Committee assignment saved.');
+        // Tetap di section yang sedang diatur (approval type + BU + Unit + budget range).
+        return $this->redirectPreserving([
+            'approval_type'    => $data['approval_type'],
+            'business_unit_id' => $data['business_unit_id'],
+            'department'       => $data['department'] ?? null,
+            'budget_min'       => $min,
+            'budget_max'       => $max,
+        ], 'Committee assignment saved.');
+    }
+
+    /** Redirect kembali ke index dgn mempertahankan pilihan (approval type/BU/unit/budget). */
+    private function redirectPreserving(array $params, string $msg, bool $toEditor = true)
+    {
+        $query = array_filter($params, fn ($v) => $v !== null && $v !== '');
+        $url   = route('admin.committee.index', $query) . ($toEditor ? '#editor' : '');
+
+        return redirect()->to($url)->with('success', $msg);
     }
 
     /** Hapus seluruh layer untuk satu set (type + BU + department). */
@@ -178,9 +234,14 @@ class CommitteeAssignmentController extends Controller
             'approval_type'    => ['required', Rule::in(array_keys(CommitteeAssignment::TYPES))],
             'business_unit_id' => ['required', 'integer', 'exists:business_units,id'],
             'department_id'    => ['nullable', 'integer', 'exists:departments,id'],
+            'budget_min'       => ['nullable', 'integer', 'min:0'],
+            'budget_max'       => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $departmentId = $data['approval_type'] === 'idea' ? ($data['department_id'] ?? null) : null;
+        $usesRange    = CommitteeAssignment::usesBudgetRange($data['approval_type']);
+        $departmentId = $data['department_id'] ?? null;
+        $min          = $usesRange ? ($data['budget_min'] ?? null) : null;
+        $max          = $usesRange ? ($data['budget_max'] ?? null) : null;
 
         CommitteeAssignment::where('approval_type', $data['approval_type'])
             ->where('business_unit_id', $data['business_unit_id'])
@@ -189,10 +250,21 @@ class CommitteeAssignmentController extends Controller
                 fn ($q) => $q->whereNull('department_id'),
                 fn ($q) => $q->where('department_id', $departmentId)
             )
+            ->when(
+                $usesRange,
+                fn ($q) => $q->where('budget_min', $min)->where('budget_max', $max)
+            )
             ->delete();
 
-        return redirect()
-            ->route('admin.committee.index')
-            ->with('success', 'Committee assignment dihapus.');
+        // Tetap di tab/section yang sama (jangan balik ke "pilih approval type").
+        $deptName = $departmentId ? optional(\App\Models\Department::find($departmentId))->name : null;
+
+        return $this->redirectPreserving([
+            'approval_type'    => $data['approval_type'],
+            'business_unit_id' => $data['business_unit_id'],
+            'department'       => $deptName,
+            'budget_min'       => $min,
+            'budget_max'       => $max,
+        ], 'Committee assignment deleted.', false);
     }
 }

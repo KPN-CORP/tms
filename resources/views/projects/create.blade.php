@@ -59,7 +59,7 @@
 
             <div>
                 <label class="block font-semibold mb-1">Project Scope <span class="text-red-600">*</span></label>
-                <textarea name="project_scope" rows="3" placeholder="Ruang lingkup project"
+                <textarea name="project_scope" rows="3" placeholder="Project scope"
                           class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_scope') border-red-500 @enderror">{{ old('project_scope') }}</textarea>
                 @error('project_scope')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
@@ -73,7 +73,7 @@
 
             <div>
                 <label class="block font-semibold mb-1">Notes <span class="text-gray-400 text-sm font-normal">(optional)</span></label>
-                <textarea name="notes" rows="3" placeholder="Catatan tambahan (opsional)"
+                <textarea name="notes" rows="3" placeholder="Additional notes (optional)"
                           class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('notes') border-red-500 @enderror">{{ old('notes') }}</textarea>
                 @error('notes')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>

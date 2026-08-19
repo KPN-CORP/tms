@@ -22,7 +22,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Project Category</h1>
-            <p class="text-gray-500">Master data kategori project (kode dipakai di Project ID). Kelola Add / Edit / Archive.</p>
+            <p class="text-gray-500">Project category master data (the code is used in the Project ID). Manage Add / Edit / Archive.</p>
         </div>
 
         @if(session('success'))
@@ -69,14 +69,14 @@
                                     </form>
                                     <form method="POST" action="{{ route('admin.project-categories.destroy', $cat) }}">
                                         @csrf @method('DELETE')
-                                        <button data-confirm="Hapus category {{ $cat->code }}? Tindakan ini permanen." data-confirm-title="Hapus Category" data-confirm-ok="Ya, Hapus"
+                                        <button data-confirm="Delete category {{ $cat->code }}? This action is permanent." data-confirm-title="Delete Category" data-confirm-ok="Yes, Delete"
                                                 class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                     </form>
                                 </div>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">Belum ada category.</td></tr>
+                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">No categories yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -113,27 +113,27 @@
 
                 {{-- Require roles (opsional, MULTI) — memprapopulasi "Role in Project" di Team Members --}}
                 <div>
-                    <label class="block text-sm font-semibold text-gray-600 mb-1">Require Role <span class="text-gray-400 font-normal">(optional, bisa lebih dari satu)</span></label>
-                    <p class="text-xs text-gray-400 mb-2">Mis. <b>Co-Leader</b> × <b>2</b> → di Team Members muncul 2 baris "Co-Leader", tinggal pilih nama. Tambahkan baris untuk role lain.</p>
+                    <label class="block text-sm font-semibold text-gray-600 mb-1">Require Role <span class="text-gray-400 font-normal">(optional, you can add more than one)</span></label>
+                    <p class="text-xs text-gray-400 mb-2">Mis. <b>Co-Leader</b> × <b>2</b> → Team Members will show 2 "Co-Leader" rows; just pick the names. Add rows for other roles.</p>
 
                     <div class="space-y-2">
                         @php $inpRow = 'border rounded-lg px-3 py-2 text-sm focus:ring focus:ring-red-200'; @endphp
                         <template x-for="(row, i) in rows" :key="i">
                             <div class="flex items-center gap-2">
-                                <input name="roles[]" x-model="row.role" placeholder="Nama role (mis. Co - Leader)" class="{{ $inpRow }} flex-1 min-w-0">
+                                <input name="roles[]" x-model="row.role" placeholder="Role name (e.g. Co-Leader)" class="{{ $inpRow }} flex-1 min-w-0">
                                 <input name="totals[]" x-model="row.total" placeholder="Jumlah" class="{{ $inpRow }} w-28 shrink-0">
                                 {{-- Baris terakhir: tombol tetap ada tapi mengosongkan isi (bukan menghapus baris). --}}
                                 <button type="button"
                                         @click="if (rows.length > 1) { rows.splice(i, 1) } else { rows[i].role = ''; rows[i].total = '' }"
                                         class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
-                                        :title="rows.length > 1 ? 'Hapus role' : 'Kosongkan'">&times;</button>
+                                        :title="rows.length > 1 ? 'Remove role' : 'Clear'">&times;</button>
                             </div>
                         </template>
                     </div>
 
                     <button type="button" @click="rows.push({ role: '', total: '' })"
                             class="mt-2 inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50">
-                        <span class="text-base leading-none">+</span> Tambah Role
+                        <span class="text-base leading-none">+</span> Add Role
                     </button>
                     @error('roles.*')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
                     @error('totals.*')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror

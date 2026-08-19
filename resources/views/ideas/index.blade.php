@@ -164,7 +164,7 @@
                                             <form method="POST" action="{{ route('ideas.destroy', $idea) }}">
                                                 @csrf @method('DELETE')
                                                 <button type="submit"
-                                                        data-confirm="Delete this draft?" data-confirm-title="Delete Draft" data-confirm-ok="Ya, Hapus"
+                                                        data-confirm="Delete this draft?" data-confirm-title="Delete Draft" data-confirm-ok="Yes, Delete"
                                                         class="px-3 py-1 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                             </form>
                                         </div>
@@ -175,7 +175,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">Belum ada ide yang cocok.</td></tr>
+                            <tr><td colspan="7" class="px-6 py-8 text-center text-gray-400">No matching ideas.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

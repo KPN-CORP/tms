@@ -103,8 +103,8 @@ class ProjectController extends Controller
 
         if (! $leaderUser || ! $sponsorUser) {
             return back()->withErrors(array_filter([
-                'project_leader_id'  => $leaderUser ? null : 'Leader belum punya akun user di hcis.',
-                'project_sponsor_id' => $sponsorUser ? null : 'Sponsor belum punya akun user di hcis.',
+                'project_leader_id'  => $leaderUser ? null : 'The leader does not have a user account in hcis.',
+                'project_sponsor_id' => $sponsorUser ? null : 'The sponsor does not have a user account in hcis.',
             ]))->withInput();
         }
 
@@ -135,7 +135,83 @@ class ProjectController extends Controller
     /**
      * Manage Project — daftar project yang berkaitan dengan user (row-level).
      */
+    /** Project Proposal — semua project terkait user (lifecycle proposal). */
     public function index(Request $request)
+    {
+        return $this->projectList($request, [
+            'title'         => 'My Project',
+            'subtitle'      => 'Projects related to you (as submitter, member, leader, sponsor, or committee).',
+            'route'         => 'projects.index',
+            'phaseStatuses' => null, // tampilkan semua status terkait
+            'statusMap'     => [
+                'draft'     => 'draft',
+                'submitted' => 'submitted',
+                'approved'  => 'approved',
+                'review'    => 'committee_review', // "On Review"
+                'revision'  => 'revision',         // "Revision Required"
+                'rejected'  => 'rejected',
+            ],
+            'tabDefs' => [
+                'all'       => 'All',
+                'draft'     => 'Draft',
+                'submitted' => 'Submitted',
+                'approved'  => 'Approved',
+                'review'    => 'On Review',
+                'revision'  => 'Revision Required',
+                'rejected'  => 'Rejected',
+            ],
+        ]);
+    }
+
+    /** Project Implementation — fase eksekusi (approved/ongoing/delayed). */
+    public function implementationIndex(Request $request)
+    {
+        return $this->projectList($request, [
+            'title'         => 'Project Implementation',
+            'subtitle'      => 'Projects that are approved and in progress (implementation).',
+            'route'         => 'projects.implementation',
+            'phase'         => 'implementation', // link Detail membuka mode Implementation (Actual aktif)
+            'phaseStatuses' => Project::EXECUTION_STATUSES, // approved, ongoing, delayed
+            'statusMap'     => [
+                'approved' => 'approved',
+                'ongoing'  => 'ongoing',
+                'delayed'  => 'delayed',
+            ],
+            'tabDefs' => [
+                'all'      => 'All',
+                'approved' => 'Approved',
+                'ongoing'  => 'Ongoing',
+                'delayed'  => 'Delayed',
+            ],
+        ]);
+    }
+
+    /** Project Completion — fase penyelesaian (completion review / completed). */
+    public function completionIndex(Request $request)
+    {
+        return $this->projectList($request, [
+            'title'         => 'Project Completion',
+            'subtitle'      => 'Projects under completion review or already completed.',
+            'route'         => 'projects.completion',
+            'phase'         => 'completion', // link Detail menandai konteks Completion (highlight sidebar)
+            'phaseStatuses' => ['completion_review', 'completed'],
+            'statusMap'     => [
+                'review'    => 'completion_review',
+                'completed' => 'completed',
+            ],
+            'tabDefs' => [
+                'all'       => 'All',
+                'review'    => 'Completion Review',
+                'completed' => 'Completed',
+            ],
+        ]);
+    }
+
+    /**
+     * Builder daftar project bersama (Proposal/Implementation/Completion).
+     * Tampilan & filter BU/Unit identik; hanya fase status + tab yang berbeda.
+     */
+    private function projectList(Request $request, array $opts)
     {
         $config = [
             'searchable'   => ['project_id', 'project_name'],
@@ -153,8 +229,13 @@ class ProjectController extends Controller
         $base = Project::relatedTo($request->user()->id)
             ->whereHas('idea', fn ($q) => $q->visibleTo($request->user()));
 
+        // Batasi ke status fase ini (Implementation/Completion). Proposal: null = semua.
+        if (! empty($opts['phaseStatuses'])) {
+            $base->whereIn('status', $opts['phaseStatuses']);
+        }
+
         // Filter BU/Unit by NAMA (dropdown dari hcis) pada ide terkait project —
-        // logika sama seperti My Ideas.
+        // logika sama seperti My Ideas / My Project.
         $query = (clone $base)
             ->when($request->filled('bu'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_name', $request->get('bu'))))
             ->when($request->filled('unit'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_name', $request->get('unit'))))
@@ -168,15 +249,7 @@ class ProjectController extends Controller
             ->groupBy('status')
             ->pluck('c', 'status');
 
-        // Tab lifecycle Project Proposal → status DB. 'all' = semua.
-        $statusMap = [
-            'draft'     => 'draft',
-            'submitted' => 'submitted',
-            'approved'  => 'approved',
-            'review'    => 'committee_review', // "On Review"
-            'revision'  => 'revision',         // "Revision Required"
-            'rejected'  => 'rejected',
-        ];
+        $statusMap = $opts['statusMap'];
         $tab = array_key_exists($request->get('tab'), $statusMap) ? $request->get('tab') : 'all';
         if ($tab !== 'all') {
             $query->where('status', $statusMap[$tab]);
@@ -184,13 +257,18 @@ class ProjectController extends Controller
 
         $perPage = $this->listPerPage($request);
 
-        return view('projects.index', [
-            'projects'  => $query->paginate($perPage)->withQueryString(),
-            'perPage'   => $perPage,
-            'buNames'   => KpnBusinessUnit::names(), // Business Unit dari master_bisnisunits; Unit cascade via AJAX
-            'counts'    => $counts,
-            'tab'       => $tab,
-            'statusMap' => $statusMap,
+        return view('projects.list', [
+            'projects'     => $query->paginate($perPage)->withQueryString(),
+            'perPage'      => $perPage,
+            'buNames'      => KpnBusinessUnit::names(), // Business Unit dari master_bisnisunits; Unit cascade via AJAX
+            'counts'       => $counts,
+            'tab'          => $tab,
+            'statusMap'    => $statusMap,
+            'tabDefs'      => $opts['tabDefs'],
+            'pageTitle'    => $opts['title'],
+            'pageSubtitle' => $opts['subtitle'],
+            'routeName'    => $opts['route'],
+            'detailPhase'  => $opts['phase'] ?? null, // ?phase=... pada link Detail
         ] + $this->listSortState($request, $config));
     }
 
@@ -214,6 +292,12 @@ class ProjectController extends Controller
 
         $user = $request->user();
 
+        // Field "Actual" hanya muncul saat detail dibuka dari konteks Project
+        // Implementation (?phase=implementation) DAN project memang sedang berjalan.
+        // Dibuka dari Project Proposal → tampilan tetap proposal (tanpa Actual).
+        $isImplementationView = $request->query('phase') === 'implementation';
+        $showActual = $project->isInExecution() && $isImplementationView;
+
         // Opsi PIC = anggota tim project (Leader + Sponsor + Members).
         $teamMembers = collect([$project->leader, $project->sponsor])
             ->merge($project->members->map(fn ($m) => $m->user))
@@ -230,11 +314,13 @@ class ProjectController extends Controller
 
         return view('projects.show', [
             'project'            => $project,
+            'showActual'         => $showActual,
+            'phase'              => $isImplementationView ? 'implementation' : null,
             'canEdit'            => $project->canLeaderEditProposal($user),
             'isLeader'           => $project->project_leader_id === $user->id,
             'isSponsor'          => $project->project_sponsor_id === $user->id,
             'isReviewer'         => app(ProjectApprovalWorkflowService::class)->isCurrentReviewer($project, $user),
-            'canTrack'           => $project->project_leader_id === $user->id && $project->isInExecution(),
+            'canTrack'           => $showActual && $project->isTeamMember($user),
             'canSubmitCompletion' => $project->project_leader_id === $user->id && $project->isInExecution(),
             'canRequestUpdate'   => $project->isInExecution() && $project->isTeamMember($user),
             'canCancel'          => $this->canCancel($project, $user) && ! in_array($project->status, ['completed', 'cancelled'], true),
@@ -254,18 +340,18 @@ class ProjectController extends Controller
 
         // Syarat minimal submit (FR-181): minimal 1 activity & 1 indicator.
         if ($project->implementationPlans()->count() === 0 || $project->indicators()->count() === 0) {
-            return back()->with('error', 'Minimal 1 Implementation Plan dan 1 Success Indicator sebelum submit.');
+            return back()->with('error', 'At least 1 Implementation Plan and 1 Success Indicator are required before submitting.');
         }
 
         // Total weightage Success Indicators harus 100% (T-43/214).
         $totalWeight = (float) $project->indicators()->sum('weightage');
         if (abs($totalWeight - 100.0) > 0.01) {
-            return back()->with('error', "Total weightage Success Indicators harus 100% (sekarang {$totalWeight}%).");
+            return back()->with('error', "Total Success Indicator weightage must be 100% (currently {$totalWeight}%).");
         }
 
         $this->transition($project, 'submitted', $request->user(), 'Proposal disubmit oleh Project Leader.');
 
-        return back()->with('success', 'Proposal submitted ke Project Sponsor.');
+        return back()->with('success', 'Proposal submitted to the Project Sponsor.');
     }
 
     public function sponsorApprove(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
@@ -275,9 +361,9 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
 
         // Alirkan ke committee proposal (atau langsung Approved bila belum ada committee).
-        $wf->start($project, 'committee_review', $request->user(), $note ?? 'Disetujui Project Sponsor.');
+        $wf->start($project, 'committee_review', $request->user(), $note ?? 'Approved by the Project Sponsor.');
 
-        return back()->with('success', 'Proposal disetujui Sponsor.');
+        return back()->with('success', 'Proposal approved by the Sponsor.');
     }
 
     /* ---- Committee review (Proposal & Completion) ------------------- */
@@ -342,7 +428,7 @@ class ProjectController extends Controller
         abort_unless(
             $project->project_leader_id === $request->user()->id && $project->isInExecution(),
             403,
-            'Hanya Project Leader dari project yang sedang berjalan yang boleh submit completion.'
+            'Only the Project Leader of an ongoing project may submit completion.'
         );
 
         $data = $request->validate([
@@ -351,7 +437,7 @@ class ProjectController extends Controller
 
         // Wajib minimal 1 Success Indicator (T-66/181).
         if ($project->indicators()->count() === 0) {
-            return back()->with('error', 'Minimal 1 Success Indicator sebelum submit completion.');
+            return back()->with('error', 'At least 1 Success Indicator is required before submitting completion.');
         }
 
         $project->update(['project_summary' => $data['project_summary']]);
@@ -366,7 +452,7 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         abort_unless($project->isInExecution() && $project->isTeamMember($user), 403,
-            'Hanya anggota tim project berjalan yang boleh mengajukan update.');
+            'Only members of an ongoing project team may request an update.');
 
         $data = $request->validate([
             'change_type' => ['required', Rule::in(array_keys(ProjectUpdate::CHANGE_TYPES))],
@@ -395,7 +481,7 @@ class ProjectController extends Controller
         ]);
 
         return back()->with('success', $auto
-            ? 'Update request otomatis disetujui. Silakan edit lalu Apply.'
+            ? 'Update request auto-approved. Please edit and then Apply.'
             : 'Update request diajukan ke '.($approver === 'committee' ? 'Committee' : 'Sponsor').'.');
     }
 
@@ -407,7 +493,7 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
         $update->update(['status' => 'approved', 'reviewed_by' => $request->user()->id, 'review_note' => $note]);
 
-        return back()->with('success', 'Update request disetujui. Project Leader dapat mengedit lalu Apply.');
+        return back()->with('success', 'Update request approved. The Project Leader can edit and then Apply.');
     }
 
     public function rejectUpdate(Request $request, Project $project, ProjectUpdate $update, ProjectUpdateService $svc)
@@ -418,14 +504,14 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
         $update->update(['status' => 'rejected', 'reviewed_by' => $request->user()->id, 'review_note' => $note]);
 
-        return back()->with('success', 'Update request ditolak.');
+        return back()->with('success', 'Update request rejected.');
     }
 
     public function applyUpdate(Request $request, Project $project, ProjectUpdate $update, ProjectUpdateService $svc)
     {
         abort_unless($update->project_id === $project->id, 404);
         abort_unless($project->project_leader_id === $request->user()->id && $update->status === 'approved', 403,
-            'Hanya Project Leader yang boleh menerapkan update yang sudah di-approve.');
+            'Only the Project Leader may apply an approved update.');
 
         // Rekam kondisi setelah perubahan (before/after) lalu tutup update.
         $update->update(['status' => 'applied', 'snapshot_after' => $svc->snapshot($project->fresh())]);
@@ -438,10 +524,10 @@ class ProjectController extends Controller
     public function cancelProject(Request $request, Project $project)
     {
         abort_unless($this->canCancel($project, $request->user()), 403,
-            'Hanya Committee idea layer terakhir atau Super Admin yang boleh membatalkan.');
+            'Only the last idea committee layer or a Super Admin may cancel.');
 
         if (in_array($project->status, ['completed', 'cancelled'], true)) {
-            return back()->with('error', 'Project yang sudah Completed/Cancelled tidak bisa dibatalkan.');
+            return back()->with('error', 'A Completed/Cancelled project cannot be cancelled.');
         }
 
         $reason = $request->validate(['reason' => ['required', 'string', 'max:2000']])['reason'];
@@ -451,18 +537,22 @@ class ProjectController extends Controller
         // T-97: pending approval/update otomatis hilang.
         $project->updates()->where('status', 'pending')->update(['status' => 'cancelled']);
 
-        return back()->with('success', 'Project dibatalkan.');
+        return back()->with('success', 'Project cancelled.');
     }
 
     private function canCancel(Project $project, User $user): bool
     {
-        if ($user->hasRole('Super Admin')) {
-            return true;
-        }
+        // Cancel Project HANYA untuk Project Leader & Project Sponsor.
+        return $project->project_leader_id === $user->id
+            || $project->project_sponsor_id === $user->id;
+    }
 
-        $idea = $project->idea;
-
-        return $idea && app(IdeaWorkflowService::class)->isLastLayerCommittee($idea, $user);
+    /** Redirect ke halaman project + anchor section (agar tetap di posisi, bukan scroll ke atas). */
+    private function backToSection(Project $project, string $anchor, string $msg, array $query = [])
+    {
+        return redirect()
+            ->to(route('projects.show', ['project' => $project] + $query) . '#' . $anchor)
+            ->with('success', $msg);
     }
 
     public function sponsorRevision(Request $request, Project $project)
@@ -472,7 +562,7 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
         $this->transition($project, 'revision', $request->user(), $note);
 
-        return back()->with('success', 'Proposal dikembalikan ke Project Leader untuk revisi.');
+        return back()->with('success', 'Proposal returned to the Project Leader for revision.');
     }
 
     private function authorizeSponsor(Request $request, Project $project): void
@@ -480,7 +570,7 @@ class ProjectController extends Controller
         abort_unless(
             $project->project_sponsor_id === $request->user()->id && $project->status === 'submitted',
             403,
-            'Hanya Project Sponsor yang boleh memutuskan proposal berstatus submitted.'
+            'Only the Project Sponsor may decide on a submitted proposal.'
         );
     }
 
@@ -502,23 +592,54 @@ class ProjectController extends Controller
     {
         $this->authorizeLeader($request, $project);
 
+        $request->validate([
+            'rows'                    => ['required', 'array', 'min:1'],
+            'rows.*.activity'         => ['required', 'string', 'max:2000'],
+            'rows.*.planning_start'   => ['nullable', 'date'],
+            'rows.*.planning_end'     => ['nullable', 'date'],
+            'rows.*.actual_start'     => ['nullable', 'date'],
+            'rows.*.actual_end'       => ['nullable', 'date'],
+            'rows.*.pic_user_ids'     => ['nullable', 'array'],
+            'rows.*.pic_user_ids.*'   => ['integer', 'exists:kpncorp.users,id'],
+        ]);
+
+        $seq = (int) $project->implementationPlans()->max('sequence_no');
+        foreach (array_values($request->input('rows')) as $r) {
+            $project->implementationPlans()->create([
+                'activity'       => $r['activity'],
+                'planning_start' => $r['planning_start'] ?? null,
+                'planning_end'   => $r['planning_end'] ?? null,
+                'actual_start'   => $r['actual_start'] ?? null,
+                'actual_end'     => $r['actual_end'] ?? null,
+                'pic_user_ids'   => $r['pic_user_ids'] ?? [],
+                'sequence_no'    => ++$seq,
+            ]);
+        }
+
+        return $this->backToSection($project, 'section-implementation', 'Activity added.');
+    }
+
+    public function updateImplementation(Request $request, Project $project, ImplementationPlan $plan)
+    {
+        $this->authorizeLeader($request, $project);
+        abort_unless($plan->project_id === $project->id, 404);
+
         $data = $request->validate([
             'activity'       => ['required', 'string', 'max:2000'],
             'planning_start' => ['nullable', 'date'],
             'planning_end'   => ['nullable', 'date'],
-            'actual_start'   => ['nullable', 'date'],
-            'actual_end'     => ['nullable', 'date'],
             'pic_user_ids'   => ['nullable', 'array'],
-            // users ada di hcis (kpncorp) — validasi ke koneksi itu, bukan default (tms).
             'pic_user_ids.*' => ['integer', 'exists:kpncorp.users,id'],
-            'remarks'        => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $project->implementationPlans()->create($data + [
-            'sequence_no' => (int) $project->implementationPlans()->max('sequence_no') + 1,
+        $plan->update([
+            'activity'       => $data['activity'],
+            'planning_start' => $data['planning_start'] ?? null,
+            'planning_end'   => $data['planning_end'] ?? null,
+            'pic_user_ids'   => $data['pic_user_ids'] ?? [],
         ]);
 
-        return back()->with('success', 'Implementation activity added.');
+        return $this->backToSection($project, 'section-implementation', 'Activity updated.');
     }
 
     public function destroyImplementation(Request $request, Project $project, ImplementationPlan $plan)
@@ -527,7 +648,7 @@ class ProjectController extends Controller
         abort_unless($plan->project_id === $project->id, 404);
         $plan->delete();
 
-        return back()->with('success', 'Activity removed.');
+        return $this->backToSection($project, 'section-implementation', 'Activity removed.');
     }
 
     /**
@@ -536,28 +657,66 @@ class ProjectController extends Controller
      */
     public function updateImplementationActual(Request $request, Project $project, ImplementationPlan $plan)
     {
-        $this->authorizeLeaderExecution($request, $project);
+        $this->authorizeTeamExecution($request, $project);
         abort_unless($plan->project_id === $project->id, 404);
 
         $data = $request->validate([
             'actual_start' => ['nullable', 'date'],
-            'actual_end'   => ['nullable', 'date'],
+            'actual_end'   => ['nullable', 'date', 'after_or_equal:actual_start'],
             'remarks'      => ['nullable', 'string', 'max:2000'],
+            // 1 file per plan, maks 7 MB.
+            'attachment'   => ['nullable', 'file', 'max:7168', 'mimes:pdf,docx,xlsx,jpg,jpeg,png,pptx'],
+        ], [
+            'actual_end.after_or_equal' => 'Actual Timeline End must be on or after Actual Timeline Start.',
         ]);
 
-        $plan->update($data);
+        $plan->fill([
+            'actual_start' => $data['actual_start'] ?? null,
+            'actual_end'   => $data['actual_end'] ?? null,
+            'remarks'      => $data['remarks'] ?? null,
+        ]);
+
+        // Attachment: ganti file lama bila ada unggahan baru.
+        if ($request->hasFile('attachment')) {
+            if ($plan->attachment_path) {
+                $this->deleteAttachmentFile($plan->attachment_path);
+            }
+            $file = $request->file('attachment');
+            $plan->attachment_path = $file->store("project-implementation/{$project->id}");
+            $plan->attachment_name = $file->getClientOriginalName();
+        }
+
+        $plan->save();
 
         $this->recomputeExecutionStatus($project->fresh(), $request->user());
 
-        return back()->with('success', 'Actual implementation diperbarui.');
+        return $this->backToSection($project, 'section-implementation', 'Actual implementation updated.', ['phase' => 'implementation']);
     }
 
-    private function authorizeLeaderExecution(Request $request, Project $project): void
+    /** Unduh attachment sebuah Implementation Plan (akses = anggota project). */
+    public function downloadImplementationAttachment(Request $request, Project $project, ImplementationPlan $plan)
+    {
+        abort_unless($plan->project_id === $project->id, 404);
+        abort_unless(
+            Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
+                || $request->user()->hasRole('Super Admin'),
+            403
+        );
+        abort_unless($plan->attachment_path, 404, 'No attachment.');
+
+        return $this->downloadAttachmentFile($plan->attachment_path, $plan->attachment_name);
+    }
+
+    /**
+     * Otorisasi update "actual" saat project berjalan — boleh SEMUA anggota tim
+     * (Leader/Sponsor/Member), bukan hanya Leader (tracking implementation).
+     */
+    private function authorizeTeamExecution(Request $request, Project $project): void
     {
         abort_unless(
-            $project->project_leader_id === $request->user()->id && $project->isInExecution(),
+            $project->isTeamMember($request->user()) && $project->isInExecution(),
             403,
-            'Hanya Project Leader saat project berjalan (Approved/Ongoing/Delayed).'
+            'Only project team members while the project is running (Approved/Ongoing/Delayed).'
         );
     }
 
@@ -575,7 +734,7 @@ class ProjectController extends Controller
         $new = $anyDelayed ? 'delayed' : ($anyStarted ? 'ongoing' : 'approved');
 
         if ($new !== $project->status) {
-            $this->transition($project, $new, $user, 'Auto: status eksekusi diperbarui dari progress activity.');
+            $this->transition($project, $new, $user, 'Auto: execution status updated from activity progress.');
         }
     }
 
@@ -583,26 +742,87 @@ class ProjectController extends Controller
     {
         $this->authorizeLeader($request, $project);
 
+        $request->validate([
+            'rows'                     => ['required', 'array', 'min:1'],
+            'rows.*.indicator'         => ['required', 'string', 'max:255'],
+            'rows.*.description'       => ['nullable', 'string', 'max:2000'],
+            'rows.*.baseline'          => ['nullable', 'numeric'],
+            'rows.*.achievement_value' => ['nullable', 'numeric'], // TARGET
+            'rows.*.achievement'       => ['nullable', 'numeric'], // aktual
+            'rows.*.uom'               => ['nullable', Rule::in(ImplementationIndicator::uoms())],
+            'rows.*.weightage'         => ['nullable', 'numeric', 'between:0,100'],
+            'rows.*.type'              => ['nullable', Rule::in(ImplementationIndicator::TYPES)],
+        ]);
+
+        $sort = (int) $project->indicators()->max('sort_order');
+        foreach (array_values($request->input('rows')) as $r) {
+            $project->indicators()->create([
+                'indicator'         => $r['indicator'],
+                'description'       => $r['description'] ?? null,
+                'baseline'          => $r['baseline'] ?? null,
+                'achievement_value' => $r['achievement_value'] ?? null,
+                'achievement'       => $r['achievement'] ?? null,
+                'uom'               => $r['uom'] ?? null,
+                'weightage'         => $r['weightage'] ?? null,
+                'type'              => $r['type'] ?? null,
+                'improvement'       => ImplementationIndicator::calcImprovement($r['baseline'] ?? null, $r['achievement'] ?? null, $r['type'] ?? null),
+                'sort_order'        => ++$sort,
+            ]);
+        }
+
+        return $this->backToSection($project, 'section-indicators', 'Indicator added.');
+    }
+
+    public function updateIndicator(Request $request, Project $project, ImplementationIndicator $indicator)
+    {
+        $this->authorizeLeader($request, $project);
+        abort_unless($indicator->project_id === $project->id, 404);
+
         $data = $request->validate([
-            'indicator'   => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:2000'],
-            'baseline'    => ['nullable', 'numeric'],
+            'indicator'         => ['required', 'string', 'max:255'],
+            'description'       => ['nullable', 'string', 'max:2000'],
+            'baseline'          => ['nullable', 'numeric'],
+            'achievement_value' => ['nullable', 'numeric'], // TARGET
+            'achievement'       => ['nullable', 'numeric'], // aktual
+            'uom'               => ['nullable', Rule::in(ImplementationIndicator::uoms())],
+            'weightage'         => ['nullable', 'numeric', 'between:0,100'],
+            'type'              => ['nullable', Rule::in(ImplementationIndicator::TYPES)],
+        ]);
+
+        $indicator->update([
+            'indicator'         => $data['indicator'],
+            'description'       => $data['description'] ?? null,
+            'baseline'          => $data['baseline'] ?? null,
+            'achievement_value' => $data['achievement_value'] ?? null,
+            'achievement'       => $data['achievement'] ?? null,
+            'uom'               => $data['uom'] ?? null,
+            'weightage'         => $data['weightage'] ?? null,
+            'type'              => $data['type'] ?? null,
+            'improvement'       => ImplementationIndicator::calcImprovement($data['baseline'] ?? null, $data['achievement'] ?? null, $data['type'] ?? null),
+        ]);
+
+        return $this->backToSection($project, 'section-indicators', 'Indicator updated.');
+    }
+
+    /**
+     * Input ACHIEVEMENT (aktual) indikator saat project berjalan — boleh semua
+     * anggota tim. % Improvement dihitung ulang otomatis dari baseline & type.
+     */
+    public function updateIndicatorAchievement(Request $request, Project $project, ImplementationIndicator $indicator)
+    {
+        $this->authorizeTeamExecution($request, $project);
+        abort_unless($indicator->project_id === $project->id, 404);
+
+        $data = $request->validate([
             'achievement' => ['nullable', 'numeric'],
-            'uom'         => ['nullable', 'string', 'max:30'],
-            'weightage'   => ['nullable', 'numeric', 'between:0,100'],
-            'type'        => ['nullable', Rule::in(ImplementationIndicator::TYPES)],
         ]);
 
-        $project->indicators()->create($data + [
-            'improvement' => ImplementationIndicator::calcImprovement(
-                $data['baseline'] ?? null,
-                $data['achievement'] ?? null,
-                $data['type'] ?? null
-            ),
-            'sort_order'  => (int) $project->indicators()->max('sort_order') + 1,
+        $indicator->update([
+            'achievement' => $data['achievement'] ?? null,
+            'improvement' => ImplementationIndicator::calcImprovement($indicator->baseline, $data['achievement'] ?? null, $indicator->type),
         ]);
 
-        return back()->with('success', 'Success indicator added.');
+        return $this->backToSection($project, 'section-indicators', 'Indicator achievement updated.', ['phase' => 'implementation']);
     }
 
     public function destroyIndicator(Request $request, Project $project, ImplementationIndicator $indicator)
@@ -611,24 +831,53 @@ class ProjectController extends Controller
         abort_unless($indicator->project_id === $project->id, 404);
         $indicator->delete();
 
-        return back()->with('success', 'Indicator removed.');
+        return $this->backToSection($project, 'section-indicators', 'Indicator removed.');
     }
 
     public function storeBudget(Request $request, Project $project)
     {
         $this->authorizeLeader($request, $project);
 
-        $data = $request->validate([
-            'item'       => ['required', 'string', 'max:255'],
-            'qty'        => ['nullable', 'numeric'],
-            'uom'        => ['nullable', 'string', 'max:30'],
-            'unit_price' => ['nullable', 'numeric'],
-            'remarks'    => ['nullable', 'string', 'max:2000'],
+        $request->validate([
+            'rows'              => ['required', 'array', 'min:1'],
+            'rows.*.item'       => ['required', 'string', 'max:500'],
+            'rows.*.qty'        => ['nullable', 'numeric', 'min:0'],
+            'rows.*.uom'        => ['nullable', Rule::in(ImplementationIndicator::uoms())],
+            'rows.*.unit_price' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $project->budgets()->create($data);
+        foreach (array_values($request->input('rows')) as $r) {
+            $project->budgets()->create([
+                'item'       => $r['item'],
+                'qty'        => $r['qty'] ?? null,
+                'uom'        => $r['uom'] ?? null,
+                'unit_price' => $r['unit_price'] ?? null,
+            ]);
+        }
 
-        return back()->with('success', 'Budget item added.');
+        return $this->backToSection($project, 'section-budget', 'Budget added.');
+    }
+
+    public function updateBudget(Request $request, Project $project, ProjectBudget $budget)
+    {
+        $this->authorizeLeader($request, $project);
+        abort_unless($budget->project_id === $project->id, 404);
+
+        $data = $request->validate([
+            'item'       => ['required', 'string', 'max:500'],
+            'qty'        => ['nullable', 'numeric', 'min:0'],
+            'uom'        => ['nullable', Rule::in(ImplementationIndicator::uoms())],
+            'unit_price' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $budget->update([
+            'item'       => $data['item'],
+            'qty'        => $data['qty'] ?? null,
+            'uom'        => $data['uom'] ?? null,
+            'unit_price' => $data['unit_price'] ?? null,
+        ]);
+
+        return $this->backToSection($project, 'section-budget', 'Budget updated.');
     }
 
     public function destroyBudget(Request $request, Project $project, ProjectBudget $budget)
@@ -637,13 +886,13 @@ class ProjectController extends Controller
         abort_unless($budget->project_id === $project->id, 404);
         $budget->delete();
 
-        return back()->with('success', 'Budget item removed.');
+        return $this->backToSection($project, 'section-budget', 'Budget item removed.');
     }
 
     /** Actual budget tracking (T-61) — saat project berjalan. */
     public function updateBudgetActual(Request $request, Project $project, ProjectBudget $budget)
     {
-        $this->authorizeLeaderExecution($request, $project);
+        $this->authorizeTeamExecution($request, $project);
         abort_unless($budget->project_id === $project->id, 404);
 
         $data = $request->validate([
@@ -657,31 +906,52 @@ class ProjectController extends Controller
 
         $budget->update($data + ['actual_cost' => $cost]);
 
-        return back()->with('success', 'Actual budget diperbarui.');
+        return $this->backToSection($project, 'section-budget', 'Actual budget updated.', ['phase' => 'implementation']);
     }
 
     public function storeMember(Request $request, Project $project)
     {
         $this->authorizeLeader($request, $project);
 
+        // Multi-add: rows[] berisi {user_id, role}. users ada di hcis (kpncorp).
+        $request->validate([
+            'rows'           => ['required', 'array', 'min:1'],
+            'rows.*.user_id' => ['required', 'integer', 'exists:kpncorp.users,id'],
+            'rows.*.role'    => ['required', 'string', 'max:100'],
+        ]);
+        $rows = array_values($request->input('rows'));
+
+        // T-86: batas jumlah anggota tim per kategori (bila diatur).
+        $max = optional($project->category)->max_team_members;
+        if ($max && $project->members()->count() + count($rows) > $max) {
+            return back()->withErrors(['rows' => "Melebihi batas anggota tim kategori ({$max})."]);
+        }
+
+        foreach ($rows as $r) {
+            $project->members()->create([
+                'user_id'   => $r['user_id'],
+                'role'      => $r['role'],
+                'joined_at' => now()->toDateString(),
+                'is_active' => true,
+            ]);
+        }
+
+        return $this->backToSection($project, 'section-team', count($rows) . ' team member(s) added.');
+    }
+
+    public function updateMember(Request $request, Project $project, ProjectMember $member)
+    {
+        $this->authorizeLeader($request, $project);
+        abort_unless($member->project_id === $project->id, 404);
+
         $data = $request->validate([
-            // users ada di hcis (kpncorp) — validasi ke koneksi itu, bukan default (tms).
             'user_id' => ['required', 'integer', 'exists:kpncorp.users,id'],
             'role'    => ['required', 'string', 'max:100'],
         ]);
 
-        // T-86: batas jumlah anggota tim per kategori (bila diatur).
-        $max = optional($project->category)->max_team_members;
-        if ($max && $project->members()->count() >= $max) {
-            return back()->withErrors(['user_id' => "Jumlah anggota tim sudah mencapai batas kategori ({$max})."]);
-        }
+        $member->update(['user_id' => $data['user_id'], 'role' => $data['role']]);
 
-        $project->members()->create($data + [
-            'joined_at' => now()->toDateString(),
-            'is_active' => true,
-        ]);
-
-        return back()->with('success', 'Team member added.');
+        return $this->backToSection($project, 'section-team', 'Team member updated.');
     }
 
     public function destroyMember(Request $request, Project $project, ProjectMember $member)
@@ -690,7 +960,18 @@ class ProjectController extends Controller
         abort_unless($member->project_id === $project->id, 404);
         $member->delete();
 
-        return back()->with('success', 'Team member removed.');
+        return $this->backToSection($project, 'section-team', 'Team member removed.');
+    }
+
+    /**
+     * Simpan sebagai draft — proposal memang tersimpan otomatis saat edit inline;
+     * tombol ini sekadar konfirmasi + kembali ke daftar dengan notifikasi.
+     */
+    public function saveDraft(Request $request, Project $project)
+    {
+        $this->authorizeLeader($request, $project);
+
+        return redirect()->route('projects.index')->with('success', 'Project Proposal saved as draft.');
     }
 
     /* ---- Attachments (T-100) ----------------------------------------- */
@@ -699,15 +980,23 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         abort_unless($project->isTeamMember($user) || $user->hasRole('Super Admin'), 403,
-            'Hanya anggota tim project yang boleh mengunggah lampiran.');
+            'Only project team members may upload attachments.');
 
-        $request->validate(['file' => array_merge(['required'], $this->attachmentRules())]);
+        // Multi-file (seperti Create Idea): terima attachments[] atau fallback file tunggal.
+        $request->validate([
+            'attachments'   => ['required_without:file', 'array'],
+            'attachments.*' => $this->attachmentRules(),
+            'file'          => array_merge(['required_without:attachments'], $this->attachmentRules()),
+        ]);
 
-        $project->attachments()->create(
-            $this->storeAttachmentFile($request->file('file'), "project-attachments/{$project->id}", $user->id)
-        );
+        $files = $request->file('attachments') ?: array_filter([$request->file('file')]);
+        foreach ($files as $file) {
+            $project->attachments()->create(
+                $this->storeAttachmentFile($file, "project-attachments/{$project->id}", $user->id)
+            );
+        }
 
-        return back()->with('success', 'Lampiran diunggah.');
+        return $this->backToSection($project, 'section-attachments', count($files) . ' attachment(s) uploaded.');
     }
 
     public function downloadAttachment(Request $request, Project $project, ProjectAttachment $attachment)
@@ -722,6 +1011,19 @@ class ProjectController extends Controller
         return $this->downloadAttachmentFile($attachment->file_path, $attachment->file_name);
     }
 
+    /** Buka lampiran inline (PDF/gambar) di tab baru — sama seperti Idea. */
+    public function viewAttachment(Request $request, Project $project, ProjectAttachment $attachment)
+    {
+        abort_unless($attachment->project_id === $project->id, 404);
+        abort_unless(
+            Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
+                || $request->user()->hasRole('Super Admin'),
+            403
+        );
+
+        return $this->viewAttachmentFile($attachment->file_path, $attachment->file_name);
+    }
+
     public function destroyAttachment(Request $request, Project $project, ProjectAttachment $attachment)
     {
         abort_unless($attachment->project_id === $project->id, 404);
@@ -731,13 +1033,13 @@ class ProjectController extends Controller
                 || $project->project_leader_id === $user->id
                 || $user->hasRole('Super Admin'),
             403,
-            'Hanya pengunggah atau Project Leader yang boleh menghapus lampiran.'
+            'Only the uploader or the Project Leader may delete attachments.'
         );
 
         $this->deleteAttachmentFile($attachment->file_path);
         $attachment->delete();
 
-        return back()->with('success', 'Lampiran dihapus.');
+        return $this->backToSection($project, 'section-attachments', 'Attachment deleted.');
     }
 
     private function authorizeLeader(Request $request, Project $project): void
@@ -745,7 +1047,7 @@ class ProjectController extends Controller
         abort_unless(
             $project->canLeaderEditProposal($request->user()),
             403,
-            'Hanya Project Leader yang boleh mengubah (saat draft/revision atau ada update yang di-approve).'
+            'Only the Project Leader may make changes (during draft/revision, or when an update has been approved).'
         );
     }
 
@@ -753,11 +1055,11 @@ class ProjectController extends Controller
 
     private function authorizeShellCreator(User $user, Idea $idea): void
     {
-        abort_unless($idea->status === 'approved', 403, 'Idea belum approved.');
+        abort_unless($idea->status === 'approved', 403, 'Idea is not approved yet.');
 
         $isLastLayer = app(IdeaWorkflowService::class)->isLastLayerCommittee($idea, $user);
 
-        abort_unless($isLastLayer, 403, 'Hanya committee layer terakhir yang boleh membuat project.');
+        abort_unless($isLastLayer, 403, 'Only the last committee layer may create a project.');
     }
 
     /**

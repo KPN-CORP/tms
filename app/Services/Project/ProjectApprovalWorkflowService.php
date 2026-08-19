@@ -20,20 +20,32 @@ class ProjectApprovalWorkflowService
      * status review => [approval_type committee, status final, status reject].
      */
     private const FLOWS = [
-        'committee_review'  => ['type' => 'project_proposal',   'final' => 'approved',  'reject' => 'rejected'],
+        // no_committee: status bila belum ada committee untuk flow ini.
+        // Project Proposal → tetap 'submitted' (tidak auto-approve).
+        'committee_review'  => ['type' => 'project_proposal',   'final' => 'approved',  'reject' => 'rejected', 'no_committee' => 'submitted'],
         'completion_review' => ['type' => 'project_completion', 'final' => 'completed', 'reject' => 'approved'],
     ];
 
     /**
      * Department efektif untuk routing project (dari ide-nya): department ide bila
-     * ada assignment department-specific, selain itu NULL (pakai chain BU-wide).
+     * ada assignment department-specific (untuk proposal: yang budget-nya cocok),
+     * selain itu NULL (pakai chain BU-wide).
      */
     private function effectiveDepartment(Project $project, string $type): ?int
     {
         $buId   = $project->businessUnitId();
         $deptId = $project->departmentId();
 
-        $hasSpecific = $buId && $deptId && CommitteeAssignment::where('approval_type', $type)
+        if (! $buId || ! $deptId) {
+            return null;
+        }
+
+        if (CommitteeAssignment::usesBudgetRange($type)) {
+            // Dept-specific dipakai bila ada range budget yang cocok utk dept ini.
+            return $this->matchedBudgetRange($project, $type, $deptId) ? $deptId : null;
+        }
+
+        $hasSpecific = CommitteeAssignment::where('approval_type', $type)
             ->where('business_unit_id', $buId)
             ->where('department_id', $deptId)
             ->exists();
@@ -41,18 +53,58 @@ class ProjectApprovalWorkflowService
         return $hasSpecific ? $deptId : null;
     }
 
-    /** Query committee efektif (BU + department efektif) untuk sebuah project & flow. */
+    /**
+     * Range budget (budget_min – budget_max) yang MEMUAT total budget project,
+     * untuk BU + department tertentu. Bila lebih dari satu cocok (range tumpang
+     * tindih), pilih range paling SEMPIT (paling spesifik).
+     */
+    private function matchedBudgetRange(Project $project, string $type, ?int $dept): ?object
+    {
+        $total = $project->budgetTotal();
+
+        $groups = CommitteeAssignment::where('approval_type', $type)
+            ->where('business_unit_id', $project->businessUnitId())
+            ->when(
+                $dept === null,
+                fn ($q) => $q->whereNull('department_id'),
+                fn ($q) => $q->where('department_id', $dept)
+            )
+            ->select('budget_min', 'budget_max')
+            ->distinct()
+            ->get();
+
+        return $groups
+            ->filter(fn ($g) => CommitteeAssignment::budgetRangeMatches($g->budget_min, $g->budget_max, $total))
+            ->sortBy(fn ($g) => (float) $g->budget_max - (float) $g->budget_min)
+            ->first();
+    }
+
+    /**
+     * Query committee efektif untuk sebuah project & flow:
+     * BU + department efektif, dan (khusus project_proposal) range budget yang cocok.
+     */
     private function committeeQuery(Project $project, string $type)
     {
         $dept = $this->effectiveDepartment($project, $type);
 
-        return CommitteeAssignment::where('approval_type', $type)
+        $query = CommitteeAssignment::where('approval_type', $type)
             ->where('business_unit_id', $project->businessUnitId())
             ->when(
                 $dept === null,
                 fn ($q) => $q->whereNull('department_id'),
                 fn ($q) => $q->where('department_id', $dept)
             );
+
+        if (CommitteeAssignment::usesBudgetRange($type)) {
+            $group = $this->matchedBudgetRange($project, $type, $dept);
+            if (! $group) {
+                return $query->whereRaw('1 = 0'); // tidak ada range cocok → kosong
+            }
+            $query->where('budget_min', $group->budget_min)
+                ->where('budget_max', $group->budget_max);
+        }
+
+        return $query;
     }
 
     public function committeeExists(Project $project, string $type): bool
@@ -78,12 +130,21 @@ class ProjectApprovalWorkflowService
     {
         $flow = self::FLOWS[$reviewStatus];
 
-        $this->transition($project, $reviewStatus, $user, $remarks);
-        $project->update(['current_layer' => 1]);
+        // Belum ada committee untuk flow ini → JANGAN masuk review.
+        // Project Proposal: tetap 'submitted' (no_committee). Flow lain: langsung final.
+        if (! $this->committeeExists($project, $flow['type'])) {
+            $fallback = $flow['no_committee'] ?? $flow['final'];
+            $this->transition($project, $fallback, $user, "No committee for {$flow['type']}; status set to {$fallback}.");
 
-        if (! $this->committeeExists($project->fresh(), $flow['type'])) {
-            $this->transition($project->fresh(), $flow['final'], $user, "Belum ada committee {$flow['type']}; langsung {$flow['final']}.");
+            return;
         }
+
+        $this->transition($project, $reviewStatus, $user, $remarks);
+
+        // Mulai dari layer committee TERKECIL. Untuk project_proposal, Layer 1
+        // dicadangkan Project Sponsor sehingga committee mulai dari Layer 2.
+        $firstLayer = (int) $this->committeeQuery($project, $flow['type'])->min('layer');
+        $project->update(['current_layer' => $firstLayer ?: 1]);
     }
 
     public function approve(Project $project, User $user, ?string $note = null): void
@@ -104,9 +165,9 @@ class ProjectApprovalWorkflowService
 
         if ($hasNext) {
             $project->update(['current_layer' => $next]);
-            $this->log($project, $project->status, $project->status, $user, "Approved layer {$current}, lanjut layer {$next}.");
+            $this->log($project, $project->status, $project->status, $user, "Approved layer {$current}, continuing to layer {$next}.");
         } else {
-            $this->transition($project, $flow['final'], $user, $note ?? "Approved layer terakhir ({$current}).");
+            $this->transition($project, $flow['final'], $user, $note ?? "Approved final layer ({$current}).");
         }
     }
 
@@ -137,6 +198,11 @@ class ProjectApprovalWorkflowService
                                     ->whereColumn('ca.business_unit_id', 'ix.business_unit_id')
                                     ->whereColumn('ca.layer', 'projects.current_layer')
                                     ->where('ca.user_id', $user->id)
+                                    // Khusus project_proposal: cocokkan kondisi budget (operator + nominal)
+                                    // terhadap total budget project (Σ qty×price).
+                                    ->when($flow['type'] === 'project_proposal', fn ($q) => $q->whereRaw(
+                                        '(SELECT COALESCE(SUM(pb.qty * pb.unit_price), 0) FROM project_budgets pb WHERE pb.project_id = projects.id) BETWEEN ca.budget_min AND ca.budget_max'
+                                    ))
                                     ->where(function ($w) use ($flow) {
                                         // department-specific ATAU BU-wide (bila tak ada yang specific utk unit ide).
                                         $w->whereColumn('ca.department_id', 'ix.department_id')

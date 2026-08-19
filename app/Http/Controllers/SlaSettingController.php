@@ -70,7 +70,7 @@ class SlaSettingController extends Controller
             'days'   => ['required', 'integer', 'min:1', 'max:365'],
             'status' => ['required', Rule::in(array_keys(SlaSetting::STATUS_OPTIONS))],
         ], [
-            'approval_type.unique' => 'SLA untuk jenis & status ini sudah ada.',
+            'approval_type.unique' => 'An SLA for this type and status already exists.',
         ]);
     }
 }

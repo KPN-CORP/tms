@@ -8,7 +8,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Guideline</h1>
-            <p class="text-gray-500">Pustaka dokumen panduan & referensi untuk seluruh user.</p>
+            <p class="text-gray-500">A library of guideline and reference documents for all users.</p>
         </div>
 
         @if(session('success'))
@@ -87,7 +87,7 @@
                                 <form method="POST" action="{{ route('guidelines.destroy', $g) }}">
                                     @csrf
                                     @method('DELETE')
-                                    <button data-confirm="Hapus guideline ini?" data-confirm-title="Hapus Guideline" data-confirm-ok="Ya, Hapus" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
+                                    <button data-confirm="Delete this guideline?" data-confirm-title="Delete Guideline" data-confirm-ok="Yes, Delete" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                 </form>
                             @endif
                         </div>
@@ -109,7 +109,7 @@
                     @endif
                 </div>
             @empty
-                <div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">Belum ada guideline.</div>
+                <div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">No guidelines yet.</div>
             @endforelse
         </div>
 

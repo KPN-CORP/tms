@@ -48,7 +48,7 @@
                          viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/>
                     </svg>
-                    <input type="text" x-model="q" placeholder="Cari role..."
+                    <input type="text" x-model="q" placeholder="Search roles..."
                            class="w-full border rounded-lg pl-9 pr-9 py-2 focus:ring focus:ring-red-200">
                     <button type="button" x-show="q" x-cloak @click="q = ''"
                             class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
@@ -91,7 +91,7 @@
                                     <form method="POST" action="{{ route('admin.roles.destroy', $role) }}">
                                         @csrf @method('DELETE')
                                         <button type="submit"
-                                                data-confirm="Delete role {{ $role->name }}?" data-confirm-title="Delete Role" data-confirm-ok="Ya, Hapus"
+                                                data-confirm="Delete role {{ $role->name }}?" data-confirm-title="Delete Role" data-confirm-ok="Yes, Delete"
                                                 class="px-3 py-1 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
                                     </form>
                                 </div>
@@ -107,7 +107,7 @@
                         {{-- Baris ini muncul saat pencarian tak menemukan role --}}
                         <tr x-show="q.trim() !== '' && matchCount === 0" x-cloak>
                             <td colspan="5" class="px-6 py-8 text-center text-gray-400">
-                                Tidak ada role yang cocok dengan pencarian.
+                                No roles match your search.
                             </td>
                         </tr>
                     @endif
