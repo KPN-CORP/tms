@@ -94,6 +94,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::prefix('admin')->name('admin.')->middleware('permission:committee.assign')->group(function () {
         Route::get('/committee-assignments', [CommitteeAssignmentController::class, 'index'])->name('committee.index');
+        Route::get('/committee-assignments/form', [CommitteeAssignmentController::class, 'form'])->name('committee.form');
         Route::post('/committee-assignments', [CommitteeAssignmentController::class, 'store'])->name('committee.store');
         Route::delete('/committee-assignments', [CommitteeAssignmentController::class, 'destroy'])->name('committee.destroy');
     });

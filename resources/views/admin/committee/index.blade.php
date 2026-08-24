@@ -6,8 +6,10 @@
 
     <div class="p-6 space-y-6 max-w-7xl mx-auto w-full">
 
-        <div>
+        <div class="flex items-center justify-between gap-3">
             <h1 class="text-2xl font-bold text-gray-800">Committee Assignment</h1>
+            <a href="{{ route('admin.committee.form') }}"
+               class="inline-flex items-center gap-1 px-5 py-2 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800">+ Add Committee</a>
         </div>
 
         @if(session('success'))
@@ -101,7 +103,7 @@
                                                     if ($set['budget_max'] !== null) { $editParams['budget_max'] = $set['budget_max']; }
                                                 @endphp
                                                 <div class="flex items-center justify-end gap-2">
-                                                    <a href="{{ route('admin.committee.index', $editParams) }}#editor"
+                                                    <a href="{{ route('admin.committee.form', $editParams) }}"
                                                        class="px-3 py-1.5 border border-red-700 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-50">Edit</a>
                                                     <form method="POST" action="{{ route('admin.committee.destroy') }}">
                                                         @csrf @method('DELETE')
@@ -123,122 +125,6 @@
                 </div>
                 @endforeach
         </div>
-
-        <h2 id="editor" class="text-lg font-bold text-gray-800 pt-2">Add / Edit Committee</h2>
-
-        {{-- Pilih jenis approval + Business Unit + Unit (+ Budget untuk project_proposal) --}}
-        <form method="GET" action="{{ route('admin.committee.index') }}" class="bg-white rounded-xl shadow p-6 flex flex-wrap gap-4">
-            <div class="flex-1 min-w-[200px]">
-                <label class="block font-semibold mb-2">Approval Type</label>
-                <select name="approval_type" onchange="this.form.submit()"
-                        class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                    <option value="" @selected(! $type)></option>
-                    @foreach($types as $val => $label)
-                        <option value="{{ $val }}" @selected($type === $val)>{{ $label }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="flex-1 min-w-[200px]">
-                <label class="block font-semibold mb-2">Business Unit</label>
-                <select name="business_unit_id" onchange="this.form.submit()"
-                        class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                    <option value="" @selected(! $selectedBuId)></option>
-                    @foreach($businessUnits as $bu)
-                        <option value="{{ $bu->id }}" @selected($selectedBuId == $bu->id)>{{ $bu->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="flex-1 min-w-[200px]">
-                <label class="block font-semibold mb-2">Unit</label>
-                <select name="department" onchange="this.form.submit()"
-                        class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                    <option value=""></option>
-                    @foreach($unitNames as $dept)
-                        <option value="{{ $dept }}" @selected($selectedUnitName === $dept)>{{ $dept }}</option>
-                    @endforeach
-                </select>
-            </div>
-            {{-- Budget: range Min–Max (untuk project_proposal). Project dengan total budget
-                 dalam [min, max] masuk ke committee ini. --}}
-            @if($usesRange)
-                <div class="flex-1 min-w-[240px]">
-                    <label class="block font-semibold mb-2">Budget</label>
-                    <div class="flex items-center gap-2">
-                        <input type="text" inputmode="numeric" name="budget_min"
-                               value="{{ $selectedMin !== null ? number_format($selectedMin, 0, ',', '.') : '' }}"
-                               onchange="this.form.submit()" placeholder="Min"
-                               class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                        <span class="text-gray-400">–</span>
-                        <input type="text" inputmode="numeric" name="budget_max"
-                               value="{{ $selectedMax !== null ? number_format($selectedMax, 0, ',', '.') : '' }}"
-                               onchange="this.form.submit()" placeholder="Max"
-                               class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                    </div>
-                </div>
-            @endif
-        </form>
-
-        {{-- Layer: tampil 3 dulu, sisanya via tombol "Tambah Layer" (maks 10).
-             Layer yang sudah terisi tetap ditampilkan walau > 3. --}}
-        @php
-            $maxAssigned    = collect($assignedByLayer)->filter()->keys()->max() ?? 0;
-            $initialVisible = max(3, (int) $maxAssigned);
-        @endphp
-        @if($type && $selectedBuId && $rangeReady)
-        <form method="POST" action="{{ route('admin.committee.store') }}" class="bg-white rounded-xl shadow p-6 space-y-4"
-              x-data="{ visible: {{ $initialVisible }} }">
-            @csrf
-            <input type="hidden" name="approval_type" value="{{ $type }}">
-            <input type="hidden" name="business_unit_id" value="{{ $selectedBuId }}">
-            <input type="hidden" name="department" value="{{ $selectedUnitName }}">
-            @if($usesRange)
-                <input type="hidden" name="budget_min" value="{{ $selectedMin }}">
-                <input type="hidden" name="budget_max" value="{{ $selectedMax }}">
-            @endif
-            <p class="text-sm text-gray-500">Approval: <span class="font-semibold">{{ $types[$type] }}</span> — BU: <span class="font-semibold">{{ optional($businessUnits->firstWhere('id', $selectedBuId))->name }}</span> — Unit: <span class="font-semibold">{{ $selectedUnitName ?: 'All Units (BU-wide)' }}</span>@if($usesRange) — Budget: <span class="font-semibold">{{ \App\Models\CommitteeAssignment::budgetRangeLabel($selectedMin, $selectedMax) }}</span>@endif</p>
-
-            <h3 class="text-lg font-semibold">Reviewer per Layer</h3>
-            @php $isProposal = $type === 'project_proposal'; @endphp
-            @if($isProposal)
-                <p class="text-xs text-gray-500 -mt-2">Layer 1 is automatically the project's <b>Project Sponsor</b>. Configure the committee from Layer 2.</p>
-            @endif
-
-            @for($layer = 1; $layer <= $maxLayers; $layer++)
-                <div class="flex items-center gap-4" @if($layer > 3) x-show="{{ $layer }} <= visible" x-cloak @endif>
-                    <span class="w-20 text-sm font-semibold text-gray-600">Layer {{ $layer }}</span>
-                    @if($isProposal && $layer === 1)
-                        {{-- Layer 1 project_proposal = Project Sponsor (fixed, tidak bisa diisi/di-search) --}}
-                        <input type="text" value="Project Sponsor" disabled aria-readonly="true"
-                               class="flex-1 border rounded-lg px-4 py-2 bg-gray-100 text-gray-500 cursor-not-allowed select-none">
-                    @else
-                        @php $a = $assignedByLayer[$layer] ?? null; @endphp
-                        <select id="layer-select-{{ $layer }}" name="layers[{{ $layer }}]" data-no-search data-remote-search="{{ $employeeSearchUrl }}"
-                                class="flex-1 border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                            <option value="">— none —</option>
-                            @if($a)<option value="{{ $a['email'] }}" selected>{{ $a['label'] }}</option>@endif
-                        </select>
-                    @endif
-                </div>
-            @endfor
-
-            {{-- Tambah field layer berikutnya (maks 10). Sembunyi saat sudah 10. --}}
-            <div x-show="visible < {{ $maxLayers }}">
-                <button type="button" @click="visible = Math.min({{ $maxLayers }}, visible + 1)"
-                        class="inline-flex items-center gap-1 px-4 py-2 border border-red-700 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-50">
-                    + Add Layer
-                </button>
-            </div>
-
-            <div class="flex justify-end pt-2">
-                <button type="submit"
-                        class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
-            </div>
-        </form>
-        @else
-            <div class="bg-white rounded-xl shadow p-6 text-sm text-gray-400">
-                Select <span class="font-semibold text-gray-600">Approval Type</span>, <span class="font-semibold text-gray-600">Business Unit</span>@if($usesRange), and enter <span class="font-semibold text-gray-600">Budget Min &amp; Max</span> (Max ≥ Min)@endif first to configure the committee per layer.
-            </div>
-        @endif
 
     </div>
 

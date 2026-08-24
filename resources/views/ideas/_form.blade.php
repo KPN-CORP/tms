@@ -44,28 +44,28 @@
             <div>
                 <label class="block font-semibold mb-1">Idea Name <span class="text-red-600">*</span></label>
                 <input type="text" name="idea_name" value="{{ $v('idea_name') }}"
-                       placeholder="Enter a clear, descriptive name for your idea"
+                       placeholder="Title of the submitted idea"
                        class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('idea_name') border-red-500 @enderror">
                 @error('idea_name')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div>
                 <label class="block font-semibold mb-1">Problem / Root Cause <span class="text-red-600">*</span></label>
-                <textarea name="problem" rows="3" placeholder="Describe the problem or root cause that your idea addresses"
+                <textarea name="problem" rows="3" placeholder="Background of the trouble or problem that occur in the targeted improvement area"
                           class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('problem') border-red-500 @enderror">{{ $v('problem') }}</textarea>
                 @error('problem')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div>
                 <label class="block font-semibold mb-1">Detailed Description <span class="text-red-600">*</span></label>
-                <textarea name="description" rows="4" placeholder="Provide a detailed description of your improvement idea"
+                <textarea name="description" rows="4" placeholder="Proposed improvement or solution with practical actionable items to implement that idea"
                           class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('description') border-red-500 @enderror">{{ $v('description') }}</textarea>
                 @error('description')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div>
                 <label class="block font-semibold mb-1">Expected Outcome <span class="text-red-600">*</span></label>
-                <textarea name="expected_outcome" rows="3" placeholder="What results do you expect from implementing this idea?"
+                <textarea name="expected_outcome" rows="3" placeholder="Quantitative changes that can be seen/feel after the idea is implemented, such as cost reduction, time efficiency, quality improvement, etc"
                           class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('expected_outcome') border-red-500 @enderror">{{ $v('expected_outcome') }}</textarea>
                 @error('expected_outcome')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>

@@ -16,7 +16,22 @@ class CommitteeAssignmentController extends Controller
 {
     private const MAX_LAYERS = 10;
 
-    public function index(Request $request, OrgResolver $org)
+    /** Halaman daftar committee (list saja). Form Add/Edit ada di halaman terpisah. */
+    public function index(Request $request)
+    {
+        $type = array_key_exists($request->query('approval_type'), CommitteeAssignment::TYPES)
+            ? $request->query('approval_type')
+            : null;
+
+        return view('admin.committee.index', [
+            'types'      => CommitteeAssignment::TYPES,
+            'type'       => $type, // untuk default tab
+            'configured' => $this->configuredSets(),
+        ]);
+    }
+
+    /** Halaman form Add/Edit committee (approval type + BU + Unit + budget + layer). */
+    public function form(Request $request, OrgResolver $org)
     {
         // Business Unit dari hcis (master_bisnisunits) — dipetakan ke BU lokal (find-or-create).
         $businessUnits = KpnBusinessUnit::names()
@@ -82,7 +97,7 @@ class CommitteeAssignmentController extends Controller
             return ['email' => $email, 'label' => optional($empByEmail[$email] ?? null)->label() ?: $email];
         });
 
-        return view('admin.committee.index', [
+        return view('admin.committee.form', [
             'businessUnits'     => $businessUnits,
             'types'             => CommitteeAssignment::TYPES,
             'type'              => $type,
@@ -92,7 +107,6 @@ class CommitteeAssignmentController extends Controller
             'assignedByLayer'   => $assignedByLayer,
             'employeeSearchUrl' => route('org.employees'),
             'maxLayers'         => self::MAX_LAYERS,
-            'configured'        => $this->configuredSets(),
             'usesRange'         => $usesRange,
             'selectedMin'       => $selectedMin,
             'selectedMax'       => $selectedMax,
@@ -208,23 +222,10 @@ class CommitteeAssignmentController extends Controller
             }
         });
 
-        // Tetap di section yang sedang diatur (approval type + BU + Unit + budget range).
-        return $this->redirectPreserving([
-            'approval_type'    => $data['approval_type'],
-            'business_unit_id' => $data['business_unit_id'],
-            'department'       => $data['department'] ?? null,
-            'budget_min'       => $min,
-            'budget_max'       => $max,
-        ], 'Committee assignment saved.');
-    }
-
-    /** Redirect kembali ke index dgn mempertahankan pilihan (approval type/BU/unit/budget). */
-    private function redirectPreserving(array $params, string $msg, bool $toEditor = true)
-    {
-        $query = array_filter($params, fn ($v) => $v !== null && $v !== '');
-        $url   = route('admin.committee.index', $query) . ($toEditor ? '#editor' : '');
-
-        return redirect()->to($url)->with('success', $msg);
+        // Kembali ke halaman daftar pada tab approval type yang baru disimpan.
+        return redirect()
+            ->route('admin.committee.index', ['approval_type' => $data['approval_type']])
+            ->with('success', 'Committee assignment saved.');
     }
 
     /** Hapus seluruh layer untuk satu set (type + BU + department). */
@@ -256,15 +257,9 @@ class CommitteeAssignmentController extends Controller
             )
             ->delete();
 
-        // Tetap di tab/section yang sama (jangan balik ke "pilih approval type").
-        $deptName = $departmentId ? optional(\App\Models\Department::find($departmentId))->name : null;
-
-        return $this->redirectPreserving([
-            'approval_type'    => $data['approval_type'],
-            'business_unit_id' => $data['business_unit_id'],
-            'department'       => $deptName,
-            'budget_min'       => $min,
-            'budget_max'       => $max,
-        ], 'Committee assignment deleted.', false);
+        // Tetap di tab approval type yang sama pada halaman daftar.
+        return redirect()
+            ->route('admin.committee.index', ['approval_type' => $data['approval_type']])
+            ->with('success', 'Committee assignment deleted.');
     }
 }
