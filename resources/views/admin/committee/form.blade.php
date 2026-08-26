@@ -34,12 +34,10 @@
             </div>
             <div class="flex-1 min-w-[200px]">
                 <label class="block font-semibold mb-2">Business Unit</label>
-                <select name="business_unit_id" onchange="this.form.submit()"
+                <select name="business_unit_id" data-remote-options="{{ route('org.business-units-local') }}" data-selected="{{ $selectedBuId }}"
+                        onchange="this.form.submit()"
                         class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200">
-                    <option value="" @selected(! $selectedBuId)></option>
-                    @foreach($businessUnits as $bu)
-                        <option value="{{ $bu->id }}" @selected($selectedBuId == $bu->id)>{{ $bu->name }}</option>
-                    @endforeach
+                    <option value=""></option>
                 </select>
             </div>
             <div class="flex-1 min-w-[200px]">

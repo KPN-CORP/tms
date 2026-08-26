@@ -66,6 +66,11 @@ class GuidelineController extends Controller
             'file_size'   => $payload['file_size'],
             'uploaded_by' => $payload['uploaded_by'],
             'is_active'   => true,
+            // Hak akses di-set bersamaan saat upload.
+            'employee_can_view'      => $request->boolean('employee_can_view'),
+            'employee_can_download'  => $request->boolean('employee_can_download'),
+            'committee_can_view'     => $request->boolean('committee_can_view'),
+            'committee_can_download' => $request->boolean('committee_can_download'),
         ]);
 
         return back()->with('success', "Guideline \"{$data['title']}\" uploaded.");

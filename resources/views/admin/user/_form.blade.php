@@ -53,11 +53,8 @@
 <div class="grid grid-cols-2 gap-4">
     <div>
         <label class="{{ $lbl }}">Business Unit</label>
-        <select name="business_unit_id" id="bu-select" class="{{ $inp }}">
+        <select name="business_unit_id" id="bu-select" data-remote-options="{{ route('org.business-units-local') }}" data-selected="{{ $val('business_unit_id') }}" class="{{ $inp }}">
             <option value="">—</option>
-            @foreach($businessUnits as $bu)
-                <option value="{{ $bu->id }}" @selected((string) $val('business_unit_id') === (string) $bu->id)>{{ $bu->name }}</option>
-            @endforeach
         </select>
     </div>
     <div>

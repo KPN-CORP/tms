@@ -59,6 +59,7 @@
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                         <tr>
                             <th class="px-6 py-3 w-12 text-center">No</th>
+                            <x-sortable-th column="idea_id" :sort="$sort" :dir="$dir">Idea ID</x-sortable-th>
                             <x-sortable-th column="idea_name" :sort="$sort" :dir="$dir">Idea Name</x-sortable-th>
                             <th class="px-6 py-3">Submitter</th>
                             <th class="px-6 py-3">Target BU</th>
@@ -73,9 +74,9 @@
                         @forelse($ideas as $idea)
                             <tr class="hover:bg-gray-50">
                                 <td class="px-6 py-4 text-sm text-center text-gray-500">{{ $ideas->firstItem() + $loop->index }}</td>
+                                <td class="px-6 py-4 font-mono text-sm text-red-700 whitespace-nowrap">{{ $idea->idea_id }}</td>
                                 <td class="px-6 py-4">
                                     <div class="font-semibold" title="{{ $idea->idea_name }}">{{ \Illuminate\Support\Str::words($idea->idea_name, 3, '…') }}</div>
-                                    <div class="font-mono text-sm text-red-700">{{ $idea->idea_id }}</div>
                                 </td>
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->user)->name }}</td>
                                 <td class="px-6 py-4 text-sm">{{ $idea->business_unit_name ?: optional($idea->businessUnit)->name }}</td>
@@ -123,7 +124,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="px-6 py-8 text-center text-gray-400">No ideas in this tab.</td></tr>
+                            <tr><td colspan="10" class="px-6 py-8 text-center text-gray-400">No ideas in this tab.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

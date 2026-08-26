@@ -78,11 +78,9 @@
         <label class="block font-bold mb-2">
             Restrict Group Company (Keeping blank means no restriction)
         </label>
-        <select id="select-business-units" name="business_units[]" multiple
+        <select id="select-business-units" name="business_units[]" multiple data-remote-options="{{ route('org.business-units') }}"
                 placeholder="Type to search group company..." class="w-full border rounded-lg">
-            @foreach($businessUnits as $name)
-                <option value="{{ $name }}" @selected($selBU->contains($name))>{{ $name }}</option>
-            @endforeach
+            @foreach($selBU as $name)<option value="{{ $name }}" selected>{{ $name }}</option>@endforeach
         </select>
     </div>
 

@@ -174,18 +174,62 @@
     // Idempotent (skip yang sudah ter-init) → AMAN dipanggil ulang untuk baris repeater baru.
     window.tmsInit = function (root) {
         root = root || document;
+
+        // Untuk single-select: setelah ada nilai terpilih, matikan typing (input readonly).
+        // Bisa mengetik lagi hanya setelah item dihapus (tombol × / clear).
+        var lockSingle = function (ts) {
+            if (ts.settings.maxItems !== 1 || !ts.control_input) return;
+            var sync = function () { ts.control_input.readOnly = (ts.items.length >= 1); };
+            ts.on('item_add', sync);
+            ts.on('item_remove', sync);
+            ts.on('clear', sync);
+            ts.on('change', sync);
+            sync();
+        };
+
+        // 0) Isi <option> select dari endpoint JSON (mis. daftar Business Unit) — bukan server-side.
+        //    Item bisa string ("Name") ATAU objek {value, text}. Nilai terpilih dirender
+        //    server-side sbg <option selected>, atau via atribut data-selected.
+        root.querySelectorAll('select[data-remote-options]').forEach(function (el) {
+            if (el.dataset.roDone) return;
+            el.dataset.roDone = '1';
+            var selected = el.getAttribute('data-selected');
+            fetch(el.getAttribute('data-remote-options'), { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (list) {
+                    var ts = el.tomselect;
+                    var seen = {};
+                    Array.prototype.forEach.call(el.options, function (o) { seen[o.value] = true; });
+                    (list || []).forEach(function (item) {
+                        var value = (item && typeof item === 'object') ? String(item.value) : String(item);
+                        var text  = (item && typeof item === 'object') ? item.text : item;
+                        if (seen[value]) return;
+                        seen[value] = true;
+                        if (ts) { ts.addOption({ value: value, text: text }); }
+                        else { var o = document.createElement('option'); o.value = value; o.textContent = text; el.appendChild(o); }
+                    });
+                    if (ts) ts.refreshOptions(false);
+                    if (selected !== null && selected !== '') {
+                        if (ts) ts.setValue(selected, true); else el.value = selected;
+                    }
+                })
+                .catch(function () {});
+        });
+
         // 1) Semua dropdown jadi searchable.
         root.querySelectorAll('select:not([data-no-search])').forEach(function (el) {
             if (el.tomselect) return;
             var hasEmpty = el.querySelector('option[value=""]') !== null;
-            new TomSelect(el, {
+            lockSingle(new TomSelect(el, {
                 // Empty option (value="") jadi PLACEHOLDER, tidak muncul sebagai item list.
                 plugins: el.multiple ? ['remove_button'] : (hasEmpty ? ['clear_button'] : []),
                 create: false,
                 maxOptions: null,
+                // Non-multiple = single-select (hanya 1 pilihan); multiple = tanpa batas.
+                maxItems: el.multiple ? null : 1,
                 // Render dropdown ke <body> agar tidak terpotong / mendorong konten (overflow-hidden card).
                 dropdownParent: 'body',
-            });
+            }));
         });
 
         // 1b) Dropdown searchable via AJAX — opsi muncul saat user mengetik (data besar).
@@ -193,9 +237,10 @@
             if (el.tomselect) return;
             var url = el.getAttribute('data-remote-search');
             var valueKey = el.getAttribute('data-remote-value') || 'email'; // field yg dipakai jadi value option
-            new TomSelect(el, {
+            lockSingle(new TomSelect(el, {
                 valueField: 'value', labelField: 'text', searchField: ['text'],
                 create: false, maxOptions: 50, dropdownParent: 'body',
+                maxItems: el.multiple ? null : 1,
                 plugins: el.multiple ? ['remove_button'] : ['clear_button'],
                 load: function (query, callback) {
                     if (!query.length) { callback(); return; }
@@ -206,7 +251,7 @@
                     .then(function (list) { callback(list.map(function (x) { return { value: x[valueKey], text: x.label }; })); })
                     .catch(function () { callback(); });
                 },
-            });
+            }));
         });
     };
 

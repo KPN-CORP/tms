@@ -46,6 +46,8 @@ Route::middleware(['auth'])->group(function () {
         ->name('dashboard');
 
     // Org data (hcis) untuk dropdown cascade dari Business Unit
+    Route::get('/org/business-units', [\App\Http\Controllers\OrgController::class, 'businessUnits'])->name('org.business-units');
+    Route::get('/org/business-units-local', [\App\Http\Controllers\OrgController::class, 'businessUnitsLocal'])->name('org.business-units-local');
     Route::get('/org/departments', [\App\Http\Controllers\OrgController::class, 'departments'])->name('org.departments');
     Route::get('/org/unit-names', [\App\Http\Controllers\OrgController::class, 'unitNames'])->name('org.unit-names');
     Route::get('/org/locations', [\App\Http\Controllers\OrgController::class, 'locations'])->name('org.locations');

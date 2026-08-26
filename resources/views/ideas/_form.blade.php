@@ -73,12 +73,11 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block font-semibold mb-1">Targeted Business Unit <span class="text-red-600">*</span></label>
-                    <select name="business_unit" id="idea-bu"
+                    {{-- Daftar BU di-fetch dari endpoint (org.business-units), bukan server-side --}}
+                    <select name="business_unit" id="idea-bu" data-remote-options="{{ route('org.business-units') }}"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('business_unit') border-red-500 @enderror">
                         <option value="">Select Business Unit</option>
-                        @foreach($businessUnits as $bu)
-                            <option value="{{ $bu }}" @selected((string) $selBu === (string) $bu)>{{ $bu }}</option>
-                        @endforeach
+                        @if($selBu)<option value="{{ $selBu }}" selected>{{ $selBu }}</option>@endif
                     </select>
                     @error('business_unit')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>

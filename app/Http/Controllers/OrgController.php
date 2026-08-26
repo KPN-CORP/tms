@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\KpnBusinessUnit;
 use App\Models\KpnCompany;
 use App\Models\KpnDepartment;
 use App\Models\KpnEmployee;
@@ -14,6 +15,33 @@ use Illuminate\Http\Request;
  */
 class OrgController extends Controller
 {
+    /** JSON daftar semua Business Unit (nama_bisnis) — dari master_bisnisunits, kecuali "Others". */
+    public function businessUnits()
+    {
+        return response()->json($this->buNamesExceptOthers()->values());
+    }
+
+    /**
+     * JSON daftar Business Unit sbg [{value: id lokal, text: nama}] — untuk field yang
+     * value-nya FK business_units.id (mis. filter, user, committee). Kecuali "Others".
+     */
+    public function businessUnitsLocal(\App\Services\OrgResolver $org)
+    {
+        return response()->json(
+            $this->buNamesExceptOthers()
+                ->map(fn ($name) => ['value' => $org->businessUnit($name)->id, 'text' => $name])
+                ->values()
+        );
+    }
+
+    /** Nama BU dari hcis, kecuali "Others". */
+    private function buNamesExceptOthers(): \Illuminate\Support\Collection
+    {
+        return KpnBusinessUnit::names()
+            ->reject(fn ($name) => mb_strtolower(trim((string) $name)) === 'others')
+            ->values();
+    }
+
     /** JSON daftar Unit/Department untuk sebuah Business Unit (?bu=Cement) — dari employees.unit. */
     public function departments(Request $request)
     {

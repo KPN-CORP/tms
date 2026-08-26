@@ -67,13 +67,11 @@
 
                 <div class="w-60">
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Business Unit</label>
-                    <select name="bu" id="filter-bu"
+                    <select name="bu" id="filter-bu" data-remote-options="{{ route('org.business-units') }}"
                             onchange="var u=document.getElementById('filter-unit'); if(u.tomselect){u.tomselect.clear(true);}else{u.value='';} this.form.requestSubmit()"
                             class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
                         <option value=""></option>
-                        @foreach($buNames as $bu)
-                            <option value="{{ $bu }}" @selected(request('bu') === $bu)>{{ $bu }}</option>
-                        @endforeach
+                        @if(request('bu'))<option value="{{ request('bu') }}" selected>{{ request('bu') }}</option>@endif
                     </select>
                 </div>
 

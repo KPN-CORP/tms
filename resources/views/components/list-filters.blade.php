@@ -9,11 +9,8 @@
 @if($businessUnits !== null)
     <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Business Unit</label>
-        <select name="business_unit_id" id="filter-bu" onchange="this.form.requestSubmit()" class="{{ $sel }}">
+        <select name="business_unit_id" id="filter-bu" data-remote-options="{{ route('org.business-units-local') }}" data-selected="{{ request('business_unit_id') }}" onchange="this.form.requestSubmit()" class="{{ $sel }}">
             <option value="">All BU</option>
-            @foreach($businessUnits as $bu)
-                <option value="{{ $bu->id }}" @selected(request('business_unit_id') == $bu->id)>{{ $bu->name }}</option>
-            @endforeach
         </select>
     </div>
 @endif

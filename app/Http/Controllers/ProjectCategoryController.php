@@ -6,6 +6,7 @@ use App\Models\Project;
 use App\Models\ProjectCategory;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ProjectCategoryController extends Controller
 {
@@ -60,10 +61,10 @@ class ProjectCategoryController extends Controller
         $data = $request->validate([
             'name'              => ['required', 'string', 'max:255'],
             'code'              => ['required', 'string', 'max:20', Rule::unique('project_categories', 'code')->ignore($category?->id)],
-            'leader_grade_min'  => ['required', 'integer', 'min:0'],
-            'leader_grade_max'  => ['required', 'integer', 'min:0'],
-            'sponsor_grade_min' => ['required', 'integer', 'min:0'],
-            'sponsor_grade_max' => ['required', 'integer', 'min:0'],
+            'leader_grade_min'  => ['nullable', 'integer', 'min:0'],
+            'leader_grade_max'  => ['nullable', 'integer', 'min:0'],
+            'sponsor_grade_min' => ['nullable', 'integer', 'min:0'],
+            'sponsor_grade_max' => ['nullable', 'integer', 'min:0'],
             'max_team_members'  => ['required', 'integer', 'min:0'],
             // Multi require-role: array paralel roles[] + totals[] dari repeater.
             'roles'             => ['nullable', 'array'],
@@ -85,6 +86,14 @@ class ProjectCategoryController extends Controller
             $required[] = ['role' => $role, 'total' => trim((string) ($totals[$i] ?? ''))];
         }
         $data['required_roles'] = $required ?: null;
+
+        // Max Person in Team tidak boleh lebih kecil dari total jumlah Require Role.
+        $roleTotal = collect($required)->sum(fn ($r) => max(0, (int) $r['total']));
+        if ($roleTotal > (int) $data['max_team_members']) {
+            throw ValidationException::withMessages([
+                'max_team_members' => "Max Person in Team ({$data['max_team_members']}) cannot be less than the total Require Role ({$roleTotal}).",
+            ]);
+        }
 
         unset($data['roles'], $data['totals']);
 

@@ -4,12 +4,12 @@
         <h2 class="text-xl font-semibold text-gray-800">Create Project Shell</h2>
     </x-slot>
 
-    <div class="p-6 space-y-6 max-w-5xl">
+    <div class="p-6 space-y-6 max-w-7xl mx-auto w-full">
 
         <div>
             <a href="{{ route('ideas.taskbox', ['tab' => 'approved']) }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Task Box</a>
             <h1 class="text-2xl font-bold text-gray-800 mt-1">Create Project Shell</h1>
-            <p class="text-gray-500">Dari ide: <span class="font-mono text-red-700">{{ $idea->idea_id }}</span> — {{ $idea->idea_name }}</p>
+            <p class="text-gray-500">From idea: <span class="font-mono text-red-700">{{ $idea->idea_id }}</span> — {{ $idea->idea_name }}</p>
         </div>
 
         <form method="POST" action="{{ route('projects.store') }}" class="bg-white rounded-xl shadow p-8 space-y-5">
@@ -32,7 +32,7 @@
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_category_id') border-red-500 @enderror">
                         <option value="">Select Category</option>
                         @foreach($categories as $cat)
-                            <option value="{{ $cat->id }}" @selected((string) old('project_category_id') === (string) $cat->id)>{{ $cat->name }} ({{ $cat->code }}) — Leader {{ $cat->gradeRangeText($cat->leader_grade_min, $cat->leader_grade_max) }}, Sponsor {{ $cat->gradeRangeText($cat->sponsor_grade_min, $cat->sponsor_grade_max) }}@if($cat->max_team_members), Tim ≤ {{ $cat->max_team_members }}@endif</option>
+                            <option value="{{ $cat->id }}" @selected((string) old('project_category_id') === (string) $cat->id)>{{ $cat->name }} ({{ $cat->code }})</option>
                         @endforeach
                     </select>
                     @error('project_category_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror

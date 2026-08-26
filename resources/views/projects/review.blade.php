@@ -31,13 +31,11 @@
 
                 <div class="w-60">
                     <label class="block text-xs font-semibold text-gray-600 mb-1">Business Unit</label>
-                    <select name="bu" id="filter-bu"
+                    <select name="bu" id="filter-bu" data-remote-options="{{ route('org.business-units') }}"
                             onchange="var u=document.getElementById('filter-unit'); if(u.tomselect){u.tomselect.clear(true);}else{u.value='';} this.form.requestSubmit()"
                             class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
                         <option value=""></option>
-                        @foreach($buNames as $bu)
-                            <option value="{{ $bu }}" @selected(request('bu') === $bu)>{{ $bu }}</option>
-                        @endforeach
+                        @if(request('bu'))<option value="{{ request('bu') }}" selected>{{ request('bu') }}</option>@endif
                     </select>
                 </div>
 
@@ -72,6 +70,7 @@
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                         <tr>
                             <th class="px-6 py-3 w-12 text-center">No</th>
+                            <x-sortable-th column="project_id" :sort="$sort" :dir="$dir">Project ID</x-sortable-th>
                             <x-sortable-th column="project_name" :sort="$sort" :dir="$dir">Project Name</x-sortable-th>
                             <th class="px-6 py-3">Leader</th>
                             <th class="px-6 py-3">Target BU</th>
@@ -86,9 +85,9 @@
                         @forelse($projects as $project)
                             <tr class="hover:bg-gray-50">
                                 <td class="px-6 py-4 text-sm text-center text-gray-500">{{ $projects->firstItem() + $loop->index }}</td>
+                                <td class="px-6 py-4 font-mono text-sm text-red-700 whitespace-nowrap">{{ $project->project_id }}</td>
                                 <td class="px-6 py-4">
                                     <div class="font-semibold" title="{{ $project->project_name }}">{{ \Illuminate\Support\Str::words($project->project_name, 3, '...') }}</div>
-                                    <div class="font-mono text-sm text-red-700">{{ $project->project_id }}</div>
                                 </td>
                                 <td class="px-6 py-4 text-sm">{{ optional($project->leader)->name }}</td>
                                 <td class="px-6 py-4 text-sm">{{ optional(optional($project->idea)->businessUnit)->name }}</td>
@@ -113,7 +112,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="px-6 py-8 text-center text-gray-400">No proposals awaiting your review.</td></tr>
+                            <tr><td colspan="10" class="px-6 py-8 text-center text-gray-400">No proposals awaiting your review.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
