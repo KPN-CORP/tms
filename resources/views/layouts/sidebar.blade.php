@@ -23,21 +23,44 @@
         || \App\Models\CommitteeAssignment::whereIn('approval_type', ['project_proposal', 'project_completion'])
             ->where('user_id', $user->id)->exists();
 
-    // Dashboard hanya untuk admin (Admin / Super Admin).
-    $isAdmin = $user->hasAnyRole(['Admin', 'Super Admin']);
+    // Badge Task Box = jumlah item yang MENUNGGU KEPUTUSAN user ini dan benar-benar
+    // BISA ia tindak — yaitu antrean di layer committee-nya sendiri (reviewQueueFor),
+    // gate yang sama dengan tombol Approve/Reject (isCurrentReviewer). Angkanya
+    // berkurang sendiri begitu ia approve/reject, karena item pindah layer/status.
+    //
+    // Super Admin TIDAK dikecualikan: Task Box-nya memang menampilkan semua ide
+    // untuk oversight, tapi ia hanya boleh memutus bila terdaftar sebagai committee.
+    // Jadi selama belum terdaftar, badge-nya 0 (tidak ada tugas miliknya).
+    //
+    // Dihitung hanya bila menunya tampil, agar tidak menambah query sia-sia.
+    $ideaTaskCount = $isIdeaCommittee
+        ? app(\App\Services\Idea\IdeaWorkflowService::class)->reviewQueueFor($user)->count()
+        : 0;
+
+    $projectTaskCount = $isProjectCommittee
+        ? app(\App\Services\Project\ProjectApprovalWorkflowService::class)->reviewQueueFor($user)->count()
+        : 0;
 
     // Item: [label, route, permission(null=semua login), show(override boolean), active].
     // Tampil bila route ada DAN (show!==false) DAN (permission null / user punya izin).
     $topMenu = [
-        ['label' => 'Dashboard', 'route' => 'dashboard', 'permission' => null, 'show' => $isAdmin, 'active' => ['dashboard']],
-        
+        // Dashboard paling atas dan terbuka untuk SEMUA employee (permission null =
+        // semua user login). Redirect non-admin di DashboardController ikut dilepas,
+        // kalau tidak menunya akan memantul ke My Ideas saat diklik.
+        ['label' => 'Dashboard', 'route' => 'dashboard', 'permission' => null, 'active' => ['dashboard']],
     ];
 
     // Menu dikelompokkan: "Judul Grup" => [ item, ... ]
     $groups = [
         'Ideas' => [
-            ['label' => 'My Ideas',       'route' => 'ideas.index',  'permission' => 'idea.create', 'active' => ['ideas.index', 'ideas.create', 'ideas.edit']],
-            ['label' => 'Task Box',       'route' => 'ideas.taskbox', 'permission' => null, 'show' => $isIdeaCommittee, 'active' => ['ideas.taskbox', 'ideas.review.*', 'projects.create']],
+            ['label' => 'My Ideas', 'route' => null, 'permission' => 'idea.create',
+                'active' => ['ideas.index', 'ideas.create', 'ideas.edit', 'projects.shell', 'projects.shell.progress'],
+                'children' => [
+                    ['label' => 'Ideas',         'route' => 'ideas.index',    'active' => ['ideas.index', 'ideas.create', 'ideas.edit']],
+                    ['label' => 'Project Shell', 'route' => 'projects.shell', 'active' => ['projects.shell', 'projects.shell.progress']],
+                ],
+            ],
+            ['label' => 'Task Box',       'route' => 'ideas.taskbox', 'permission' => null, 'show' => $isIdeaCommittee, 'badge' => $ideaTaskCount, 'active' => ['ideas.taskbox', 'ideas.review.*', 'projects.create']],
         ],
         'Project' => [
             ['label' => 'My Project', 'route' => null, 'permission' => null, 'show' => $canManageProject, 'active' => ['projects.index', 'projects.implementation', 'projects.completion', 'projects.show'],
@@ -47,7 +70,7 @@
                     ['label' => 'Project Completion',     'route' => 'projects.completion',     'active' => ['projects.completion'],     'phase' => 'completion'],
                 ],
             ],
-            ['label' => 'Task Box', 'route' => 'projects.review', 'permission' => null, 'show' => $isProjectCommittee, 'active' => ['projects.review']],
+            ['label' => 'Task Box', 'route' => 'projects.review', 'permission' => null, 'show' => $isProjectCommittee, 'badge' => $projectTaskCount, 'active' => ['projects.review']],
         ],
         'Admin Setting' => [
             ['label' => 'Committee Assignment', 'route' => 'admin.committee.index', 'permission' => 'committee.assign', 'active' => ['admin.committee.*']],
@@ -138,9 +161,15 @@
                             </div>
                         </div>
                     @else
+                        @php $badge = (int) ($item['badge'] ?? 0); @endphp
                         <a href="{{ route($item['route']) }}"
-                           class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }}">
-                            {{ $item['label'] }}
+                           class="{{ request()->routeIs(...$item['active']) ? $activeClass : $itemClass }} {{ $badge ? 'justify-between' : '' }}">
+                            <span>{{ $item['label'] }}</span>
+                            @if($badge > 0)
+                                {{-- Jumlah tugas yang masih menunggu keputusan user. --}}
+                                <span class="ml-2 shrink-0 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-600 text-white text-xs font-semibold"
+                                      title="{{ $badge }} task(s) waiting for your decision">{{ $badge > 99 ? '99+' : $badge }}</span>
+                            @endif
                         </a>
                     @endif
                 @endforeach

@@ -69,6 +69,17 @@
         }
     </style>
 
+    {{-- Penyimpan posisi buka/tutup panel collapsible ke localStorage, dipakai lintas
+         halaman (section Project Detail, banner peringatan Committee Assignment, dst).
+         Didefinisikan di <head> agar sudah ada sebelum Alpine mengevaluasi x-data.
+         Key dikirim LENGKAP oleh pemanggil supaya tiap halaman punya namespace sendiri. --}}
+    <script>
+        window.tmsSec = {
+            get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch (e) { return d; } },
+            set(k, v) { try { localStorage.setItem(k, v ? '1' : '0'); } catch (e) {} }
+        };
+    </script>
+
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 
@@ -253,6 +264,34 @@
                 },
             }));
         });
+    };
+
+    // Submit repeater anggota tim (dialog Add Team Member pada Project Detail).
+    // Baris tanpa nama di-disable agar tidak ikut terkirim — slot role wajib boleh
+    // diisi bertahap. Return false bila tidak ada satu pun nama yang dipilih.
+    // Error JS apa pun TIDAK boleh memblokir submit: server sudah menyaring baris kosong.
+    window.tmsMemberSubmit = function (e) {
+        var form = e.target, any = false;
+        var enableAll = function () {
+            form.querySelectorAll('[data-member-name], [data-member-role]')
+                .forEach(function (el) { el.disabled = false; });
+        };
+        try {
+            form.querySelectorAll('[data-member-row]').forEach(function (row) {
+                var nameEl = row.querySelector('[data-member-name]');
+                var roleEl = row.querySelector('[data-member-role]');
+                var skip   = ! (nameEl && nameEl.value);
+                if (nameEl) nameEl.disabled = skip;
+                if (roleEl) roleEl.disabled = skip;
+                if (! skip) any = true;
+            });
+        } catch (err) {
+            console.error('tmsMemberSubmit:', err);
+            enableAll();
+            return true;
+        }
+        if (! any) { e.preventDefault(); enableAll(); }
+        return any;
     };
 
     document.addEventListener('DOMContentLoaded', function () {

@@ -103,7 +103,7 @@ class IdeaController extends Controller
         return view('ideas.create', $this->formData());
     }
 
-    public function store(Request $request)
+    public function store(Request $request, IdeaWorkflowService $wf)
     {
         $isSubmit  = $request->input('action') === 'submit';
         $validated = $this->validateIdea($request, $isSubmit);
@@ -120,6 +120,12 @@ class IdeaController extends Controller
 
         $this->storeAttachments($request, $idea);
 
+        // Pengaju yang juga committee di layer aktif → layer itu auto-approved,
+        // ide langsung diteruskan ke Task Box layer berikutnya.
+        if ($isSubmit) {
+            $wf->autoApproveSubmitterLayers($idea);
+        }
+
         return redirect()
             ->route('ideas.index')
             ->with('success', $isSubmit
@@ -134,7 +140,7 @@ class IdeaController extends Controller
         return view('ideas.edit', $this->formData() + ['idea' => $idea]);
     }
 
-    public function update(Request $request, Idea $idea)
+    public function update(Request $request, Idea $idea, IdeaWorkflowService $wf)
     {
         $this->authorizeOwnerDraft($request, $idea);
 
@@ -148,6 +154,10 @@ class IdeaController extends Controller
         ]);
 
         $this->storeAttachments($request, $idea);
+
+        if ($isSubmit) {
+            $wf->autoApproveSubmitterLayers($idea);
+        }
 
         return redirect()
             ->route('ideas.index')

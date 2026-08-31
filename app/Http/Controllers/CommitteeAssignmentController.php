@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CommitteeAssignment;
+use App\Services\Committee\ApprovalCoverageReport;
 use App\Models\KpnBusinessUnit;
 use App\Models\KpnEmployee;
 use App\Models\User;
@@ -17,7 +18,7 @@ class CommitteeAssignmentController extends Controller
     private const MAX_LAYERS = 10;
 
     /** Halaman daftar committee (list saja). Form Add/Edit ada di halaman terpisah. */
-    public function index(Request $request)
+    public function index(Request $request, ApprovalCoverageReport $coverage)
     {
         $type = array_key_exists($request->query('approval_type'), CommitteeAssignment::TYPES)
             ? $request->query('approval_type')
@@ -27,6 +28,9 @@ class CommitteeAssignmentController extends Controller
             'types'      => CommitteeAssignment::TYPES,
             'type'       => $type, // untuk default tab
             'configured' => $this->configuredSets(),
+            // Peringatan layer approval yang belum di-assign — dihitung dari data,
+            // jadi hilang sendiri begitu assignment-nya dibuat.
+            'coverage'   => $coverage->build(),
         ]);
     }
 

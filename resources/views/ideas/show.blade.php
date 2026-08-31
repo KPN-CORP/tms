@@ -92,7 +92,7 @@
                 </div>
 
                 <div>
-                    <label class="block text-sm font-semibold text-gray-600 mb-1">Detailed Description</label>
+                    <label class="block text-sm font-semibold text-gray-600 mb-1">Detailed Idea Description</label>
                     <div class="{{ $box }} min-h-[80px] whitespace-pre-line">{{ $idea->description }}</div>
                 </div>
 

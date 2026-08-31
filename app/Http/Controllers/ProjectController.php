@@ -20,6 +20,7 @@ use App\Services\Idea\IdeaWorkflowService;
 use App\Services\Project\ProjectApprovalWorkflowService;
 use App\Services\Project\ProjectUpdateService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use App\Models\KpnBusinessUnit;
 use App\Models\KpnEmployee;
@@ -226,7 +227,9 @@ class ProjectController extends Controller
             'default_dir'  => 'desc',
         ];
 
-        $base = Project::relatedTo($request->user()->id)
+        // Base query bisa di-override (mis. Project Shell yang basisnya committee
+        // layer terakhir, bukan keterkaitan langsung user dengan project).
+        $base = $opts['base'] ?? Project::relatedTo($request->user()->id)
             ->whereHas('idea', fn ($q) => $q->visibleTo($request->user()));
 
         // Batasi ke status fase ini (Implementation/Completion). Proposal: null = semua.
@@ -269,7 +272,202 @@ class ProjectController extends Controller
             'pageSubtitle' => $opts['subtitle'],
             'routeName'    => $opts['route'],
             'detailPhase'  => $opts['phase'] ?? null, // ?phase=... pada link Detail
+            'detailRoute'  => $opts['detailRoute'] ?? 'projects.show',
+            'createHint'   => $opts['createHint'] ?? null,
         ] + $this->listSortState($request, $config));
+    }
+
+    /* ---- Project Shell (My Ideas > Project Shell) -------------------- */
+
+    /**
+     * Daftar Project Shell untuk Idea Committee layer terakhir: semua project yang
+     * lahir dari ide yang direview user ini di layer terakhir. Super Admin melihat semua.
+     */
+    public function shellIndex(Request $request)
+    {
+        $user = $request->user();
+
+        $base = $user->hasRole('Super Admin')
+            ? Project::query()
+            : Project::whereIn('idea_id', $this->lastLayerCommitteeIdeaIds($user));
+
+        return $this->projectList($request, [
+            'title'         => 'Project Shell',
+            'subtitle'      => 'Project shells created from ideas you reviewed at the last committee layer.',
+            'route'         => 'projects.shell',
+            'detailRoute'   => 'projects.shell.progress',
+            'phaseStatuses' => null,
+            'statusMap'     => [
+                'draft'     => 'draft',
+                'submitted' => 'submitted',
+                'approved'  => 'approved',
+                'ongoing'   => 'ongoing',
+                'completed' => 'completed',
+                'cancelled' => 'cancelled',
+            ],
+            'tabDefs' => [
+                'all'       => 'All',
+                'draft'     => 'Draft',
+                'submitted' => 'Submitted',
+                'approved'  => 'Approved',
+                'ongoing'   => 'Ongoing',
+                'completed' => 'Completed',
+                'cancelled' => 'Cancelled',
+            ],
+            'base' => $base,
+        ]);
+    }
+
+    /** Halaman progress sebuah Project Shell: Progress Summary + Activities. */
+    public function shellProgress(Request $request, Project $project)
+    {
+        $user = $request->user();
+        abort_unless($this->canSeeShell($project, $user), 403,
+            'You do not have access to this project shell.');
+
+        $project->load([
+            'category', 'idea', 'sponsor', 'leader', 'members.user',
+            'implementationPlans', 'indicators',
+            'statusLogs.changedBy', 'updates.requester', 'updates.reviewer',
+        ]);
+
+        return view('projects.shell-progress', [
+            'project'    => $project,
+            'summary'    => $this->shellSummary($project),
+            'activities' => $this->shellActivities($project),
+            'canCancel'  => $this->canCancel($project, $user)
+                && ! in_array($project->status, ['completed', 'cancelled'], true),
+        ]);
+    }
+
+    /** Ringkasan progress project (angka-angka untuk "Project Progress Summary"). */
+    private function shellSummary(Project $project): array
+    {
+        $plans      = $project->implementationPlans;
+        $planDone   = $plans->filter(fn ($p) => $p->actual_end !== null)->count();
+        $planTotal  = $plans->count();
+
+        $indicators = $project->indicators;
+        $weight     = (float) $indicators->sum('weightage');
+        // Capaian tertimbang: bobot indikator dianggap tercapai bila achievement terisi.
+        $achieved   = (float) $indicators
+            ->filter(fn ($i) => filled($i->achievement))
+            ->sum('weightage');
+
+        return [
+            'planTotal'    => $planTotal,
+            'planDone'     => $planDone,
+            'planPercent'  => $planTotal ? (int) round($planDone / $planTotal * 100) : null,
+            'memberCount'  => $project->members->count(),
+            'weightTotal'  => $weight,
+            'weightDone'   => $achieved,
+            'indicatorPercent' => $weight > 0 ? (int) round($achieved / $weight * 100) : null,
+            'lastActivity' => $project->statusLogs->max('created_at'),
+        ];
+    }
+
+    /**
+     * Linimasa gabungan: perubahan status, Project Update, dan realisasi
+     * Implementation Plan — terbaru di atas.
+     */
+    private function shellActivities(Project $project, int $limit = 30): \Illuminate\Support\Collection
+    {
+        $items = collect();
+
+        foreach ($project->statusLogs as $log) {
+            $from = $log->old_status ? Project::STATUS_BADGES[$log->old_status][0] ?? $log->old_status : '—';
+            $to   = Project::STATUS_BADGES[$log->new_status][0] ?? $log->new_status;
+            $items->push([
+                'at'    => $log->created_at,
+                'kind'  => 'status',
+                'title' => "Status: {$from} → {$to}",
+                'note'  => $log->remarks,
+                'actor' => optional($log->changedBy)->name,
+            ]);
+        }
+
+        foreach ($project->updates as $upd) {
+            $type = ProjectUpdate::CHANGE_TYPES[$upd->change_type] ?? $upd->change_type;
+            $items->push([
+                'at'    => $upd->created_at,
+                'kind'  => 'update',
+                'title' => "Update request ({$type}) — " . ucfirst($upd->status),
+                'note'  => $upd->description,
+                'actor' => optional($upd->requester)->name,
+            ]);
+
+            // Baris kedua bila sudah direview, memakai waktu review.
+            if ($upd->reviewed_by && $upd->updated_at) {
+                $items->push([
+                    'at'    => $upd->updated_at,
+                    'kind'  => 'update',
+                    'title' => "Update request ({$type}) " . ucfirst($upd->status),
+                    'note'  => $upd->review_note,
+                    'actor' => optional($upd->reviewer)->name,
+                ]);
+            }
+        }
+
+        foreach ($project->implementationPlans as $plan) {
+            if (! $plan->actual_start && ! $plan->actual_end) {
+                continue;
+            }
+            $range = trim(
+                (optional($plan->actual_start)->format('d M Y') ?? '?')
+                . ' → ' . (optional($plan->actual_end)->format('d M Y') ?? 'ongoing')
+            );
+            $items->push([
+                'at'    => $plan->updated_at,
+                'kind'  => 'plan',
+                'title' => 'Implementation actual: ' . $plan->activity,
+                'note'  => $range,
+                'actor' => null,
+            ]);
+        }
+
+        return $items
+            ->filter(fn ($i) => $i['at'] !== null)
+            ->sortByDesc(fn ($i) => $i['at'])
+            ->take($limit)
+            ->values();
+    }
+
+    /**
+     * idea_id dari ide-ide yang user ini review di layer TERAKHIR.
+     * Dipersempit dulu ke ide yang sudah punya project agar tidak memeriksa semua ide.
+     */
+    private function lastLayerCommitteeIdeaIds(User $user): array
+    {
+        $candidates = Idea::query()
+            ->whereIn('idea_id', Project::query()->select('idea_id'))
+            ->whereExists(function ($sub) use ($user) {
+                $sub->selectRaw('1')
+                    ->from('committee_assignments as ca')
+                    ->where('ca.approval_type', 'idea')
+                    ->where('ca.user_id', $user->id)
+                    ->whereColumn('ca.business_unit_id', 'ideas.business_unit_id');
+            })
+            ->get();
+
+        $workflow = app(IdeaWorkflowService::class);
+
+        return $candidates
+            ->filter(fn (Idea $idea) => $workflow->isLastLayerCommittee($idea, $user))
+            ->pluck('idea_id')
+            ->all();
+    }
+
+    /** Boleh melihat Project Shell ini? (committee layer terakhir / Super Admin / leader / sponsor) */
+    private function canSeeShell(Project $project, User $user): bool
+    {
+        if ($user->hasRole('Super Admin')
+            || $project->project_leader_id === $user->id
+            || $project->project_sponsor_id === $user->id) {
+            return true;
+        }
+
+        return $project->idea
+            && app(IdeaWorkflowService::class)->isLastLayerCommittee($project->idea, $user);
     }
 
     /**
@@ -320,7 +518,15 @@ class ProjectController extends Controller
             'isLeader'           => $project->project_leader_id === $user->id,
             'isSponsor'          => $project->project_sponsor_id === $user->id,
             'isReviewer'         => app(ProjectApprovalWorkflowService::class)->isCurrentReviewer($project, $user),
-            'canTrack'           => $showActual && $project->isTeamMember($user),
+            // Actual boleh diedit langsung hanya saat draft; setelah submit/baseline → terkunci.
+            'canTrack'           => $showActual && $project->isTeamMember($user) && $project->actualIsDraft(),
+            'actualStatus'       => $project->actual_status ?: 'draft',
+            // Leader submit baseline Actual (harus ada minimal 1 actual_start terisi).
+            'canSubmitActual'    => $showActual && $project->project_leader_id === $user->id
+                                    && $project->actualIsDraft()
+                                    && $project->implementationPlans->contains(fn ($p) => $p->actual_start !== null),
+            // Sponsor approve/reject baseline saat pending.
+            'isActualSponsor'    => $showActual && $project->project_sponsor_id === $user->id && $project->actualIsPending(),
             'canSubmitCompletion' => $project->project_leader_id === $user->id && $project->isInExecution(),
             'canRequestUpdate'   => $project->isInExecution() && $project->isTeamMember($user),
             'canCancel'          => $this->canCancel($project, $user) && ! in_array($project->status, ['completed', 'cancelled'], true),
@@ -524,7 +730,7 @@ class ProjectController extends Controller
     public function cancelProject(Request $request, Project $project)
     {
         abort_unless($this->canCancel($project, $request->user()), 403,
-            'Only the last idea committee layer or a Super Admin may cancel.');
+            'Only the Project Leader, Sponsor, last idea committee layer, or a Super Admin may cancel.');
 
         if (in_array($project->status, ['completed', 'cancelled'], true)) {
             return back()->with('error', 'A Completed/Cancelled project cannot be cancelled.');
@@ -542,9 +748,16 @@ class ProjectController extends Controller
 
     private function canCancel(Project $project, User $user): bool
     {
-        // Cancel Project HANYA untuk Project Leader & Project Sponsor.
-        return $project->project_leader_id === $user->id
-            || $project->project_sponsor_id === $user->id;
+        // Project Leader & Project Sponsor (perilaku lama), ditambah Idea Committee
+        // layer terakhir dan Super Admin yang membatalkan dari My Ideas > Project Shell.
+        if ($project->project_leader_id === $user->id
+            || $project->project_sponsor_id === $user->id
+            || $user->hasRole('Super Admin')) {
+            return true;
+        }
+
+        return $project->idea
+            && app(IdeaWorkflowService::class)->isLastLayerCommittee($project->idea, $user);
     }
 
     /** Redirect ke halaman project + anchor section (agar tetap di posisi, bukan scroll ke atas). */
@@ -713,11 +926,62 @@ class ProjectController extends Controller
      */
     private function authorizeTeamExecution(Request $request, Project $project): void
     {
+        // Anggota tim, project berjalan, DAN Actual masih draft (sebelum submit/baseline).
+        // Setelah baseline, perubahan lewat change-request (bukan edit langsung).
         abort_unless(
-            $project->isTeamMember($request->user()) && $project->isInExecution(),
+            $project->isTeamMember($request->user()) && $project->isInExecution() && $project->actualIsDraft(),
             403,
-            'Only project team members while the project is running (Approved/Ongoing/Delayed).'
+            'Actual can only be edited by team members while running and still in Draft (before submit/baseline).'
         );
+    }
+
+    /* ---- Baseline Actual: submit (Leader) → approve/reject (Sponsor) ---- */
+
+    /** Leader submit baseline Actual → status pending (menunggu Sponsor). */
+    public function submitActual(Request $request, Project $project)
+    {
+        abort_unless(
+            $project->project_leader_id === $request->user()->id
+                && $project->isInExecution() && $project->actualIsDraft(),
+            403,
+            'Only the Project Leader may submit the Actual baseline while it is Draft.'
+        );
+
+        if (! $project->implementationPlans()->whereNotNull('actual_start')->exists()) {
+            return back()->with('error', 'Fill at least one Actual (start date) before submitting.');
+        }
+
+        $project->update(['actual_status' => 'pending']);
+
+        return $this->backToSection($project, 'section-implementation', 'Actual submitted — waiting for Project Sponsor approval.', ['phase' => 'implementation']);
+    }
+
+    /** Sponsor approve baseline Actual → status baselined (terkunci). */
+    public function approveActual(Request $request, Project $project)
+    {
+        abort_unless(
+            $project->project_sponsor_id === $request->user()->id && $project->actualIsPending(),
+            403,
+            'Only the Project Sponsor may approve while the Actual is pending.'
+        );
+
+        $project->update(['actual_status' => 'baselined']);
+
+        return $this->backToSection($project, 'section-implementation', 'Actual baseline approved by Sponsor.', ['phase' => 'implementation']);
+    }
+
+    /** Sponsor reject baseline Actual → kembali draft (editable). */
+    public function rejectActual(Request $request, Project $project)
+    {
+        abort_unless(
+            $project->project_sponsor_id === $request->user()->id && $project->actualIsPending(),
+            403,
+            'Only the Project Sponsor may reject while the Actual is pending.'
+        );
+
+        $project->update(['actual_status' => 'draft']);
+
+        return $this->backToSection($project, 'section-implementation', 'Actual returned to team for revision.', ['phase' => 'implementation']);
     }
 
     /** Hitung ulang status eksekusi dari Implementation Plan (T-176/177). */
@@ -914,17 +1178,35 @@ class ProjectController extends Controller
         $this->authorizeLeader($request, $project);
 
         // Multi-add: rows[] berisi {user_id, role}. users ada di hcis (kpncorp).
-        $request->validate([
+        // Slot role wajib boleh diisi bertahap → baris tanpa nama dilewati
+        // (indeks bisa berlubang karena baris kosong tidak dikirim dari form).
+        $request->merge(['rows' => collect($request->input('rows', []))
+            ->filter(fn ($r) => filled($r['user_id'] ?? null) && filled($r['role'] ?? null))
+            ->values()->all()]);
+
+        // Error ditaruh di bag "member" + flag session supaya dialog Add Member terbuka
+        // kembali dan menampilkan alasannya — bukan kembali diam-diam ke halaman detail.
+        $validator = Validator::make($request->all(), [
             'rows'           => ['required', 'array', 'min:1'],
             'rows.*.user_id' => ['required', 'integer', 'exists:kpncorp.users,id'],
             'rows.*.role'    => ['required', 'string', 'max:100'],
+        ], [
+            'rows.required'         => 'Select at least one name before saving.',
+            'rows.*.user_id.exists' => 'The selected name was not found in the employee directory.',
         ]);
-        $rows = array_values($request->input('rows'));
+
+        if ($validator->fails()) {
+            return $this->backToMemberDialog($project, $validator->errors()->all());
+        }
+
+        $rows = $request->input('rows');
 
         // T-86: batas jumlah anggota tim per kategori (bila diatur).
         $max = optional($project->category)->max_team_members;
         if ($max && $project->members()->count() + count($rows) > $max) {
-            return back()->withErrors(['rows' => "Melebihi batas anggota tim kategori ({$max})."]);
+            return $this->backToMemberDialog($project, [
+                "Team size limit for this category is {$max}; currently {$project->members()->count()} member(s).",
+            ]);
         }
 
         foreach ($rows as $r) {
@@ -937,6 +1219,15 @@ class ProjectController extends Controller
         }
 
         return $this->backToSection($project, 'section-team', count($rows) . ' team member(s) added.');
+    }
+
+    /** Kembali ke detail project dengan dialog Add Member terbuka + daftar alasan penolakan. */
+    private function backToMemberDialog(Project $project, array $messages)
+    {
+        return redirect()
+            ->to(route('projects.show', $project) . '#section-team')
+            ->withErrors(['rows' => $messages], 'member')
+            ->with('memberDialogOpen', true);
     }
 
     public function updateMember(Request $request, Project $project, ProjectMember $member)

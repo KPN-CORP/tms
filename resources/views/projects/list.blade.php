@@ -129,7 +129,8 @@
                                     <span class="inline-flex px-2 py-1 text-xs rounded-full font-medium {{ $stCls }}">{{ $stLabel }}</span>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <a href="{{ route('projects.show', ($detailPhase ?? null) ? ['project' => $project, 'phase' => $detailPhase] : $project) }}"
+                                    {{-- Tujuan tombol Detail bisa diganti per halaman (mis. Project Shell → halaman progress). --}}
+                                    <a href="{{ route($detailRoute ?? 'projects.show', ($detailPhase ?? null) ? ['project' => $project, 'phase' => $detailPhase] : $project) }}"
                                        class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Detail</a>
                                 </td>
                             </tr>

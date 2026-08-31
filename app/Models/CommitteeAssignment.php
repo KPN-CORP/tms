@@ -15,15 +15,16 @@ class CommitteeAssignment extends Model
     }
 
     public const TYPES = [
-        'idea'               => 'Idea',
-        'project_proposal'   => 'Project Proposal',
-        'project_completion' => 'Project Completion',
-        'project_tracking'   => 'Project Tracking',
-        'team_change'        => 'Team Change',
+        'idea'                  => 'Idea Submission',
+        'project_proposal'      => 'Project Proposal',
+        'team_change'           => 'Team Change',
+        'plan_indicator_change' => 'Plan & Indicator Change',
+        'budget_change'         => 'Budget Change',
+        'project_completion'    => 'Project Completion',
     ];
 
     /** Approval type yang memakai dimensi budget (range min–max). */
-    public const BUDGET_SCOPED_TYPES = ['project_proposal'];
+    public const BUDGET_SCOPED_TYPES = ['project_proposal', 'budget_change'];
 
     /** Sentinel "tak hingga" untuk batas atas range (bilangan bulat, kolom decimal 20,2). */
     public const BUDGET_MAX_UNBOUNDED = 999999999999999;

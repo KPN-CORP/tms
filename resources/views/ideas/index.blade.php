@@ -24,14 +24,6 @@
         @endif
 
         @php
-            $total = $counts->sum();
-            $cards = [
-                ['label' => 'Total Idea Draft',            'value' => $counts->get('draft', 0),            'accent' => 'text-gray-700',  'dot' => 'bg-gray-400'],
-                ['label' => 'Cumulative Submitted',        'value' => $total - $counts->get('draft', 0),   'accent' => 'text-blue-700',  'dot' => 'bg-blue-500'],
-                ['label' => 'Approved for Implementation', 'value' => $counts->get('approved', 0),         'accent' => 'text-green-700', 'dot' => 'bg-green-500'],
-                ['label' => 'Converted to Project',        'value' => $counts->get('project_created', 0),  'accent' => 'text-red-700',   'dot' => 'bg-red-500'],
-            ];
-
             $tabDefs = [
                 'all'       => 'All',
                 'draft'     => 'Draft',
@@ -43,19 +35,6 @@
             $tabCount = fn ($key) => $key === 'all' ? $counts->sum() : $counts->get($key, 0);
             $tabUrl   = fn ($key) => request()->url() . '?' . http_build_query(array_merge(request()->query(), ['tab' => $key, 'page' => 1]));
         @endphp
-
-        {{-- Kartu ringkasan (4 kartu, selalu satu baris) --}}
-        <div class="grid grid-cols-4 gap-4">
-            @foreach($cards as $card)
-                <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
-                    <div>
-                        <p class="text-xs text-gray-500 leading-tight">{{ $card['label'] }}</p>
-                        <p class="text-2xl font-bold mt-1 {{ $card['accent'] }}">{{ $card['value'] }}</p>
-                    </div>
-                    <span class="w-3 h-3 rounded-full shrink-0 {{ $card['dot'] }}"></span>
-                </div>
-            @endforeach
-        </div>
 
         {{-- Tab status + jumlah --}}
         <div class="flex flex-wrap items-center gap-2 border-b border-gray-200">

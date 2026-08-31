@@ -23,6 +23,12 @@ use Illuminate\Support\Facades\DB;
  */
 class IdeaWorkflowService
 {
+    /** Catatan pada approval otomatis (pengaju = committee layer tsb). */
+    public const AUTO_APPROVE_NOTE = 'Auto-approved: the submitter is the assigned committee for this layer.';
+
+    /** Batas aman jumlah layer yang boleh dilewati otomatis. */
+    private const MAX_AUTO_SKIP = 20;
+
     /**
      * Department efektif untuk routing ide: department ide bila ada assignment
      * department-specific, selain itu NULL (pakai chain BU-wide).
@@ -183,6 +189,53 @@ class IdeaWorkflowService
             $idea->update(['current_layer' => $next, 'status' => 'review']);
         } else {
             $idea->update(['status' => 'approved']);
+        }
+    }
+
+    /**
+     * Auto-approve layer yang approver-nya adalah PENGAJU ide itu sendiri.
+     *
+     * Dipanggil tepat setelah ide disubmit. Selama committee di layer aktif
+     * adalah si pengaju, layer itu langsung di-approve (tercatat di
+     * idea_approvals sebagai jejak) dan routing lanjut ke layer berikutnya —
+     * sehingga ide langsung masuk Task Box layer selanjutnya. Bila SEMUA layer
+     * dipegang pengaju, ide langsung berstatus approved.
+     */
+    public function autoApproveSubmitterLayers(Idea $idea): void
+    {
+        $submitter = $idea->user_id ? User::find($idea->user_id) : null;
+        if (! $submitter) {
+            return;
+        }
+
+        $skipped = 0;
+
+        // Guard: chain committee paling dalam pun terbatas; cegah loop tak berujung
+        // bila config layer aneh (mis. duplikat layer).
+        for ($i = 0; $i < self::MAX_AUTO_SKIP; $i++) {
+            if (! in_array($idea->status, ['submitted', 'review'], true)) {
+                break; // sudah approved/rejected
+            }
+
+            $isSelf = (clone $this->committeeQuery($idea))
+                ->where('layer', $idea->current_layer)
+                ->where('user_id', $submitter->id)
+                ->exists();
+
+            if (! $isSelf) {
+                break;
+            }
+
+            $this->approve($idea, $submitter, self::AUTO_APPROVE_NOTE);
+            $idea->refresh();
+            $skipped++;
+        }
+
+        // approve() menandai 'review' saat maju layer. Kembalikan ke 'submitted'
+        // agar FR-078 tetap berlaku: status baru jadi "On Review" ketika committee
+        // layer berikutnya benar-benar membuka idenya.
+        if ($skipped > 0 && $idea->status === 'review') {
+            $idea->update(['status' => 'submitted']);
         }
     }
 

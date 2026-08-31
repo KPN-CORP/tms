@@ -62,11 +62,66 @@ class Project extends Model
         return in_array($this->status, self::EXECUTION_STATUSES, true);
     }
 
+    /* ---- Baseline Actual Implementation (draft → pending → baselined) ---- */
+
+    public function actualIsDraft(): bool
+    {
+        return in_array($this->actual_status, [null, '', 'draft'], true);
+    }
+
+    public function actualIsPending(): bool
+    {
+        return $this->actual_status === 'pending';
+    }
+
+    public function actualIsBaselined(): bool
+    {
+        return $this->actual_status === 'baselined';
+    }
+
+    /** Actual boleh diedit langsung hanya oleh anggota tim, saat berjalan & masih draft. */
+    public function canEditActual(User $user): bool
+    {
+        return $this->isInExecution() && $this->isTeamMember($user) && $this->actualIsDraft();
+    }
+
+    /** [label, kelas badge] untuk status baseline Actual. */
+    public function actualStatusBadge(): array
+    {
+        return match ($this->actual_status) {
+            'pending'   => ['Waiting Sponsor Approval', 'bg-amber-100 text-amber-700'],
+            'baselined' => ['Actual Baselined', 'bg-green-100 text-green-700'],
+            default     => ['Actual Draft', 'bg-gray-100 text-gray-700'],
+        };
+    }
+
     /** [label, kelas warna badge] untuk status saat ini. */
     public function statusBadge(): array
     {
         return self::STATUS_BADGES[$this->status]
             ?? [ucwords(str_replace('_', ' ', $this->status)), 'bg-gray-100 text-gray-700'];
+    }
+
+    /**
+     * Log pembatalan terakhir. Alasan cancel tidak punya kolom sendiri — disimpan
+     * di project_status_logs.remarks dengan awalan "Cancelled: " oleh cancelProject().
+     */
+    public function cancellation(): ?ProjectStatusLog
+    {
+        return $this->statusLogs()
+            ->where('new_status', 'cancelled')
+            ->latest('created_at')
+            ->first();
+    }
+
+    /** Alasan pembatalan tanpa awalan "Cancelled: ". */
+    public function cancellationReason(): ?string
+    {
+        $remarks = optional($this->cancellation())->remarks;
+
+        return $remarks === null
+            ? null
+            : trim(preg_replace('/^Cancelled:\s*/i', '', $remarks));
     }
 
     /**
@@ -92,6 +147,7 @@ class Project extends Model
         'project_category_id',
         'status',
         'current_layer',
+        'actual_status',
         'project_sponsor_id',
         'project_leader_id',
     ];

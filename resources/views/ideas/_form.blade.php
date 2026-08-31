@@ -57,7 +57,7 @@
             </div>
 
             <div>
-                <label class="block font-semibold mb-1">Detailed Description <span class="text-red-600">*</span></label>
+                <label class="block font-semibold mb-1">Detailed Idea Description <span class="text-red-600">*</span></label>
                 <textarea name="description" rows="4" placeholder="Proposed improvement or solution with practical actionable items to implement that idea"
                           class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('description') border-red-500 @enderror">{{ $v('description') }}</textarea>
                 @error('description')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
@@ -168,7 +168,7 @@
                         </template>
                     </ul>
                 </div>
-                <p class="text-xs text-gray-400 mt-1">Opsional. Bisa banyak file. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
+                <p class="text-xs text-gray-400 mt-1">Optional. Multiple files can be uploaded.. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
                 @error('attachments.*')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 

@@ -7,7 +7,7 @@
     <div class="p-6 space-y-6 max-w-7xl mx-auto w-full">
 
         <div>
-            <a href="{{ route('admin.committee.index') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to list committe </a>
+            <a href="{{ route('admin.committee.index') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to list committee </a>
             <h1 class="text-2xl font-bold text-gray-800 mt-1">Add / Edit Committee</h1>
         </div>
 

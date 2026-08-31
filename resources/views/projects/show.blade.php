@@ -35,18 +35,16 @@
     {{-- Chevron ^ saat terbuka; putar 180° (v) saat tertutup. --}}
     @php $chevron = '<svg class="w-4 h-4 shrink-0 transition-transform" :class="open ? \'\' : \'rotate-180\'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 15l-6-6-6 6"/></svg>'; @endphp
 
-    {{-- Simpan posisi hide/show tiap section ke localStorage → bertahan saat reload (berdasarkan penyetelan terakhir). --}}
-    <script>
-        window.tmsSec = {
-            get(k, d) { try { const v = localStorage.getItem('proj.sec.' + k); return v === null ? d : v === '1'; } catch (e) { return d; } },
-            set(k, v) { try { localStorage.setItem('proj.sec.' + k, v ? '1' : '0'); } catch (e) {} }
-        };
-    </script>
-    {{-- Helper Blade: hasilkan atribut x-data/x-init collapsible yang persist. --}}
+    {{-- Helper Blade: atribut x-data/x-init collapsible yang posisinya persist.
+         window.tmsSec kini global (didefinisikan di layout). Prefix 'proj.sec.'
+         dipertahankan agar setelan yang sudah tersimpan di browser user tetap terbaca. --}}
     @php
-        $collapsible = fn (string $key, string $extra = '') =>
-            'x-data="{ open: window.tmsSec.get(\'' . $key . '\', true)' . ($extra ? ', ' . $extra : '') . ' }" '
-            . 'x-init="$watch(\'open\', v => window.tmsSec.set(\'' . $key . '\', v))"';
+        $collapsible = function (string $key, string $extra = '') {
+            $k = 'proj.sec.' . $key;
+
+            return 'x-data="{ open: window.tmsSec.get(\'' . $k . '\', true)' . ($extra ? ', ' . $extra : '') . ' }" '
+                . 'x-init="$watch(\'open\', v => window.tmsSec.set(\'' . $k . '\', v))"';
+        };
     @endphp
 
     {{-- Lebar konten seperti Committee Assignment: max-w-7xl, terpusat di tengah. --}}
@@ -67,6 +65,21 @@
         @if(session('success'))<div class="rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3">{{ session('success') }}</div>@endif
         @if(session('error'))<div class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3">{{ session('error') }}</div>@endif
 
+        {{-- Alasan Project Cancellation — diambil dari status log terakhir (new_status=cancelled). --}}
+        @if($project->status === 'cancelled')
+            @php $cancelLog = $project->cancellation(); @endphp
+            <div class="rounded-xl bg-gray-100 border border-gray-300 px-4 py-3">
+                <p class="text-sm font-semibold text-gray-700">Project Cancellation</p>
+                <p class="text-sm text-gray-600 mt-1 whitespace-pre-line">{{ $project->cancellationReason() ?: 'No reason recorded.' }}</p>
+                @if($cancelLog)
+                    <p class="text-xs text-gray-400 mt-1">
+                        Cancelled by {{ optional($cancelLog->changedBy)->name ?? 'Unknown' }}
+                        &middot; {{ $cancelLog->created_at?->format('d M Y H:i') }}
+                    </p>
+                @endif
+            </div>
+        @endif
+
         {{-- 1. Idea Detail --}}
         <div class="bg-white rounded-xl shadow overflow-hidden" {!! $collapsible('idea') !!}>
             <button type="button" @click="open = ! open" class="{{ $secBtn }}"><span>Idea Detail</span>{!! $chevron !!}</button>
@@ -75,6 +88,11 @@
                     <div class="grid grid-cols-2 gap-4">
                         <div><label class="block text-sm font-semibold text-gray-600 mb-1">Idea ID</label><div class="{{ $box }} font-mono">{{ $idea->idea_id }}</div></div>
                         <div><label class="block text-sm font-semibold text-gray-600 mb-1">Submitter</label><div class="{{ $box }}">{{ optional($idea->user)->name }}</div></div>
+                    </div>
+                    {{-- Read-only: snapshot nama dipakai lebih dulu, relasi jadi cadangan (sama seperti halaman Idea). --}}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Business Unit</label><div class="{{ $box }}">{{ $idea->business_unit_name ?? optional($idea->businessUnit)->name ?? '-' }}</div></div>
+                        <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Unit</label><div class="{{ $box }}">{{ $idea->department_name ?? optional($idea->department)->name ?? '-' }}</div></div>
                     </div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Idea Name</label><div class="{{ $box }}">{{ $idea->idea_name }}</div></div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Problem / Root Cause</label><div class="{{ $box }} whitespace-pre-line">{{ $idea->problem }}</div></div>
@@ -103,7 +121,7 @@
         </div>
 
         {{-- 3. Team Members --}}
-        <div id="section-team" class="bg-white rounded-xl shadow overflow-hidden scroll-mt-6" {!! $collapsible('team', 'addOpen: false') !!}>
+        <div id="section-team" class="bg-white rounded-xl shadow overflow-hidden scroll-mt-6" {!! $collapsible('team', 'addOpen: ' . (session('memberDialogOpen') ? 'true' : 'false')) !!}>
             <button type="button" @click="open = ! open" class="{{ $secBtn }}"><span>Team Members</span>{!! $chevron !!}</button>
             <div x-show="open">
                 <table class="w-full text-left text-sm">
@@ -150,7 +168,8 @@
                 @endif
             </div>
 
-            {{-- Dialog: Add Member --}}
+            {{-- Dialog: Add Member — kebutuhan role kategori & tambah manual disatukan
+                 dalam SATU form: semua baris tersimpan sekali klik "Add Member". --}}
             @if($canEdit)
                 @php
                     $requiredRoles = optional($project->category) ? $project->category->requiredRoles() : [];
@@ -158,51 +177,73 @@
                         $filled = $project->members->filter(fn ($m) => mb_strtolower(trim((string) $m->role)) === mb_strtolower($rr['role']))->count();
                         return $rr + ['filled' => $filled, 'remaining' => max(0, $rr['total'] - $filled)];
                     })->filter(fn ($rr) => $rr['remaining'] > 0)->values();
+
+                    // Baris awal = satu baris per slot role yang masih kurang (role terkunci).
+                    // Bila kategori tak punya kebutuhan role, mulai dengan satu baris manual kosong.
+                    $memberRows = [];
+                    foreach ($roleSlots as $rr) {
+                        for ($n = 0; $n < $rr['remaining']; $n++) {
+                            $memberRows[] = ['_id' => count($memberRows), 'role' => $rr['role'], 'locked' => true];
+                        }
+                    }
+                    if (! count($memberRows)) $memberRows[] = ['_id' => 0, 'role' => '', 'locked' => false];
                 @endphp
                 <div x-show="addOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="addOpen = false">
                     <div class="fixed inset-0 bg-black/40" @click="addOpen = false"></div>
                     <div class="{{ $modalCard }}" x-transition.opacity
-                         x-data="{ rows: [{ _id: 0, role: '' }], next: 1 }"
+                         x-data="{ rows: @js($memberRows), next: {{ count($memberRows) }}, err: '' }"
                          x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4">Add Team Member</h3>
-
-                        {{-- Kebutuhan role dari kategori (tinggal pilih nama) --}}
+                        <h3 class="text-lg font-semibold text-gray-800 mb-1">Add Team Member</h3>
                         @if($roleSlots->isNotEmpty())
-                            <div class="bg-amber-50 rounded-lg p-3 space-y-4 mb-4">
-                                <p class="text-sm text-gray-700">Role requirements for category <b>{{ optional($project->category)->code }}</b>:</p>
-                                @foreach($roleSlots as $rr)
-                                    <div>
-                                        <p class="text-xs font-semibold text-gray-600 mb-1">{{ $rr['role'] }} — {{ $rr['total'] }} people <span class="text-gray-400 font-normal">(filled {{ $rr['filled'] }}, remaining {{ $rr['remaining'] }})</span></p>
-                                        <div class="space-y-2">
-                                            @for($i = 0; $i < $rr['remaining']; $i++)
-                                                <form method="POST" action="{{ route('projects.members.store', $project) }}" class="flex flex-wrap items-end gap-2">
-                                                    @csrf
-                                                    <input type="hidden" name="rows[0][role]" value="{{ $rr['role'] }}">
-                                                    <span class="inline-flex items-center px-3 py-2 rounded-lg bg-white border text-sm text-gray-600 min-w-[120px]">{{ $rr['role'] }}</span>
-                                                    <select name="rows[0][user_id]" required data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id" class="{{ $inp }} flex-1 min-w-[180px]"><option value="">Select a name…</option></select>
-                                                    <button class="px-4 py-2 bg-red-700 text-white rounded-lg text-sm hover:bg-red-800">Add</button>
-                                                </form>
-                                            @endfor
-                                        </div>
-                                    </div>
-                                @endforeach
-                            </div>
+                            <p class="text-sm text-gray-600 mb-4">Required roles for category <b>{{ optional($project->category)->code }}</b> :</p>
+                        @else
+                            <div class="mb-4"></div>
                         @endif
 
-                        {{-- Tambah member manual — bisa lebih dari satu baris, submit sekaligus --}}
-                        <form method="POST" action="{{ route('projects.members.store', $project) }}" class="space-y-3">
+                        {{-- Sebelum submit: baris tanpa nama di-disable agar tidak ikut terkirim
+                             (slot required boleh diisi bertahap). Minimal satu nama harus dipilih. --}}
+                        {{-- Error dari server (validasi / batas anggota) — tanpa ini penolakan
+                             server tidak terlihat sama sekali dan terkesan "tombol tidak jalan". --}}
+                        @if($errors->member->any())
+                            <ul class="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 list-disc list-inside">
+                                @foreach($errors->member->all() as $e)<li>{{ $e }}</li>@endforeach
+                            </ul>
+                        @endif
+
+                        <form method="POST" action="{{ route('projects.members.store', $project) }}" class="space-y-2"
+                              @submit="err = window.tmsMemberSubmit($event) ? '' : 'Select at least one name before saving.'">
                             @csrf
+                            <div class="hidden sm:grid grid-cols-12 gap-3 px-1 text-xs font-semibold text-gray-500 uppercase">
+                                <div class="col-span-3">Role in Project</div>
+                                <div class="col-span-1"></div>
+                            </div>
                             <template x-for="(row, i) in rows" :key="row._id">
-                                <div class="border rounded-lg p-3 space-y-2 relative">
-                                    <button type="button" x-show="rows.length > 1" @click="rows.splice(i, 1)" class="absolute top-1.5 right-2 text-red-600 text-sm">&times;</button>
-                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Nama</label>
-                                        <select :name="'rows['+i+'][user_id]'" required data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id" class="{{ $inp }} w-full"><option value="">Type a name / employee ID…</option></select></div>
-                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Role in Project</label>
-                                        <input :name="'rows['+i+'][role]'" x-model="row.role" placeholder="mis. Member, Co-Leader" required class="{{ $inp }} w-full"></div>
+                                <div data-member-row class="grid grid-cols-12 gap-3 items-center">
+                                    <div class="col-span-12 sm:col-span-3">
+                                        <label class="sm:hidden block text-xs font-semibold text-gray-600 mb-1">Role in Project</label>
+                                        <div class="relative">
+                                            <input data-member-role :name="'rows['+i+'][role]'" x-model="row.role" :readonly="row.locked" required
+                                                   placeholder="e.g. Admin"
+                                                   class="{{ $inp }} w-full pr-6" :class="row.locked ? 'bg-gray-50 text-gray-700 cursor-default' : ''">
+                                            <span x-show="row.locked" class="absolute inset-y-0 right-2 flex items-center text-red-600 font-bold leading-none"
+                                                  title="Wajib diisi">*</span>
+                                        </div>
+                                    </div>
+                                    <div :class="(! row.locked && rows.length > 1) ? 'col-span-10 sm:col-span-8' : 'col-span-12 sm:col-span-9'">
+                                        <label class="sm:hidden block text-xs font-semibold text-gray-600 mb-1">Name</label>
+                                        <select data-member-name :name="'rows['+i+'][user_id]'" :required="! row.locked"
+                                                data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id"
+                                                class="{{ $inp }} w-full"><option value="">Enter name / employee ID…</option></select>
+                                    </div>
+                                    <div class="col-span-2 sm:col-span-1 flex justify-end" x-show="! row.locked && rows.length > 1" x-cloak>
+                                        <button type="button" @click="rows.splice(i, 1)"
+                                                class="text-red-600 text-xl leading-none px-1" title="Hapus baris">&times;</button>
+                                    </div>
                                 </div>
                             </template>
-                            <button type="button" @click="rows.push({ _id: next++, role: '' }); $nextTick(() => window.tmsInit && window.tmsInit($root))"
-                                    class="text-sm text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-50">+ Add row</button>
+                            <button type="button" @click="rows.push({ _id: next++, role: '', locked: false }); $nextTick(() => window.tmsInit && window.tmsInit($root))"
+                                    class="mt-1 text-sm text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-50">+ Add row</button>
+                            <p x-show="err" x-cloak x-text="err" class="text-sm text-red-600"></p>
                             <div class="flex justify-end gap-3 pt-2">
                                 <button type="button" @click="addOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Close</button>
                                 <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Add Member</button>
@@ -217,6 +258,33 @@
         <div id="section-implementation" class="bg-white rounded-xl shadow overflow-hidden scroll-mt-6" {!! $collapsible('impl', 'addOpen: false') !!}>
             <button type="button" @click="open = ! open" class="{{ $secBtn }}"><span>Implementation Detail</span>{!! $chevron !!}</button>
             <div x-show="open">
+                {{-- Baseline Actual: status + Submit (Leader) / Approve-Reject (Sponsor). --}}
+                @if($showActual)
+                    <div class="px-4 pt-4 flex flex-wrap items-center justify-between gap-3">
+                        <span class="inline-flex items-center gap-2 text-sm">
+                            <span class="text-gray-500">Actual status:</span>
+                            <span class="text-xs rounded-full px-2 py-1 {{ $project->actualStatusBadge()[1] }}">{{ $project->actualStatusBadge()[0] }}</span>
+                        </span>
+                        <div class="flex items-center gap-2">
+                            @if($canSubmitActual)
+                                <form method="POST" action="{{ route('projects.actual.submit', $project) }}">
+                                    @csrf
+                                    <button data-confirm="Submit the Actual to the Project Sponsor for approval? The Actual will be locked while waiting." data-confirm-title="Submit Actual?" data-confirm-ok="Yes, Submit"
+                                            class="px-4 py-1.5 text-sm bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Actual</button>
+                                </form>
+                            @endif
+                            @if($isActualSponsor)
+                                <form method="POST" action="{{ route('projects.actual.approve', $project) }}">@csrf<button data-confirm="Approve the Actual baseline? It will be locked afterwards." data-confirm-title="Approve Actual?" data-confirm-ok="Yes, Approve" class="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
+                                <form method="POST" action="{{ route('projects.actual.reject', $project) }}">@csrf<button data-confirm="Return the Actual to the team for revision?" data-confirm-title="Reject Actual?" data-confirm-ok="Yes, Reject" class="px-4 py-1.5 text-sm border border-red-300 text-red-600 rounded-lg font-semibold hover:bg-red-50">Reject</button></form>
+                            @endif
+                        </div>
+                    </div>
+                    @if($project->actualIsPending())
+                        <p class="px-4 pt-2 text-xs text-amber-600">Actual is locked while waiting for Project Sponsor approval.</p>
+                    @elseif($project->actualIsBaselined())
+                        <p class="px-4 pt-2 text-xs text-green-600">Actual baseline approved &amp; locked. Further changes require a change request.</p>
+                    @endif
+                @endif
                 <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
@@ -660,7 +728,7 @@
                             </ul>
 
                             <div class="flex items-center justify-between mt-3">
-                                <p class="text-xs text-gray-400">Opsional. Bisa banyak file. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
+                                <p class="text-xs text-gray-400">Optional. Multiple files can be uploaded. Maks 10 MB/file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
                                 <button type="submit" x-show="files.length" x-cloak class="px-6 py-2 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800 shrink-0">Upload</button>
                             </div>
                             @error('attachments.*')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror

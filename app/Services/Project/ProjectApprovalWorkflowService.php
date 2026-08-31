@@ -15,6 +15,15 @@ use App\Models\User;
  */
 class ProjectApprovalWorkflowService
 {
+    /** Catatan pada approval otomatis (pengaju = committee layer tsb). */
+    public const AUTO_APPROVE_NOTE = 'Auto-approved: the requester is the assigned committee for this layer.';
+
+    /** Batas aman jumlah layer yang boleh dilewati otomatis. */
+    private const MAX_AUTO_SKIP = 20;
+
+    /** Total budget project (Σ qty × unit_price) sebagai subquery, dipakai di reviewQueueFor. */
+    private const TOTAL_BUDGET_SQL = '(SELECT COALESCE(SUM(pb.qty * pb.unit_price), 0) FROM project_budgets pb WHERE pb.project_id = projects.id)';
+
     /**
      * Peta flow berdasarkan status review project:
      * status review => [approval_type committee, status final, status reject].
@@ -112,6 +121,22 @@ class ProjectApprovalWorkflowService
         return $project->businessUnitId() && $this->committeeQuery($project, $type)->exists();
     }
 
+    /**
+     * Apakah layer aktif project ini punya penanggung jawab? Dipakai laporan
+     * coverage committee (Admin) untuk mendeteksi item yang tertahan tanpa reviewer.
+     */
+    public function currentLayerHasAssignee(Project $project): bool
+    {
+        $flow = self::FLOWS[$project->status] ?? null;
+        if (! $flow || ! $project->businessUnitId()) {
+            return true; // bukan sedang menunggu committee → bukan urusan laporan ini
+        }
+
+        return (clone $this->committeeQuery($project, $flow['type']))
+            ->where('layer', $project->current_layer)
+            ->exists();
+    }
+
     public function isCurrentReviewer(Project $project, User $user): bool
     {
         $flow = self::FLOWS[$project->status] ?? null;
@@ -145,6 +170,45 @@ class ProjectApprovalWorkflowService
         // dicadangkan Project Sponsor sehingga committee mulai dari Layer 2.
         $firstLayer = (int) $this->committeeQuery($project, $flow['type'])->min('layer');
         $project->update(['current_layer' => $firstLayer ?: 1]);
+
+        // Layer yang approver-nya = pengaju (Project Leader) langsung di-approve.
+        $this->autoApproveRequesterLayers($project, $flow);
+    }
+
+    /**
+     * Auto-approve layer yang approver-nya adalah PENGAJU project itu sendiri
+     * (Project Leader — pihak yang submit proposal maupun completion).
+     *
+     * Layer dilewati satu per satu, masing-masing tetap tercatat di
+     * project_approvals sebagai jejak, sampai bertemu layer dengan approver lain
+     * — sehingga project langsung masuk Task Box layer berikutnya. Bila semua
+     * layer dipegang pengaju, flow langsung mencapai status final.
+     */
+    private function autoApproveRequesterLayers(Project $project, array $flow): void
+    {
+        $requester = $project->project_leader_id ? User::find($project->project_leader_id) : null;
+        if (! $requester) {
+            return;
+        }
+
+        for ($i = 0; $i < self::MAX_AUTO_SKIP; $i++) {
+            // Sudah keluar dari status review (final/reject) → berhenti.
+            if (! isset(self::FLOWS[$project->status])) {
+                break;
+            }
+
+            $isSelf = (clone $this->committeeQuery($project, $flow['type']))
+                ->where('layer', $project->current_layer)
+                ->where('user_id', $requester->id)
+                ->exists();
+
+            if (! $isSelf) {
+                break;
+            }
+
+            $this->approve($project, $requester, self::AUTO_APPROVE_NOTE);
+            $project->refresh();
+        }
     }
 
     public function approve(Project $project, User $user, ?string $note = null): void
@@ -188,9 +252,11 @@ class ProjectApprovalWorkflowService
         return Project::whereIn('status', array_keys(self::FLOWS))
             ->where(function ($outer) use ($user) {
                 foreach (self::FLOWS as $status => $flow) {
-                    $outer->orWhere(function ($q) use ($user, $status, $flow) {
+                    $budgetScoped = CommitteeAssignment::usesBudgetRange($flow['type']);
+
+                    $outer->orWhere(function ($q) use ($user, $status, $flow, $budgetScoped) {
                         $q->where('status', $status)
-                            ->whereExists(function ($sub) use ($user, $flow) {
+                            ->whereExists(function ($sub) use ($user, $flow, $budgetScoped) {
                                 $sub->selectRaw('1')
                                     ->from('committee_assignments as ca')
                                     ->join('ideas as ix', 'ix.idea_id', '=', 'projects.idea_id')
@@ -198,22 +264,37 @@ class ProjectApprovalWorkflowService
                                     ->whereColumn('ca.business_unit_id', 'ix.business_unit_id')
                                     ->whereColumn('ca.layer', 'projects.current_layer')
                                     ->where('ca.user_id', $user->id)
-                                    // Khusus project_proposal: cocokkan kondisi budget (operator + nominal)
-                                    // terhadap total budget project (Σ qty×price).
-                                    ->when($flow['type'] === 'project_proposal', fn ($q) => $q->whereRaw(
-                                        '(SELECT COALESCE(SUM(pb.qty * pb.unit_price), 0) FROM project_budgets pb WHERE pb.project_id = projects.id) BETWEEN ca.budget_min AND ca.budget_max'
-                                    ))
-                                    ->where(function ($w) use ($flow) {
+                                    // Budget-scoped (project_proposal): range harus MEMUAT total
+                                    // budget project, DAN harus range paling sempit di antara yang
+                                    // memuat — meniru matchedBudgetRange() agar antrean Task Box
+                                    // tidak menampilkan project ke committee yang bukan reviewernya.
+                                    ->when($budgetScoped, fn ($q) => $q
+                                        ->whereRaw(self::TOTAL_BUDGET_SQL . ' BETWEEN ca.budget_min AND ca.budget_max')
+                                        ->whereNotExists(fn ($n) => $n
+                                            ->selectRaw('1')
+                                            ->from('committee_assignments as cn')
+                                            ->whereColumn('cn.approval_type', 'ca.approval_type')
+                                            ->whereColumn('cn.business_unit_id', 'ca.business_unit_id')
+                                            ->whereRaw('((cn.department_id IS NULL AND ca.department_id IS NULL) OR cn.department_id = ca.department_id)')
+                                            ->whereRaw(self::TOTAL_BUDGET_SQL . ' BETWEEN cn.budget_min AND cn.budget_max')
+                                            ->whereRaw('(cn.budget_max - cn.budget_min) < (ca.budget_max - ca.budget_min)')))
+                                    ->where(function ($w) use ($flow, $budgetScoped) {
                                         // department-specific ATAU BU-wide (bila tak ada yang specific utk unit ide).
                                         $w->whereColumn('ca.department_id', 'ix.department_id')
-                                            ->orWhere(function ($ww) use ($flow) {
+                                            ->orWhere(function ($ww) use ($flow, $budgetScoped) {
                                                 $ww->whereNull('ca.department_id')
-                                                    ->whereNotExists(function ($s) use ($flow) {
+                                                    ->whereNotExists(function ($s) use ($flow, $budgetScoped) {
                                                         $s->selectRaw('1')
                                                             ->from('committee_assignments as cs')
                                                             ->where('cs.approval_type', $flow['type'])
                                                             ->whereColumn('cs.business_unit_id', 'ix.business_unit_id')
-                                                            ->whereColumn('cs.department_id', 'ix.department_id');
+                                                            ->whereColumn('cs.department_id', 'ix.department_id')
+                                                            // Assignment dept-specific hanya "mengalahkan" BU-wide bila
+                                                            // range budgetnya benar-benar memuat total project ini —
+                                                            // sama seperti effectiveDepartment().
+                                                            ->when($budgetScoped, fn ($cq) => $cq->whereRaw(
+                                                                self::TOTAL_BUDGET_SQL . ' BETWEEN cs.budget_min AND cs.budget_max'
+                                                            ));
                                                     });
                                             });
                                     });

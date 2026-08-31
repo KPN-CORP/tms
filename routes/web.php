@@ -137,6 +137,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/projects/implementation', [ProjectController::class, 'implementationIndex'])->name('projects.implementation');
     Route::get('/projects/completion', [ProjectController::class, 'completionIndex'])->name('projects.completion');
 
+    // Project Shell (diakses dari menu My Ideas > Project Shell). WAJIB di atas
+    // /projects/{project} agar segmen "shell" tidak tertangkap wildcard.
+    Route::get('/projects/shell', [ProjectController::class, 'shellIndex'])->name('projects.shell');
+    Route::get('/projects/shell/{project}', [ProjectController::class, 'shellProgress'])->name('projects.shell.progress');
+
     // Review project (proposal & completion — akses dicek via committee assignment)
     Route::get('/review/projects', [ProjectController::class, 'reviewQueue'])->name('projects.review');
     Route::post('/projects/{project}/review-approve', [ProjectController::class, 'reviewApprove'])->name('projects.review.approve');
@@ -158,6 +163,10 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/projects/{project}/implementation/{plan}', [ProjectController::class, 'destroyImplementation'])->name('projects.implementation.destroy');
     Route::put('/projects/{project}/implementation/{plan}/actual', [ProjectController::class, 'updateImplementationActual'])->name('projects.implementation.actual');
     Route::get('/projects/{project}/implementation/{plan}/attachment', [ProjectController::class, 'downloadImplementationAttachment'])->name('projects.implementation.attachment');
+    // Baseline Actual: Leader submit → Sponsor approve/reject.
+    Route::post('/projects/{project}/actual/submit', [ProjectController::class, 'submitActual'])->name('projects.actual.submit');
+    Route::post('/projects/{project}/actual/approve', [ProjectController::class, 'approveActual'])->name('projects.actual.approve');
+    Route::post('/projects/{project}/actual/reject', [ProjectController::class, 'rejectActual'])->name('projects.actual.reject');
     Route::post('/projects/{project}/indicators', [ProjectController::class, 'storeIndicator'])->name('projects.indicators.store');
     Route::put('/projects/{project}/indicators/{indicator}', [ProjectController::class, 'updateIndicator'])->name('projects.indicators.update');
     Route::put('/projects/{project}/indicators/{indicator}/achievement', [ProjectController::class, 'updateIndicatorAchievement'])->name('projects.indicators.achievement');
