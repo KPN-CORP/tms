@@ -128,7 +128,12 @@
                                 <td class="px-6 py-4 text-sm text-center text-gray-500">{{ $ideas->firstItem() + $loop->index }}</td>
                                 <td class="px-6 py-4 font-mono text-sm text-red-700 whitespace-nowrap">{{ $idea->idea_id }}</td>
                                 <td class="px-6 py-4">
-                                    <div class="font-semibold" title="{{ $idea->idea_name }}">{{ \Illuminate\Support\Str::words($idea->idea_name, 2, '...') }}</div>
+                                    @if(filled($idea->idea_name))
+                                        <div class="font-semibold" title="{{ $idea->idea_name }}">{{ \Illuminate\Support\Str::words($idea->idea_name, 2, '...') }}</div>
+                                    @else
+                                        {{-- Draft kosong: beri penanda agar barisnya tetap terbaca. --}}
+                                        <div class="italic text-gray-400">(untitled draft)</div>
+                                    @endif
                                 </td>
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->businessUnit)->name }}</td>
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->department)->name }}</td>

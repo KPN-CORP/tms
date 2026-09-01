@@ -44,7 +44,11 @@ class Idea extends Model
         $scope = app(RoleScopeService::class);
 
         return $query
-            ->whereIn('business_unit_id', $scope->businessUnitIds($user))
+            // business_unit_id boleh NULL: draft yang disimpan tanpa mengisi apa pun
+            // belum punya BU. Tanpa toleransi ini draft tsb tersimpan tapi hilang
+            // dari My Ideas. Aman karena ide ber-BU kosong hanya mungkin berstatus
+            // draft (submit mewajibkan BU), dan My Ideas sudah disaring user_id.
+            ->where(fn ($q) => $q->whereNull('business_unit_id')->orWhereIn('business_unit_id', $scope->businessUnitIds($user)))
             ->where(fn ($q) => $q->whereNull('company_id')->orWhereIn('company_id', $scope->companyIds($user)))
             ->where(fn ($q) => $q->whereNull('location_id')->orWhereIn('location_id', $scope->locationIds($user)));
     }

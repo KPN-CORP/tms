@@ -433,11 +433,12 @@ class IdeaController extends Controller
 
     private function validateIdea(Request $request, bool $isSubmit): array
     {
-        // Saat submit semua mandatory; saat draft cukup idea_name.
+        // Saat submit semua mandatory; saat DRAFT tidak ada yang wajib sama sekali —
+        // user boleh menekan "Save as Draft" pada form yang masih kosong.
         $required = $isSubmit ? 'required' : 'nullable';
 
         return $request->validate([
-            'idea_name'        => ['required', 'string', 'max:255'],
+            'idea_name'        => [$required, 'string', 'max:255'],
             'problem'          => [$required, 'string', 'max:5000'],
             'description'      => [$required, 'string', 'max:10000'],
             'expected_outcome' => [$required, 'string', 'max:5000'],
