@@ -532,8 +532,8 @@
                                                 <label class="text-xs text-gray-500">UoM
                                                     <select name="uom" class="{{ $inp }} w-full">@include('projects._uom-options', ['selected' => $ind->uom])</select></label>
                                                 <label class="text-xs text-gray-500">Weightage (%)<input type="number" step="any" name="weightage" value="{{ $ind->weightage }}" class="{{ $inp }} w-full"></label>
-                                                <label class="text-xs text-gray-500 col-span-2">Type
-                                                    <select name="type" class="{{ $inp }} w-full"><option value="">Select Type…</option>@foreach(\App\Models\ImplementationIndicator::TYPES as $t)<option value="{{ $t }}" @selected($ind->type === $t)>{{ $t }}</option>@endforeach</select></label>
+                                                <label class="text-xs text-gray-500 col-span-2">Type <span class="text-red-600">*</span>
+                                                    <select name="type" required class="{{ $inp }} w-full"><option value="">Select Type…</option>@foreach(\App\Models\ImplementationIndicator::TYPES as $t)<option value="{{ $t }}" @selected($ind->type === $t)>{{ $t }}</option>@endforeach</select></label>
                                                 <div class="col-span-2 flex justify-end gap-3 pt-1">
                                                     <button type="button" @click="editOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
                                                     <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
@@ -563,7 +563,14 @@
                 <div x-show="addOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="addOpen = false">
                     <div class="fixed inset-0 bg-black/40" @click="addOpen = false"></div>
                     <div class="{{ $modalCard }}" x-transition.opacity
-                         x-data="{ rows: [{ _id: 0, indicator:'', description:'', baseline:'', achievement_value:'', achievement:'', weightage:'' }], next: 1 }"
+                         x-data="{
+                             used: {{ (float) $project->indicators->sum('weightage') }},
+                             rows: [{ _id: 0, indicator:'', description:'', baseline:'', achievement_value:'', achievement:'', weightage:'', type:'' }], next: 1,
+                             get adding(){ return this.rows.reduce((t, r) => t + (parseFloat(r.weightage) || 0), 0); },
+                             get total(){ return Math.round((this.used + this.adding) * 100) / 100; },
+                             get over(){ return this.total > 100; },
+                             get remaining(){ return Math.round((100 - this.used) * 100) / 100; }
+                         }"
                          x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
                         <h3 class="text-lg font-semibold text-gray-800 mb-4">Add Success Indicator</h3>
                         <form method="POST" action="{{ route('projects.indicators.store', $project) }}" class="space-y-3">
@@ -581,16 +588,29 @@
                                     <label class="text-xs text-gray-500">UoM
                                         <select :name="'rows['+i+'][uom]'" class="{{ $inp }} w-full">@include('projects._uom-options')</select></label>
                                     <label class="text-xs text-gray-500">Weightage (%)<input type="number" step="any" :name="'rows['+i+'][weightage]'" x-model="row.weightage" class="{{ $inp }} w-full"></label>
-                                    <label class="text-xs text-gray-500 col-span-2">Type
-                                        <select :name="'rows['+i+'][type]'" class="{{ $inp }} w-full"><option value="">Select Type…</option>@foreach(\App\Models\ImplementationIndicator::TYPES as $t)<option value="{{ $t }}">{{ $t }}</option>@endforeach</select></label>
+                                    <label class="text-xs text-gray-500 col-span-2">Type <span class="text-red-600">*</span>
+                                        <select :name="'rows['+i+'][type]'" x-model="row.type" required class="{{ $inp }} w-full"><option value="">Select Type…</option>@foreach(\App\Models\ImplementationIndicator::TYPES as $t)<option value="{{ $t }}">{{ $t }}</option>@endforeach</select></label>
                                     <p class="col-span-2 text-xs text-gray-400">Percent Improvement is calculated automatically (2 decimals). Total Weightage of all indicators must be 100%.</p>
                                 </div>
                             </template>
-                            <button type="button" @click="rows.push({ _id: next++, indicator:'', description:'', baseline:'', achievement_value:'', achievement:'', weightage:'' }); $nextTick(() => window.tmsInit && window.tmsInit($root))"
+                            <button type="button" @click="rows.push({ _id: next++, indicator:'', description:'', baseline:'', achievement_value:'', achievement:'', weightage:'', type:'' }); $nextTick(() => window.tmsInit && window.tmsInit($root))"
                                     class="text-sm text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-50">+ Add row</button>
+
+                            {{-- Ringkasan bobot: sisa kuota, dan peringatan bila melewati 100%. --}}
+                            <div class="rounded-lg border px-3 py-2 text-sm"
+                                 :class="over ? 'bg-red-50 border-red-200 text-red-700' : 'bg-gray-50 border-gray-200 text-gray-600'">
+                                Total weightage: <span class="font-semibold" x-text="total + '%'"></span>
+                                <span class="text-xs" x-text="'(already used ' + used + '%, still available ' + remaining + '%)'"></span>
+                                <span x-show="over" x-cloak class="block text-xs font-semibold mt-0.5">
+                                    Exceeds 100% — reduce the weightage before adding.
+                                </span>
+                            </div>
+
                             <div class="flex justify-end gap-3 pt-1">
                                 <button type="button" @click="addOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
-                                <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Add Indicator</button>
+                                <button type="submit" :disabled="over"
+                                        :class="over ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-800'"
+                                        class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold">Add Indicator</button>
                             </div>
                         </form>
                     </div>

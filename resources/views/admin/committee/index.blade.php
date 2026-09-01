@@ -190,7 +190,10 @@
                                                      @mouseleave="open=false"
                                                      class="inline-flex items-center gap-1 cursor-help">
                                                     @foreach($set['layers']->take(3) as $l)
-                                                        <span class="inline-flex items-center justify-center rounded bg-gray-100 text-gray-600 text-xs font-semibold px-1.5 py-0.5" title="{{ $l['name'] }}">L{{ $l['layer'] }}</span>
+                                                        {{-- Layer bawaan (Project Sponsor) dibedakan hanya lewat WARNA badge,
+                                                             tanpa teks tambahan. --}}
+                                                        <span class="inline-flex items-center justify-center rounded text-xs font-semibold px-1.5 py-0.5 {{ ($l['reserved'] ?? false) ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}"
+                                                              title="{{ $l['name'] }}">L{{ $l['layer'] }}</span>
                                                     @endforeach
                                                     @if($set['layers']->count() > 3)
                                                         <span class="text-xs text-gray-400">+{{ $set['layers']->count() - 3 }}</span>
@@ -205,7 +208,7 @@
                                                             <div class="font-semibold text-gray-500 mb-1">Committee per Layer</div>
                                                             @forelse($set['layers'] as $l)
                                                                 <div class="flex items-center gap-2 py-0.5" style="white-space:nowrap;">
-                                                                    <span class="inline-flex items-center justify-center rounded bg-gray-100 text-gray-600 font-semibold" style="min-width:1.75rem;padding:.05rem .3rem;">L{{ $l['layer'] }}</span>
+                                                                    <span class="inline-flex items-center justify-center rounded font-semibold {{ ($l['reserved'] ?? false) ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}" style="min-width:1.75rem;padding:.05rem .3rem;">L{{ $l['layer'] }}</span>
                                                                     <span class="text-gray-700">{{ $l['name'] ?: '—' }}</span>
                                                                 </div>
                                                             @empty

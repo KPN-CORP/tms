@@ -146,12 +146,43 @@ class CommitteeAssignmentController extends Controller
                     'budget_min'       => $first->budget_min !== null ? (int) $first->budget_min : null,
                     'budget_max'       => $first->budget_max !== null ? (int) $first->budget_max : null,
                     'budget_label'     => CommitteeAssignment::budgetRangeLabel($first->budget_min, $first->budget_max),
-                    'layers'           => $rows->sortBy('layer')
-                        ->map(fn ($r) => ['layer' => $r->layer, 'name' => trim(optional($r->user)->name . (optional($r->user)->employee_id ? ' - ' . optional($r->user)->employee_id : ''))])
-                        ->values(),
+                    'layers'           => $this->layersWithReserved($rows),
                 ];
             })
             ->values();
+    }
+
+    /**
+     * Daftar layer sebuah set committee, urut dari L1.
+     *
+     * Khusus Project Proposal, Layer 1 dicadangkan untuk Project Sponsor dan tidak
+     * pernah tersimpan di committee_assignments — chain committee mulai dari L2.
+     * Tanpa penanda ini penomoran di tabel terlihat "melompat" dan seolah L1 hilang,
+     * jadi L1 tetap ditampilkan sebagai baris semu (reserved, bukan hasil konfigurasi).
+     */
+    private function layersWithReserved($rows)
+    {
+        $layers = $rows->sortBy('layer')
+            ->map(fn ($r) => [
+                'layer'    => (int) $r->layer,
+                'name'     => trim(optional($r->user)->name . (optional($r->user)->employee_id ? ' - ' . optional($r->user)->employee_id : '')),
+                'reserved' => false,
+            ])
+            ->values();
+
+        $type = $rows->first()->approval_type;
+
+        if ($type === 'project_proposal' && ! $layers->contains(fn ($l) => $l['layer'] === 1)) {
+            $layers = $layers->prepend([
+                'layer'    => 1,
+                // Orangnya berbeda per project (diambil dari field Sponsor project),
+                // jadi yang ditampilkan peranannya, bukan satu nama tertentu.
+                'name'     => 'Project Sponsor',
+                'reserved' => true,
+            ])->values();
+        }
+
+        return $layers;
     }
 
     public function store(Request $request, OrgResolver $org, HcisAuthService $hcis)

@@ -14,7 +14,7 @@ class ImplementationIndicator extends Model
         return $this->indicator ?? ('Indicator #' . $this->getKey());
     }
 
-    public const TYPES = ['Higher Better', 'Lower Better'];
+    public const TYPES = ['Higher Better', 'Lower Better', 'Exact Value'];
 
     /** Pilihan Unit of Measure (dropdown UoM), dikelompokkan per kategori. */
     public const UOM_GROUPS = [
@@ -61,6 +61,13 @@ class ImplementationIndicator extends Model
     {
         if ($baseline === null || $achievement === null || ! $type || (float) $baseline == 0.0) {
             return null;
+        }
+
+        // Exact Value: yang dinilai adalah KEDEKATAN dengan baseline, bukan arah
+        // naik/turun. Tepat sasaran = 100%, dan menurun seiring besarnya simpangan
+        // (bisa negatif bila simpangannya melebihi baseline itu sendiri).
+        if ($type === 'Exact Value') {
+            return round(100 - abs($achievement - $baseline) / abs($baseline) * 100, 2);
         }
 
         $delta = $type === 'Higher Better'

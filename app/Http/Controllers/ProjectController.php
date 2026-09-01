@@ -790,6 +790,12 @@ class ProjectController extends Controller
             && app(IdeaWorkflowService::class)->isLastLayerCommittee($project->idea, $user);
     }
 
+    /** Format persen tanpa desimal berlebih: 33.50 -> "33.5", 100.00 -> "100". */
+    private function pct(float $v): string
+    {
+        return rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.');
+    }
+
     /** Redirect ke halaman project + anchor section (agar tetap di posisi, bukan scroll ke atas). */
     private function backToSection(Project $project, string $anchor, string $msg, array $query = [])
     {
@@ -1066,8 +1072,23 @@ class ProjectController extends Controller
             'rows.*.achievement'       => ['nullable', 'numeric'], // aktual
             'rows.*.uom'               => ['nullable', Rule::in(ImplementationIndicator::uoms())],
             'rows.*.weightage'         => ['nullable', 'numeric', 'between:0,100'],
-            'rows.*.type'              => ['nullable', Rule::in(ImplementationIndicator::TYPES)],
+            'rows.*.type'              => ['required', Rule::in(ImplementationIndicator::TYPES)],
+        ], [
+            'rows.*.type.required' => 'Type is required for every indicator.',
         ]);
+
+        // Total weightage seluruh indikator tidak boleh melewati 100%.
+        $rows     = array_values($request->input('rows'));
+        $existing = (float) $project->indicators()->sum('weightage');
+        $adding   = array_sum(array_map(fn ($r) => (float) ($r['weightage'] ?? 0), $rows));
+
+        if ($existing + $adding > 100.0001) { // toleransi kecil utk pembulatan float
+            return back()->withInput()->withErrors([
+                'rows' => 'Total weightage would become ' . $this->pct($existing + $adding)
+                    . '%, which exceeds 100%. Currently used: ' . $this->pct($existing)
+                    . '%, still available: ' . $this->pct(max(0, 100 - $existing)) . '%.',
+            ]);
+        }
 
         $sort = (int) $project->indicators()->max('sort_order');
         foreach (array_values($request->input('rows')) as $r) {
@@ -1101,8 +1122,18 @@ class ProjectController extends Controller
             'achievement'       => ['nullable', 'numeric'], // aktual
             'uom'               => ['nullable', Rule::in(ImplementationIndicator::uoms())],
             'weightage'         => ['nullable', 'numeric', 'between:0,100'],
-            'type'              => ['nullable', Rule::in(ImplementationIndicator::TYPES)],
+            'type'              => ['required', Rule::in(ImplementationIndicator::TYPES)],
         ]);
+
+        // Batas 100% juga berlaku saat mengubah bobot — indikator ini sendiri
+        // dikeluarkan dari hitungan agar tidak dihitung dua kali.
+        $others = (float) $project->indicators()->whereKeyNot($indicator->getKey())->sum('weightage');
+        if ($others + (float) ($data['weightage'] ?? 0) > 100.0001) {
+            return back()->withInput()->withErrors([
+                'weightage' => 'Total weightage would exceed 100%. Other indicators already use '
+                    . $this->pct($others) . '%, so this one can be at most ' . $this->pct(max(0, 100 - $others)) . '%.',
+            ]);
+        }
 
         $this->withRecordLock($request, $indicator, function ($indicator) use ($data) {
             $indicator->update([
