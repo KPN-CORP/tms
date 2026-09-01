@@ -332,7 +332,7 @@
                                                     @csrf @method('PUT')
                                                     <x-record-version :model="$plan" />
                                                     <div class="grid grid-cols-2 gap-2">
-                                                        <label class="text-xs text-gray-500">Actual Timeline Start<input type="date" name="actual_start" x-model="s" class="{{ $inp }} w-full"></label>
+                                                        <label class="text-xs text-gray-500">Actual Timeline Start<input type="date" name="actual_start" x-model="s" :max="e" class="{{ $inp }} w-full"></label>
                                                         <label class="text-xs text-gray-500">Actual Timeline End<input type="date" name="actual_end" x-model="e" :min="s" class="{{ $inp }} w-full"></label>
                                                     </div>
                                                     <div class="text-xs text-gray-500">Actual Timeline Days<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="days !== null ? days + ' day(s)' : '-'"></div></div>
@@ -399,9 +399,11 @@
                                                 @csrf @method('PUT')
                                                     <x-record-version :model="$plan" />
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">Activity</label><input name="activity" value="{{ $plan->activity }}" required class="{{ $inp }} w-full"></div>
-                                                <div class="grid grid-cols-2 gap-2">
-                                                    <label class="text-xs text-gray-500">Planned Start Date<input type="date" name="planning_start" value="{{ optional($plan->planning_start)->format('Y-m-d') }}" class="{{ $inp }} w-full"></label>
-                                                    <label class="text-xs text-gray-500">Planned End Date<input type="date" name="planning_end" value="{{ optional($plan->planning_end)->format('Y-m-d') }}" class="{{ $inp }} w-full"></label>
+{{-- Start dibatasi <= End dan sebaliknya, jadi tanggal keliru tidak bisa dipilih. --}}
+                                                <div class="grid grid-cols-2 gap-2"
+                                                     x-data="{ ps: '{{ optional($plan->planning_start)->format('Y-m-d') }}', pe: '{{ optional($plan->planning_end)->format('Y-m-d') }}' }">
+                                                    <label class="text-xs text-gray-500">Planned Start Date<input type="date" name="planning_start" x-model="ps" :max="pe" class="{{ $inp }} w-full"></label>
+                                                    <label class="text-xs text-gray-500">Planned End Date<input type="date" name="planning_end" x-model="pe" :min="ps" class="{{ $inp }} w-full"></label>
                                                 </div>
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">PIC</label>
                                                     <select name="pic_user_ids[]" multiple placeholder="Click to select PIC (you can choose more than one)…" class="{{ $inp }} w-full">
@@ -444,11 +446,11 @@
                                 <div class="border rounded-lg p-3 grid grid-cols-2 gap-2 relative">
                                     <button type="button" x-show="rows.length > 1" @click="rows.splice(i, 1)" class="absolute top-1.5 right-2 text-red-600 text-sm">&times;</button>
                                     <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Activity</label><input :name="'rows['+i+'][activity]'" x-model="row.activity" placeholder="Activity" required class="{{ $inp }} w-full"></div>
-                                    <label class="text-xs text-gray-500">Planned Start Date<input type="date" :name="'rows['+i+'][planning_start]'" x-model="row.planning_start" class="{{ $inp }} w-full"></label>
-                                    <label class="text-xs text-gray-500">Planned End Date<input type="date" :name="'rows['+i+'][planning_end]'" x-model="row.planning_end" class="{{ $inp }} w-full"></label>
+<label class="text-xs text-gray-500">Planned Start Date<input type="date" :name="'rows['+i+'][planning_start]'" x-model="row.planning_start" :max="row.planning_end" class="{{ $inp }} w-full"></label>
+                                    <label class="text-xs text-gray-500">Planned End Date<input type="date" :name="'rows['+i+'][planning_end]'" x-model="row.planning_end" :min="row.planning_start" class="{{ $inp }} w-full"></label>
                                     @if($showActual)
-                                    <label class="text-xs text-gray-500">Actual Start<input type="date" :name="'rows['+i+'][actual_start]'" x-model="row.actual_start" class="{{ $inp }} w-full"></label>
-                                    <label class="text-xs text-gray-500">Actual End<input type="date" :name="'rows['+i+'][actual_end]'" x-model="row.actual_end" class="{{ $inp }} w-full"></label>
+<label class="text-xs text-gray-500">Actual Start<input type="date" :name="'rows['+i+'][actual_start]'" x-model="row.actual_start" :max="row.actual_end" class="{{ $inp }} w-full"></label>
+                                    <label class="text-xs text-gray-500">Actual End<input type="date" :name="'rows['+i+'][actual_end]'" x-model="row.actual_end" :min="row.actual_start" class="{{ $inp }} w-full"></label>
                                     @endif
                                     <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">PIC</label>
                                         <select :name="'rows['+i+'][pic_user_ids][]'" multiple placeholder="Click to select PIC (you can choose more than one)…" class="{{ $inp }} w-full">
@@ -660,7 +662,11 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="{{ 6 + ($showActual ? 1 : 0) + ($canEdit ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">No budget yet.</td></tr>
+                            {{-- Sebelum proposal disubmit budget masih bisa diisi ("No budget yet");
+                                 setelah disubmit tanpa budget, keadaannya sudah final
+                                 sehingga kalimatnya menjadi "No budget submitted". --}}
+                            @php $budgetEmptyText = in_array($project->status, \App\Models\Project::EDITABLE_STATUSES, true) ? 'No budget yet.' : 'No budget submitted.'; @endphp
+                            <tr><td colspan="{{ 6 + ($showActual ? 1 : 0) + ($canEdit ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">{{ $budgetEmptyText }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>

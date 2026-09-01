@@ -839,11 +839,16 @@ class ProjectController extends Controller
             'rows'                    => ['required', 'array', 'min:1'],
             'rows.*.activity'         => ['required', 'string', 'max:2000'],
             'rows.*.planning_start'   => ['nullable', 'date'],
-            'rows.*.planning_end'     => ['nullable', 'date'],
+            // End tidak boleh mendahului Start. Wildcard pada parameter aturan
+            // diselesaikan per-baris oleh Laravel (rows.0, rows.1, ...).
+            'rows.*.planning_end'     => ['nullable', 'date', 'after_or_equal:rows.*.planning_start'],
             'rows.*.actual_start'     => ['nullable', 'date'],
-            'rows.*.actual_end'       => ['nullable', 'date'],
+            'rows.*.actual_end'       => ['nullable', 'date', 'after_or_equal:rows.*.actual_start'],
             'rows.*.pic_user_ids'     => ['nullable', 'array'],
             'rows.*.pic_user_ids.*'   => ['integer', 'exists:kpncorp.users,id'],
+        ], [
+            'rows.*.planning_end.after_or_equal' => 'Planned End Date must be on or after Planned Start Date.',
+            'rows.*.actual_end.after_or_equal'   => 'Actual End must be on or after Actual Start.',
         ]);
 
         $seq = (int) $project->implementationPlans()->max('sequence_no');
@@ -870,9 +875,11 @@ class ProjectController extends Controller
         $data = $request->validate([
             'activity'       => ['required', 'string', 'max:2000'],
             'planning_start' => ['nullable', 'date'],
-            'planning_end'   => ['nullable', 'date'],
+            'planning_end'   => ['nullable', 'date', 'after_or_equal:planning_start'],
             'pic_user_ids'   => ['nullable', 'array'],
             'pic_user_ids.*' => ['integer', 'exists:kpncorp.users,id'],
+        ], [
+            'planning_end.after_or_equal' => 'Planned End Date must be on or after Planned Start Date.',
         ]);
 
         $this->withRecordLock($request, $plan, function ($plan) use ($data) {
