@@ -80,6 +80,61 @@
         };
     </script>
 
+    {{-- Konversi waktu ke timezone BROWSER pengguna.
+         Server merender <time datetime="...Z"> dalam UTC; skrip ini menuliskan
+         ulang isinya sesuai zona perangkat, dengan label:
+           Indonesia -> WIB (UTC+7) / WITA (UTC+8) / WIT (UTC+9)
+           lainnya   -> GMT+HH / GMT-HH:MM
+         Bila JS mati, teks bawaan dari server (UTC) tetap terbaca. --}}
+    <script>
+        window.tmsTime = (function () {
+            var ID_ZONES = {
+                'Asia/Jakarta': 'WIB', 'Asia/Pontianak': 'WIB',
+                'Asia/Makassar': 'WITA', 'Asia/Ujung_Pandang': 'WITA',
+                'Asia/Jayapura': 'WIT'
+            };
+            var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            var pad = function (n) { return String(n).padStart(2, '0'); };
+
+            function zoneName() {
+                var tz = '';
+                try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+                if (ID_ZONES[tz]) return ID_ZONES[tz];
+
+                // Di luar Indonesia: GMT dari offset perangkat (menit, terbalik tandanya).
+                var off = -new Date().getTimezoneOffset();
+                var sign = off < 0 ? '-' : '+';
+                var abs = Math.abs(off);
+                var h = pad(Math.floor(abs / 60)), m = abs % 60;
+                return 'GMT' + sign + h + (m ? ':' + pad(m) : '');
+            }
+
+            function render(el) {
+                var iso = el.getAttribute('datetime');
+                if (!iso) return;
+                var d = new Date(iso);
+                if (isNaN(d)) return;
+
+                var mode = el.getAttribute('data-tms-time') || 'datetime';
+                var date = pad(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+                var time = pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+                if (mode === 'date')      el.textContent = date;
+                else if (mode === 'time') el.textContent = time + ' ' + zoneName();
+                else                      el.textContent = date + ' ' + time + ' ' + zoneName();
+
+                el.setAttribute('title', d.toString());
+            }
+
+            function apply(root) {
+                (root || document).querySelectorAll('time[data-tms-time]').forEach(render);
+            }
+
+            document.addEventListener('DOMContentLoaded', function () { apply(); });
+            return { apply: apply, zoneName: zoneName };
+        })();
+    </script>
+
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 

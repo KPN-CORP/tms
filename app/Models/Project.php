@@ -19,18 +19,30 @@ class Project extends Model
     public const EXECUTION_STATUSES = ['approved', 'ongoing', 'delayed'];
 
     /** Peta status → [label, kelas badge warna]. Dipakai index & detail. */
+    /**
+     * Warna badge per status — SEMUA berbeda satu sama lain agar status tidak
+     * tertukar saat dibaca sekilas. Dua status akhir yang negatif memakai merah:
+     * Rejected (merah muda) dan Cancelled (merah tua) — sewarna tapi tetap
+     * bisa dibedakan.
+     *
+     * Pemetaan per fase menu:
+     *   Proposal       : draft, submitted, revision, committee_review, approved, rejected
+     *   Implementation : ongoing, delayed
+     *   Completion     : completion_review, completed
+     *   Lintas fase    : cancelled
+     */
     public const STATUS_BADGES = [
         'draft'             => ['Draft', 'bg-gray-100 text-gray-700'],
         'submitted'         => ['Submitted', 'bg-blue-100 text-blue-700'],
-        'revision'          => ['Revision Required', 'bg-amber-100 text-amber-700'],
-        'committee_review'  => ['On Review', 'bg-amber-100 text-amber-700'],
+        'revision'          => ['Revision Required', 'bg-amber-100 text-amber-800'],
+        'committee_review'  => ['On Review', 'bg-yellow-100 text-yellow-800'],
         'approved'          => ['Approved', 'bg-green-100 text-green-700'],
         'rejected'          => ['Rejected', 'bg-red-100 text-red-700'],
-        'ongoing'           => ['Ongoing', 'bg-blue-100 text-blue-700'],
+        'ongoing'           => ['Ongoing', 'bg-indigo-100 text-indigo-700'],
         'delayed'           => ['Delayed', 'bg-orange-100 text-orange-700'],
         'completion_review' => ['Completion Review', 'bg-purple-100 text-purple-700'],
-        'completed'         => ['Completed', 'bg-green-100 text-green-700'],
-        'cancelled'         => ['Cancelled', 'bg-gray-200 text-gray-600'],
+        'completed'         => ['Completed', 'bg-teal-100 text-teal-800'],
+        'cancelled'         => ['Cancelled', 'bg-red-200 text-red-900'],
     ];
 
     /** Label untuk audit trail (LogsActivity). */
@@ -96,6 +108,12 @@ class Project extends Model
     }
 
     /** [label, kelas warna badge] untuk status saat ini. */
+    /** Kolom ber-ID user pada project. */
+    protected function activityUserFields(): array
+    {
+        return ['project_leader_id', 'project_sponsor_id'];
+    }
+
     public function statusBadge(): array
     {
         return self::STATUS_BADGES[$this->status]
@@ -222,6 +240,26 @@ class Project extends Model
     }
 
     /** Anggota tim (Leader / Sponsor / Members) — berhak mengajukan update. */
+    /**
+     * Apakah $user boleh MENGUBAH project ini pada fase yang sedang dibuka?
+     * Dipakai daftar My Project untuk memutuskan tombol pensil (edit) muncul
+     * atau hanya tombol mata (lihat saja). Aturannya menyalin gate controller:
+     *
+     *   proposal       : canLeaderEditProposal() — Leader saat draft/revision,
+     *                    atau setelah ada update request yang disetujui.
+     *   implementation : authorizeTeamExecution() — anggota tim, project berjalan,
+     *                    dan Actual masih draft (belum di-baseline).
+     *   completion     : tidak ada yang bisa diubah lagi.
+     */
+    public function isEditableInPhase(User $user, ?string $phase = null): bool
+    {
+        return match ($phase) {
+            'implementation' => $this->isTeamMember($user) && $this->isInExecution() && $this->actualIsDraft(),
+            'completion'     => false,
+            default          => $this->canLeaderEditProposal($user),
+        };
+    }
+
     public function isTeamMember(User $user): bool
     {
         return $this->project_leader_id === $user->id

@@ -138,7 +138,7 @@
                         </span>
                         <div class="text-sm">
                             <span class="font-semibold">{{ optional($a->user)->name }}</span>
-                            <span class="text-gray-400">· {{ $a->created_at?->format('d M Y H:i') }}</span>
+                            <span class="text-gray-400">· <x-datetime :value="$a->created_at" /></span>
                             @if($a->note)<div class="text-gray-600 mt-0.5">{{ $a->note }}</div>@endif
                         </div>
                     </div>

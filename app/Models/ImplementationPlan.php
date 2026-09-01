@@ -18,6 +18,7 @@ class ImplementationPlan extends Model
         'project_id', 'activity', 'planning_start', 'planning_end',
         'actual_start', 'actual_end', 'pic_user_ids', 'remarks', 'sequence_no',
         'attachment_path', 'attachment_name',
+        'attachment_uploaded_by', 'attachment_uploaded_at', 'attachment_replace_count',
     ];
 
     protected $casts = [
@@ -26,7 +27,20 @@ class ImplementationPlan extends Model
         'actual_start'   => 'date',
         'actual_end'     => 'date',
         'pic_user_ids'   => 'array',
+        'attachment_uploaded_at' => 'datetime',
     ];
+
+    /** Kolom ber-ID user pada plan: PIC (array) & pengunggah lampiran. */
+    protected function activityUserFields(): array
+    {
+        return ['pic_user_ids', 'attachment_uploaded_by'];
+    }
+
+    /** User yang terakhir mengunggah / mengganti berkas plan ini. */
+    public function attachmentUploader()
+    {
+        return $this->belongsTo(User::class, 'attachment_uploaded_by');
+    }
 
     public function getPlanningDaysAttribute(): ?int
     {

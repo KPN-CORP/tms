@@ -129,9 +129,37 @@
                                     <span class="inline-flex px-2 py-1 text-xs rounded-full font-medium {{ $stCls }}">{{ $stLabel }}</span>
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    {{-- Tujuan tombol Detail bisa diganti per halaman (mis. Project Shell → halaman progress). --}}
-                                    <a href="{{ route($detailRoute ?? 'projects.show', ($detailPhase ?? null) ? ['project' => $project, 'phase' => $detailPhase] : $project) }}"
-                                       class="px-4 py-1 text-sm border border-red-700 text-red-700 rounded-lg hover:bg-red-50">Detail</a>
+                                    {{-- Aksi: pensil = edit (hanya bila user berwenang mengubah pada
+                                         fase ini), mata = lihat saja. Bisa muncul salah satu atau keduanya.
+                                         Tujuan link bisa diganti per halaman (mis. Project Shell yang read-only,
+                                         sehingga pensil tidak pernah muncul di sana).
+
+                                         CATATAN: assignment di bawah sengaja memakai bentuk inline. Menuliskan
+                                         penutup blok PHP Blade di file ini — termasuk di dalam komentar seperti
+                                         ini — akan dipasangkan dengan pembuka inline pada kolom Status dan
+                                         membuat isi di antaranya ikut tertelan saat dikompilasi. --}}
+                                    @php($route = $detailRoute ?? 'projects.show')
+                                    @php($params = ($detailPhase ?? null) ? ['project' => $project, 'phase' => $detailPhase] : ['project' => $project])
+                                    @php($canEditRow = $route === 'projects.show' && $project->isEditableInPhase(auth()->user(), $detailPhase ?? null))
+                                    <div class="flex items-center justify-end gap-2">
+                                        @if($canEditRow)
+                                            <a href="{{ route($route, $params) }}" title="Edit"
+                                               class="inline-flex items-center justify-center w-8 h-8 border border-red-700 text-red-700 rounded-lg hover:bg-red-50">
+                                                <span class="sr-only">Edit</span>
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                </svg>
+                                            </a>
+                                        @endif
+                                        <a href="{{ route($route, $params + ['view' => 1]) }}" title="View detail"
+                                           class="inline-flex items-center justify-center w-8 h-8 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-100">
+                                            <span class="sr-only">View detail</span>
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </a>
+                                    </div>
                                 </td>
                             </tr>
                         @empty

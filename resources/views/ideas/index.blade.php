@@ -133,7 +133,7 @@
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->businessUnit)->name }}</td>
                                 <td class="px-6 py-4 text-sm">{{ optional($idea->department)->name }}</td>
                                 <td class="px-6 py-4">@include('ideas._status', ['status' => $idea->status])</td>
-                                <td class="px-6 py-4 text-sm text-gray-500">{{ $idea->modified_at?->format('d M Y') }}</td>
+                                <td class="px-6 py-4 text-sm text-gray-500"><x-datetime :value="$idea->modified_at" mode="date" /></td>
                                 <td class="px-6 py-4 text-right">
                                     @if($idea->status === 'draft')
                                         <div class="flex items-center justify-end gap-2">

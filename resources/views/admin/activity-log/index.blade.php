@@ -54,7 +54,7 @@
                         @forelse($logs as $log)
                             @php [$evLabel, $evClass] = $log->eventBadge(); @endphp
                             <tr class="hover:bg-gray-50 align-top">
-                                <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{{ $log->created_at?->format('d M Y H:i') }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500"><x-datetime :value="$log->created_at" /></td>
                                 <td class="px-4 py-3 text-xs">{{ $log->causer_name ?? $log->causer?->name ?? 'system' }}</td>
                                 <td class="px-4 py-3"><span class="text-xs rounded-full px-2 py-1 {{ $evClass }}">{{ $evLabel }}</span></td>
                                 <td class="px-4 py-3">

@@ -54,7 +54,7 @@
                 <p class="text-sm font-semibold text-gray-700">Project cancelled</p>
                 <p class="text-sm text-gray-600 mt-1 whitespace-pre-line">{{ $project->cancellationReason() ?: '—' }}</p>
                 <p class="text-xs text-gray-400 mt-1">
-                    by {{ optional($c->changedBy)->name ?? 'Unknown' }} · {{ $c->created_at?->format('d M Y H:i') }}
+                    by {{ optional($c->changedBy)->name ?? 'Unknown' }} · <x-datetime :value="$c->created_at" />
                 </p>
             </div>
         @endif
@@ -87,7 +87,7 @@
                     <div class="border rounded-lg px-4 py-3">
                         <div class="text-xs text-gray-400 uppercase">Last Status Change</div>
                         <div class="text-sm font-semibold text-gray-800 mt-2">
-                            {{ $summary['lastActivity']?->format('d M Y H:i') ?? '—' }}
+                            <x-datetime :value="$summary['lastActivity']" fallback="—" />
                         </div>
                     </div>
                 </div>
@@ -99,7 +99,7 @@
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Leader</label><div class="{{ $box }}">{{ optional($project->leader)->name ?? '-' }}</div></div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Sponsor</label><div class="{{ $box }}">{{ optional($project->sponsor)->name ?? '-' }}</div></div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Origin Idea</label><div class="{{ $box }} font-mono">{{ optional($project->idea)->idea_id ?? '-' }}</div></div>
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Shell Created</label><div class="{{ $box }}">{{ $project->created_at?->format('d M Y H:i') }}</div></div>
+                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Shell Created</label><div class="{{ $box }}"><x-datetime :value="$project->created_at" /></div></div>
                 </div>
 
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Project Scope</label><div class="{{ $box }} whitespace-pre-line">{{ $project->project_scope }}</div></div>
@@ -121,7 +121,7 @@
                         <div class="min-w-0 flex-1 border-b last:border-b-0 pb-3">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="text-xs font-semibold text-gray-400 uppercase">{{ $kindLabel[$a['kind']] ?? $a['kind'] }}</span>
-                                <span class="text-xs text-gray-400">{{ $a['at']?->format('d M Y H:i') }}</span>
+                                <span class="text-xs text-gray-400"><x-datetime :value="$a['at']" /></span>
                             </div>
                             <p class="text-sm font-semibold text-gray-800 mt-0.5">{{ $a['title'] }}</p>
                             @if(filled($a['note']))

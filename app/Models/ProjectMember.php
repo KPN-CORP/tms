@@ -11,7 +11,11 @@ class ProjectMember extends Model
 
     public function activityLabel(): string
     {
-        return ($this->role ?: 'Member') . ' (project #' . $this->project_id . ')';
+        // Nama di-snapshot ke label log supaya audit trail tetap menyebut siapa
+        // orangnya walau ia sudah dikeluarkan dari tim (atau hilang dari hcis).
+        $name = optional($this->user)->name ?? ('#' . $this->user_id);
+
+        return $name . ' — ' . ($this->role ?: 'Member') . ' (project #' . $this->project_id . ')';
     }
 
     protected $fillable = ['project_id', 'user_id', 'role', 'joined_at', 'is_active'];

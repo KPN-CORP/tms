@@ -105,7 +105,7 @@
                                 <td class="px-6 py-4">@include('ideas._status', ['status' => $idea->status])</td>
                                 <td class="px-6 py-4 text-sm text-gray-600">
                                     @php $sla = app(\App\Services\SlaService::class)->evaluate($idea->slaApprovalType(), $idea->reviewSince()); @endphp
-                                    {{ !empty($sla['due']) ? $sla['due']->format('d M Y') : '-' }}
+                                    <x-datetime :value="$sla['due'] ?? null" mode="date" />
                                 </td>
                                 <td class="px-6 py-4 text-right whitespace-nowrap">
                                     @if($idea->can_review)

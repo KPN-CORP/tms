@@ -41,7 +41,7 @@
                             <p class="text-xs text-gray-400 mt-2">
                                 {{ $g->file_name }} · {{ $g->readable_size }}
                                 @if($g->uploader) · by {{ $g->uploader->name }}@endif
-                                · {{ $g->created_at?->format('d M Y') }}
+                                · <x-datetime :value="$g->created_at" mode="date" />
                             </p>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">

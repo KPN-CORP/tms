@@ -65,6 +65,14 @@
         @if(session('success'))<div class="rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3">{{ session('success') }}</div>@endif
         @if(session('error'))<div class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3">{{ session('error') }}</div>@endif
 
+        {{-- Error validasi, termasuk penolakan karena record diubah orang lain
+             (concurrent edit). Tanpa ini penolakan tidak terlihat sama sekali. --}}
+        @if($errors->any())
+            <ul class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm list-disc list-inside">
+                @foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach
+            </ul>
+        @endif
+
         {{-- Alasan Project Cancellation — diambil dari status log terakhir (new_status=cancelled). --}}
         @if($project->status === 'cancelled')
             @php $cancelLog = $project->cancellation(); @endphp
@@ -74,7 +82,7 @@
                 @if($cancelLog)
                     <p class="text-xs text-gray-400 mt-1">
                         Cancelled by {{ optional($cancelLog->changedBy)->name ?? 'Unknown' }}
-                        &middot; {{ $cancelLog->created_at?->format('d M Y H:i') }}
+                        &middot; <x-datetime :value="$cancelLog->created_at" />
                     </p>
                 @endif
             </div>
@@ -106,7 +114,7 @@
             <div x-show="open" class="p-6 space-y-4">
                 <div class="grid grid-cols-2 gap-4">
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Category</label><div class="{{ $box }}">{{ $project->project_category }}</div></div>
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Created</label><div class="{{ $box }}">{{ $project->created_at?->format('d M Y') }}</div></div>
+                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Created</label><div class="{{ $box }}"><x-datetime :value="$project->created_at" mode="date" /></div></div>
                 </div>
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Project Scope</label><div class="{{ $box }} whitespace-pre-line">{{ $project->project_scope }}</div></div>
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Expected Outcome</label><div class="{{ $box }} whitespace-pre-line">{{ $project->expected_outcome }}</div></div>
@@ -142,6 +150,7 @@
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Team Member</h3>
                                             <form method="POST" action="{{ route('projects.members.update', [$project, $m]) }}" class="space-y-3">
                                                 @csrf @method('PUT')
+                                                    <x-record-version :model="$m" />
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">Nama</label>
                                                     <select name="user_id" required data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id" class="{{ $inp }} w-full"><option value="{{ $m->user_id }}" selected>{{ optional($m->user)->name }}</option></select></div>
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">Role in Project</label>
@@ -315,24 +324,55 @@
                                                            get days(){ if(!this.s || !this.e) return null; const a = new Date(this.s), b = new Date(this.e); if (b < a) return null; return Math.floor((b - a) / 86400000) + 1; } }">
                                                 <h3 class="text-lg font-semibold text-gray-800 mb-1">Update Actual</h3>
                                                 <p class="text-sm text-gray-500 mb-4">{{ $plan->activity }}</p>
-                                                <form method="POST" action="{{ route('projects.implementation.actual', [$project, $plan]) }}" enctype="multipart/form-data" class="space-y-3">
+                                                {{-- replacing: true begitu user memilih berkas baru padahal sudah ada
+                                                     berkas lama. Dipakai untuk memunculkan dialog konfirmasi HANYA pada
+                                                     kasus penggantian, bukan pada unggahan pertama. --}}
+                                                <form method="POST" action="{{ route('projects.implementation.actual', [$project, $plan]) }}" enctype="multipart/form-data" class="space-y-3"
+                                                      x-data="{ hasExisting: {{ $plan->attachment_path ? 'true' : 'false' }}, picked: '', get replacing(){ return this.hasExisting && this.picked !== ''; } }">
                                                     @csrf @method('PUT')
+                                                    <x-record-version :model="$plan" />
                                                     <div class="grid grid-cols-2 gap-2">
                                                         <label class="text-xs text-gray-500">Actual Timeline Start<input type="date" name="actual_start" x-model="s" class="{{ $inp }} w-full"></label>
                                                         <label class="text-xs text-gray-500">Actual Timeline End<input type="date" name="actual_end" x-model="e" :min="s" class="{{ $inp }} w-full"></label>
                                                     </div>
-                                                    <div class="text-xs text-gray-500">Actual Timeline Days<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="days !== null ? days + ' hari' : '-'"></div></div>
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Remark</label><textarea name="remarks" rows="2" maxlength="2000" placeholder="Catatan (maks 2000 karakter)" class="{{ $inp }} w-full">{{ $plan->remarks }}</textarea></div>
+                                                    <div class="text-xs text-gray-500">Actual Timeline Days<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="days !== null ? days + ' day(s)' : '-'"></div></div>
+                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Remark</label><textarea name="remarks" rows="2" maxlength="2000" placeholder="Notes (max 2000 characters)" class="{{ $inp }} w-full">{{ $plan->remarks }}</textarea></div>
                                                     <div>
                                                         <label class="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
-                                                        @if($plan->attachment_path)<p class="text-xs text-gray-500 mb-1">File saat ini: <a href="{{ route('projects.implementation.attachment', [$project, $plan]) }}" class="text-red-700 hover:underline">{{ $plan->attachment_name }}</a> — upload a new file to replace it.</p>@endif
-                                                        <input type="file" name="attachment" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png,.pptx" class="text-sm w-full">
-                                                        <p class="text-xs text-gray-400 mt-1">Maks 7 MB, 1 file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
+                                                        @if($plan->attachment_path)
+                                                            <p class="text-xs text-gray-500 mb-1">
+                                                                Current file:
+                                                                <a href="{{ route('projects.implementation.attachment', [$project, $plan]) }}" class="text-red-700 hover:underline">{{ $plan->attachment_name }}</a>
+                                                                — choose a new file to replace it.
+                                                            </p>
+                                                            @if($plan->attachment_uploaded_at)
+                                                                <p class="text-xs text-gray-400 mb-1">
+                                                                    {{ $plan->attachment_replace_count > 0 ? 'Last replaced' : 'Uploaded' }}
+                                                                    by {{ optional($plan->attachmentUploader)->name ?? 'Unknown' }}
+                                                                    on <x-datetime :value="$plan->attachment_uploaded_at" />
+                                                                    @if($plan->attachment_replace_count > 0)
+                                                                        &middot; replaced {{ $plan->attachment_replace_count }}&times;
+                                                                    @endif
+                                                                </p>
+                                                            @endif
+                                                        @endif
+                                                        <input type="file" name="attachment" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png,.pptx"
+                                                               @change="picked = $event.target.value" class="text-sm w-full">
+                                                        <p class="text-xs text-gray-400 mt-1">Max 7 MB, 1 file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
+                                                        <p x-show="replacing" x-cloak class="text-xs text-amber-700 mt-1">
+                                                            The current file will be permanently replaced when you save.
+                                                        </p>
                                                         @error('attachment')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
                                                     </div>
                                                     <div class="flex justify-end gap-3 pt-1">
                                                         <button type="button" @click="upd = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
-                                                        <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
+                                                        {{-- Atribut data-confirm dipasang HANYA saat mengganti berkas; dialog
+                                                             konfirmasi global di layout yang menanganinya. --}}
+                                                        <button type="submit"
+                                                                :data-confirm="replacing ? 'This will permanently replace the current attachment. The previous file cannot be recovered. Continue?' : null"
+                                                                :data-confirm-title="replacing ? 'Replace Attachment?' : null"
+                                                                :data-confirm-ok="replacing ? 'Yes, Replace File' : null"
+                                                                class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
                                                     </div>
                                                 </form>
                                             </div>
@@ -357,6 +397,7 @@
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Activity</h3>
                                             <form method="POST" action="{{ route('projects.implementation.update', [$project, $plan]) }}" class="space-y-3">
                                                 @csrf @method('PUT')
+                                                    <x-record-version :model="$plan" />
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">Activity</label><input name="activity" value="{{ $plan->activity }}" required class="{{ $inp }} w-full"></div>
                                                 <div class="grid grid-cols-2 gap-2">
                                                     <label class="text-xs text-gray-500">Planning Start<input type="date" name="planning_start" value="{{ optional($plan->planning_start)->format('Y-m-d') }}" class="{{ $inp }} w-full"></label>
@@ -452,6 +493,7 @@
                                     @if($canTrack)
                                         <form method="POST" action="{{ route('projects.indicators.achievement', [$project, $ind]) }}" class="flex items-center gap-1">
                                             @csrf @method('PUT')
+                                                    <x-record-version :model="$ind" />
                                             <input type="number" step="any" name="achievement" value="{{ $ind->achievement }}" placeholder="actual" class="border rounded px-1 py-0.5 w-20 text-xs">
                                             <button class="text-red-700 font-semibold">Save</button>
                                         </form>
@@ -477,6 +519,7 @@
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Success Indicator</h3>
                                             <form method="POST" action="{{ route('projects.indicators.update', [$project, $ind]) }}" class="grid grid-cols-2 gap-2">
                                                 @csrf @method('PUT')
+                                                    <x-record-version :model="$ind" />
                                                 <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Name</label><input name="indicator" value="{{ $ind->indicator }}" required class="{{ $inp }} w-full"></div>
                                                 <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Description</label><textarea name="description" rows="2" class="{{ $inp }} w-full">{{ $ind->description }}</textarea></div>
                                                 <label class="text-xs text-gray-500">Baseline<input type="number" step="any" name="baseline" value="{{ $ind->baseline }}" class="{{ $inp }} w-full"></label>
@@ -574,6 +617,7 @@
                                     @if($canTrack)
                                         <form method="POST" action="{{ route('projects.budgets.actual', [$project, $b]) }}" class="flex items-center gap-1">
                                             @csrf @method('PUT')
+                                                    <x-record-version :model="$b" />
                                             <input type="number" step="any" name="actual_qty" value="{{ $b->actual_qty }}" placeholder="qty" class="border rounded px-1 py-0.5 w-16 text-xs">
                                             <input type="number" step="any" name="actual_price" value="{{ $b->actual_price }}" placeholder="price" class="border rounded px-1 py-0.5 w-20 text-xs">
                                             <button class="text-red-700 font-semibold">Save</button>
@@ -598,6 +642,7 @@
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Budget</h3>
                                             <form method="POST" action="{{ route('projects.budgets.update', [$project, $b]) }}" class="grid grid-cols-2 gap-2">
                                                 @csrf @method('PUT')
+                                                    <x-record-version :model="$b" />
                                                 <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Item Name</label><input name="item" value="{{ $b->item }}" maxlength="500" required class="{{ $inp }} w-full"></div>
                                                 <label class="text-xs text-gray-500">Qty<input type="number" step="any" min="0" name="qty" x-model="q" value="{{ $b->qty }}" class="{{ $inp }} w-full"></label>
                                                 <label class="text-xs text-gray-500">UoM
@@ -748,7 +793,7 @@
                             <span class="text-xs rounded-full px-2 py-1 shrink-0 {{ $a->decision === 'approve' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">Layer {{ $a->layer }} · {{ ucfirst($a->decision) }}</span>
                             <div>
                                 <span class="font-semibold">{{ optional($a->user)->name }}</span>
-                                <span class="text-gray-400">· {{ $a->created_at?->format('d M Y H:i') }}</span>
+                                <span class="text-gray-400">· <x-datetime :value="$a->created_at" /></span>
                                 @if($a->note)<div class="text-gray-600 mt-0.5">{{ $a->note }}</div>@endif
                             </div>
                         </div>
@@ -766,7 +811,7 @@
                     <div class="flex items-start gap-3 border-b py-2 last:border-0 text-sm">
                         <span class="text-xs rounded-full px-2 py-1 bg-gray-100 text-gray-700">{{ $log->old_status ?? '—' }} &rarr; {{ $log->new_status }}</span>
                         <div><span class="font-semibold">{{ optional($log->changedBy)->name }}</span>
-                            <span class="text-gray-400">· {{ $log->created_at?->format('d M Y H:i') }}</span>@if($log->remarks)<div class="text-gray-500">{{ $log->remarks }}</div>@endif</div>
+                            <span class="text-gray-400">· <x-datetime :value="$log->created_at" /></span>@if($log->remarks)<div class="text-gray-500">{{ $log->remarks }}</div>@endif</div>
                     </div>
                 @empty
                     <p class="text-gray-400 text-sm">No status changes yet.</p>

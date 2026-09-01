@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\HandlesFileAttachments;
 use App\Http\Controllers\Concerns\HasListQuery;
+use App\Http\Controllers\Concerns\PreventsConcurrentEdits;
 use App\Models\BusinessUnit;
 use App\Models\Department;
 use App\Models\Idea;
@@ -32,6 +33,7 @@ class ProjectController extends Controller
 {
     use HandlesFileAttachments;
     use HasListQuery;
+    use PreventsConcurrentEdits;
 
     /**
      * Form Create Project Shell dari sebuah ide approved.
@@ -143,7 +145,10 @@ class ProjectController extends Controller
             'title'         => 'My Project',
             'subtitle'      => 'Projects related to you (as submitter, member, leader, sponsor, or committee).',
             'route'         => 'projects.index',
-            'phaseStatuses' => null, // tampilkan semua status terkait
+            'phaseStatuses' => null, // tidak dibatasi daftar izin...
+            // ...tapi status milik fase lain dibuang: Ongoing & Delayed ada di menu
+            // Project Implementation, Completion Review ada di Project Completion.
+            'excludeStatuses' => ['ongoing', 'delayed', 'completion_review'],
             'statusMap'     => [
                 'draft'     => 'draft',
                 'submitted' => 'submitted',
@@ -235,6 +240,13 @@ class ProjectController extends Controller
         // Batasi ke status fase ini (Implementation/Completion). Proposal: null = semua.
         if (! empty($opts['phaseStatuses'])) {
             $base->whereIn('status', $opts['phaseStatuses']);
+        }
+
+        // Kebalikannya: buang status yang bukan urusan fase ini. Dipakai Proposal
+        // agar status fase eksekusi/penyelesaian tidak ikut nongol. Memakai daftar
+        // KECUALI (bukan daftar izin) supaya status baru tetap muncul secara default.
+        if (! empty($opts['excludeStatuses'])) {
+            $base->whereNotIn('status', $opts['excludeStatuses']);
         }
 
         // Filter BU/Unit by NAMA (dropdown dari hcis) pada ide terkait project —
@@ -510,11 +522,14 @@ class ProjectController extends Controller
         $picIds = $project->implementationPlans
             ->pluck('pic_user_ids')->filter()->flatten()->unique()->values();
 
-        return view('projects.show', [
+        $data = [
             'project'            => $project,
             'showActual'         => $showActual,
             'phase'              => $isImplementationView ? 'implementation' : null,
-            'canEdit'            => $project->canLeaderEditProposal($user),
+            // ?view=1 (tombol mata di daftar) memaksa halaman jadi lihat-saja,
+            // walaupun user sebenarnya berwenang mengubah.
+            'canEdit'            => ! $request->boolean('view') && $project->canLeaderEditProposal($user),
+            'viewOnly'           => $request->boolean('view'),
             'isLeader'           => $project->project_leader_id === $user->id,
             'isSponsor'          => $project->project_sponsor_id === $user->id,
             'isReviewer'         => app(ProjectApprovalWorkflowService::class)->isCurrentReviewer($project, $user),
@@ -535,7 +550,22 @@ class ProjectController extends Controller
             'users'              => User::whereIn('id', $picIds)->get(),
             'teamMembers'        => $teamMembers,
             'canUploadAttachment' => $project->isTeamMember($user) || $user->hasRole('Super Admin'),
-        ]);
+        ];
+
+        // Mode lihat-saja (tombol mata di daftar My Project): matikan SEMUA
+        // kemampuan mengubah, bukan hanya canEdit — supaya halaman benar-benar
+        // read-only dan berbeda nyata dari tombol pensil.
+        if ($data['viewOnly']) {
+            foreach ([
+                'canEdit', 'canTrack', 'canSubmitActual', 'isActualSponsor',
+                'canSubmitCompletion', 'canRequestUpdate', 'canCancel', 'canUploadAttachment',
+            ] as $flag) {
+                $data[$flag] = false;
+            }
+            $data['reviewableUpdateIds'] = collect();
+        }
+
+        return view('projects.show', $data);
     }
 
     /* ---- Submit proposal (Leader) & keputusan Sponsor ---------------- */
@@ -845,12 +875,14 @@ class ProjectController extends Controller
             'pic_user_ids.*' => ['integer', 'exists:kpncorp.users,id'],
         ]);
 
-        $plan->update([
-            'activity'       => $data['activity'],
-            'planning_start' => $data['planning_start'] ?? null,
-            'planning_end'   => $data['planning_end'] ?? null,
-            'pic_user_ids'   => $data['pic_user_ids'] ?? [],
-        ]);
+        $this->withRecordLock($request, $plan, function ($plan) use ($data) {
+            $plan->update([
+                'activity'       => $data['activity'],
+                'planning_start' => $data['planning_start'] ?? null,
+                'planning_end'   => $data['planning_end'] ?? null,
+                'pic_user_ids'   => $data['pic_user_ids'] ?? [],
+            ]);
+        });
 
         return $this->backToSection($project, 'section-implementation', 'Activity updated.');
     }
@@ -883,23 +915,35 @@ class ProjectController extends Controller
             'actual_end.after_or_equal' => 'Actual Timeline End must be on or after Actual Timeline Start.',
         ]);
 
-        $plan->fill([
-            'actual_start' => $data['actual_start'] ?? null,
-            'actual_end'   => $data['actual_end'] ?? null,
-            'remarks'      => $data['remarks'] ?? null,
-        ]);
+        // Baris dikunci selama proses ini: submit lain atas plan yang sama antre,
+        // dan ditolak bila datanya sudah berubah sejak form dibuka.
+        $this->withRecordLock($request, $plan, function (ImplementationPlan $plan) use ($request, $project, $data) {
+            $plan->fill([
+                'actual_start' => $data['actual_start'] ?? null,
+                'actual_end'   => $data['actual_end'] ?? null,
+                'remarks'      => $data['remarks'] ?? null,
+            ]);
 
-        // Attachment: ganti file lama bila ada unggahan baru.
-        if ($request->hasFile('attachment')) {
-            if ($plan->attachment_path) {
-                $this->deleteAttachmentFile($plan->attachment_path);
+            // Attachment: ganti file lama bila ada unggahan baru. Setiap unggahan —
+            // baik yang pertama maupun penggantian — dicatat siapa pelakunya dan kapan,
+            // supaya jejaknya terlihat langsung di UI (bukan hanya di audit log).
+            if ($request->hasFile('attachment')) {
+                $isReplacement = (bool) $plan->attachment_path;
+
+                if ($isReplacement) {
+                    $this->deleteAttachmentFile($plan->attachment_path);
+                }
+
+                $file = $request->file('attachment');
+                $plan->attachment_path          = $file->store("project-implementation/{$project->id}");
+                $plan->attachment_name          = $file->getClientOriginalName();
+                $plan->attachment_uploaded_by   = $request->user()->id;
+                $plan->attachment_uploaded_at   = now();
+                $plan->attachment_replace_count = (int) $plan->attachment_replace_count + ($isReplacement ? 1 : 0);
             }
-            $file = $request->file('attachment');
-            $plan->attachment_path = $file->store("project-implementation/{$project->id}");
-            $plan->attachment_name = $file->getClientOriginalName();
-        }
 
-        $plan->save();
+            $plan->save();
+        });
 
         $this->recomputeExecutionStatus($project->fresh(), $request->user());
 
@@ -1053,17 +1097,19 @@ class ProjectController extends Controller
             'type'              => ['nullable', Rule::in(ImplementationIndicator::TYPES)],
         ]);
 
-        $indicator->update([
-            'indicator'         => $data['indicator'],
-            'description'       => $data['description'] ?? null,
-            'baseline'          => $data['baseline'] ?? null,
-            'achievement_value' => $data['achievement_value'] ?? null,
-            'achievement'       => $data['achievement'] ?? null,
-            'uom'               => $data['uom'] ?? null,
-            'weightage'         => $data['weightage'] ?? null,
-            'type'              => $data['type'] ?? null,
-            'improvement'       => ImplementationIndicator::calcImprovement($data['baseline'] ?? null, $data['achievement'] ?? null, $data['type'] ?? null),
-        ]);
+        $this->withRecordLock($request, $indicator, function ($indicator) use ($data) {
+            $indicator->update([
+                'indicator'         => $data['indicator'],
+                'description'       => $data['description'] ?? null,
+                'baseline'          => $data['baseline'] ?? null,
+                'achievement_value' => $data['achievement_value'] ?? null,
+                'achievement'       => $data['achievement'] ?? null,
+                'uom'               => $data['uom'] ?? null,
+                'weightage'         => $data['weightage'] ?? null,
+                'type'              => $data['type'] ?? null,
+                'improvement'       => ImplementationIndicator::calcImprovement($data['baseline'] ?? null, $data['achievement'] ?? null, $data['type'] ?? null),
+            ]);
+        });
 
         return $this->backToSection($project, 'section-indicators', 'Indicator updated.');
     }
@@ -1081,10 +1127,12 @@ class ProjectController extends Controller
             'achievement' => ['nullable', 'numeric'],
         ]);
 
-        $indicator->update([
-            'achievement' => $data['achievement'] ?? null,
-            'improvement' => ImplementationIndicator::calcImprovement($indicator->baseline, $data['achievement'] ?? null, $indicator->type),
-        ]);
+        $this->withRecordLock($request, $indicator, function ($indicator) use ($data) {
+            $indicator->update([
+                'achievement' => $data['achievement'] ?? null,
+                'improvement' => ImplementationIndicator::calcImprovement($indicator->baseline, $data['achievement'] ?? null, $indicator->type),
+            ]);
+        });
 
         return $this->backToSection($project, 'section-indicators', 'Indicator achievement updated.', ['phase' => 'implementation']);
     }
@@ -1134,12 +1182,14 @@ class ProjectController extends Controller
             'unit_price' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $budget->update([
-            'item'       => $data['item'],
-            'qty'        => $data['qty'] ?? null,
-            'uom'        => $data['uom'] ?? null,
-            'unit_price' => $data['unit_price'] ?? null,
-        ]);
+        $this->withRecordLock($request, $budget, function ($budget) use ($data) {
+            $budget->update([
+                'item'       => $data['item'],
+                'qty'        => $data['qty'] ?? null,
+                'uom'        => $data['uom'] ?? null,
+                'unit_price' => $data['unit_price'] ?? null,
+            ]);
+        });
 
         return $this->backToSection($project, 'section-budget', 'Budget updated.');
     }
@@ -1168,7 +1218,9 @@ class ProjectController extends Controller
             ? (float) $data['actual_qty'] * (float) $data['actual_price']
             : null;
 
-        $budget->update($data + ['actual_cost' => $cost]);
+        $this->withRecordLock($request, $budget, function ($budget) use ($data, $cost) {
+            $budget->update($data + ['actual_cost' => $cost]);
+        });
 
         return $this->backToSection($project, 'section-budget', 'Actual budget updated.', ['phase' => 'implementation']);
     }
@@ -1240,7 +1292,9 @@ class ProjectController extends Controller
             'role'    => ['required', 'string', 'max:100'],
         ]);
 
-        $member->update(['user_id' => $data['user_id'], 'role' => $data['role']]);
+        $this->withRecordLock($request, $member, function ($member) use ($data) {
+            $member->update(['user_id' => $data['user_id'], 'role' => $data['role']]);
+        });
 
         return $this->backToSection($project, 'section-team', 'Team member updated.');
     }
