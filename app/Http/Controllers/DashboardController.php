@@ -15,22 +15,28 @@ use Illuminate\Http\Request;
  *  Data   : 5 metrik Idea + 6 metrik Project.
  *
  * Cakupan data tambahan lewat dropdown "Act as": Admin = seluruh organisasi,
- * Myself = milik sendiri (non-admin selalu dikunci ke Myself).
+ * Myself = milik sendiri. Dropdown-nya dikendalikan permission 'dashboard.act-as'
+ * (bisa dicentang per role lewat Role Management), bukan nama role di dalam kode —
+ * sehingga role baru pun bisa diberi akses ini tanpa mengubah kode. Tanpa permission
+ * tersebut, cakupan selalu dikunci ke "Myself".
  */
 class DashboardController extends Controller
 {
     /** Pilihan "Act as" pada dropdown dashboard. */
     private const VIEWS = ['myself' => 'Myself', 'admin' => 'Admin'];
 
+    /** Permission yang memunculkan dropdown "Act as" (diatur di Role Management). */
+    private const PERMISSION_ACT_AS = 'dashboard.act-as';
+
     public function index(Request $request)
     {
         $user = $request->user();
 
-        $isAdmin = $user->hasAnyRole(['Admin', 'Super Admin']);
-        $as      = $request->query('as');
-        $as      = array_key_exists($as, self::VIEWS) ? $as : ($isAdmin ? 'admin' : 'myself');
-        if (! $isAdmin) {
-            $as = 'myself'; // non-admin tidak boleh melihat data seluruh organisasi
+        $canActAs = $user->can(self::PERMISSION_ACT_AS);
+        $as       = $request->query('as');
+        $as       = array_key_exists($as, self::VIEWS) ? $as : ($canActAs ? 'admin' : 'myself');
+        if (! $canActAs) {
+            $as = 'myself'; // tanpa izin, hanya boleh melihat data sendiri
         }
 
         $request->validate([
@@ -52,7 +58,7 @@ class DashboardController extends Controller
         return view('dashboard', [
             'idea'      => $this->ideaMetrics($user, $mine, $filters),
             'project'   => $this->projectMetrics($user, $mine, $filters),
-            'isAdmin'   => $isAdmin,
+            'canActAs'  => $canActAs,
             'as'        => $as,
             'views'     => self::VIEWS,
             'filters'   => $filters,

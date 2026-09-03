@@ -27,10 +27,10 @@
                 <h2 class="text-2xl font-bold">Welcome, {{ $user->name }}</h2>
             </div>
 
-            {{-- Act as — hanya Admin/Super Admin yang boleh melihat data seluruh
-                 organisasi, jadi dropdown ini hanya muncul untuk mereka. Non-admin
-                 selalu memakai cakupan "Myself" (dikunci juga di controller). --}}
-            @if($isAdmin)
+            {{-- Act as — muncul bagi role yang diberi permission 'dashboard.act-as'
+                 melalui Role Management. Tanpa izin itu cakupan selalu "Myself"
+                 (dikunci juga di controller, bukan hanya disembunyikan di sini). --}}
+            @if($canActAs)
                 <div x-data="{ open: false }" @keydown.escape.window="open = false" class="relative shrink-0">
                     <span class="block text-xs font-semibold text-gray-500 uppercase mb-1">Act as</span>
                     <button type="button" @click="open = ! open" @click.outside="open = false"

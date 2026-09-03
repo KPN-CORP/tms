@@ -54,6 +54,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'completion.submit',
             ],
             'Admin' => [
+                'dashboard.act-as',
                 'user.manage',
                 'committee.assign',
                 'sla.manage',
@@ -63,6 +64,7 @@ class RolesAndPermissionsSeeder extends Seeder
                 'audit.view',
             ],
             'Super Admin' => [
+                'dashboard.act-as',
                 'role.manage',
                 'user.manage',
                 'guideline.upload',
