@@ -214,11 +214,13 @@ class IdeaController extends Controller
                 || str_contains(mb_strtolower((string) $i->idea_name), $needle)
                 || str_contains(mb_strtolower((string) $i->problem), $needle));
         }
-        if ($request->filled('business_unit_id')) {
-            $universe = $universe->where('business_unit_id', $request->integer('business_unit_id'));
+        // Filter BU/Unit memakai NAMA dari hcis — persis seperti halaman My Ideas,
+        // supaya pilihan dropdown dan hasilnya konsisten di kedua halaman.
+        if ($request->filled('bu')) {
+            $universe = $universe->where('business_unit_name', $request->get('bu'));
         }
-        if ($request->filled('department_id')) {
-            $universe = $universe->where('department_id', $request->integer('department_id'));
+        if ($request->filled('unit')) {
+            $universe = $universe->where('department_name', $request->get('unit'));
         }
         $universe = $universe->values();
 
@@ -242,8 +244,9 @@ class IdeaController extends Controller
         $list = $list->sortBy(fn (Idea $i) => $i->{$sort}, SORT_REGULAR, $dir === 'desc')->values();
 
         // --- Opsi dropdown BU/Dept dari universe penuh ---
-        $businessUnits = BusinessUnit::whereIn('id', $universe->pluck('business_unit_id')->unique()->filter())->orderBy('name')->get();
-        $departments   = Department::whereIn('id', $universe->pluck('department_id')->unique()->filter())->orderBy('name')->get();
+        // Dropdown Business Unit diambil dari hcis (master_bisnisunits), Unit di-cascade
+        // via AJAX — sama seperti My Ideas, bukan lagi dari BU/Department lokal.
+        $buNames = KpnBusinessUnit::names();
 
         // --- Paginate + tandai aksi per baris (hanya halaman aktif → hemat query) ---
         $perPage = $this->listPerPage($request);
@@ -265,8 +268,7 @@ class IdeaController extends Controller
         return view('ideas.task-box', [
             'ideas'         => $ideas,
             'perPage'       => $perPage,
-            'businessUnits' => $businessUnits,
-            'departments'   => $departments,
+            'buNames'       => $buNames,
             'counts'        => $counts,
             'tab'           => $tab,
             'sort'          => $sort,

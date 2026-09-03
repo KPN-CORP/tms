@@ -74,11 +74,6 @@
                                         @csrf
                                         <button class="px-3 py-1 text-xs border {{ $s->is_active ? 'border-red-300 text-red-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $s->is_active ? 'Archive' : 'Restore' }}</button>
                                     </form>
-                                    <form method="POST" action="{{ route('admin.sla.destroy', $s) }}">
-                                        @csrf @method('DELETE')
-                                        <button data-confirm="Delete this SLA? This action is permanent." data-confirm-title="Delete SLA" data-confirm-ok="Yes, Delete"
-                                                class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
-                                    </form>
                                 </div>
                             </td>
                         </tr>

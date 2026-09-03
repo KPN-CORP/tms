@@ -36,6 +36,12 @@ class ImplementationPlan extends Model
         return ['pic_user_ids', 'attachment_uploaded_by'];
     }
 
+    /** Lampiran activity ini — bisa lebih dari satu berkas. */
+    public function attachments()
+    {
+        return $this->hasMany(ImplementationPlanAttachment::class, 'implementation_plan_id')->orderBy('id');
+    }
+
     /** User yang terakhir mengunggah / mengganti berkas plan ini. */
     public function attachmentUploader()
     {
@@ -59,11 +65,21 @@ class ImplementationPlan extends Model
     /** Status otomatis (T-63). */
     public function getStatusLabelAttribute(): string
     {
+        // Belum ada Actual Start: dianggap sudah berjalan begitu tanggal hari ini
+        // mencapai Planned Start Date, walau realisasinya belum diinput.
         if (! $this->actual_start) {
-            return 'Not Started';
+            return ($this->planning_start && now()->startOfDay()->gte($this->planning_start->startOfDay()))
+                ? 'On Going'
+                : 'Not Started';
+        }
+
+        // Terlambat MULAI: Actual Start melewati Planned Start Date.
+        if ($this->planning_start && $this->actual_start->gt($this->planning_start)) {
+            return 'Delayed';
         }
 
         if (! $this->actual_end) {
+            // Mulai tepat waktu tapi sudah lewat Planned End tanpa selesai.
             return ($this->planning_end && now()->gt($this->planning_end)) ? 'Delayed' : 'On Going';
         }
 

@@ -21,6 +21,9 @@ class ProjectApprovalWorkflowService
     /** Batas aman jumlah layer yang boleh dilewati otomatis. */
     private const MAX_AUTO_SKIP = 20;
 
+    /** Layer 1 project_proposal dicadangkan untuk Project Sponsor. */
+    public const SPONSOR_LAYER = 1;
+
     /** Total budget project (Σ qty × unit_price) sebagai subquery, dipakai di reviewQueueFor. */
     private const TOTAL_BUDGET_SQL = '(SELECT COALESCE(SUM(pb.qty * pb.unit_price), 0) FROM project_budgets pb WHERE pb.project_id = projects.id)';
 
@@ -116,6 +119,20 @@ class ProjectApprovalWorkflowService
         return $query;
     }
 
+    /**
+     * Daftar assignment committee (urut layer) untuk sebuah project & approval type.
+     * Dipakai alur change request agar aturan BU + unit efektif + range budget
+     * TIDAK ditulis ulang di tempat lain.
+     */
+    public function committeeLayersFor(Project $project, string $type)
+    {
+        if (! $project->businessUnitId()) {
+            return collect();
+        }
+
+        return $this->committeeQuery($project, $type)->orderBy('layer')->get();
+    }
+
     public function committeeExists(Project $project, string $type): bool
     {
         return $project->businessUnitId() && $this->committeeQuery($project, $type)->exists();
@@ -164,12 +181,24 @@ class ProjectApprovalWorkflowService
             return;
         }
 
-        $this->transition($project, $reviewStatus, $user, $remarks);
+        // Layer committee TERKECIL dihitung lebih dulu supaya bisa disebut di
+        // catatan riwayat. Untuk project_proposal, Layer 1 dicadangkan Project
+        // Sponsor sehingga committee mulai dari Layer 2.
+        $firstLayer = (int) $this->committeeQuery($project, $flow['type'])->min('layer') ?: 1;
 
-        // Mulai dari layer committee TERKECIL. Untuk project_proposal, Layer 1
-        // dicadangkan Project Sponsor sehingga committee mulai dari Layer 2.
-        $firstLayer = (int) $this->committeeQuery($project, $flow['type'])->min('layer');
-        $project->update(['current_layer' => $firstLayer ?: 1]);
+        // Project Proposal: persetujuan Sponsor ADALAH Layer 1. Dicatat sebagai
+        // Layer 1 di project_approvals dan disebut eksplisit di status log, agar
+        // riwayat terbaca berurutan L1 -> L2 -> dst dan tidak seolah mulai dari L2.
+        if ($flow['type'] === 'project_proposal') {
+            $this->record($project, $user, 'approve', $remarks, self::SPONSOR_LAYER);
+
+            $line = 'Approved layer ' . self::SPONSOR_LAYER
+                . " (Project Sponsor), continuing to layer {$firstLayer}.";
+            $remarks = $remarks ? "{$line} Note: {$remarks}" : $line;
+        }
+
+        $this->transition($project, $reviewStatus, $user, $remarks);
+        $project->update(['current_layer' => $firstLayer]);
 
         // Layer yang approver-nya = pengaju (Project Leader) langsung di-approve.
         $this->autoApproveRequesterLayers($project, $flow);
@@ -233,6 +262,30 @@ class ProjectApprovalWorkflowService
         } else {
             $this->transition($project, $flow['final'], $user, $note ?? "Approved final layer ({$current}).");
         }
+    }
+
+    /**
+     * Revision Required — berlaku di SEMUA layer approval proposal. Project
+     * langsung dikembalikan ke Project Leader (status 'revision_required'),
+     * tidak diteruskan ke layer berikutnya dan tidak pula ditolak permanen.
+     *
+     * current_layer dikembalikan ke Layer 1 agar setelah Leader submit ulang
+     * alur mengulang dari Project Sponsor.
+     */
+    public function requestRevision(Project $project, User $user, string $note): void
+    {
+        // Hanya untuk flow Project Proposal. Completion review tidak dikembalikan
+        // ke Leader lewat jalur ini karena project sudah berjalan.
+        if ($project->status !== 'committee_review') {
+            return;
+        }
+
+        $layer = (int) $project->current_layer;
+        $this->record($project, $user, 'revision', $note, $layer);
+        $project->update(['current_layer' => self::SPONSOR_LAYER]);
+
+        $this->transition($project, 'revision_required', $user,
+            "Revision required at layer {$layer}; returned to the Project Leader. Note: {$note}");
     }
 
     public function reject(Project $project, User $user, ?string $note = null): void
@@ -306,11 +359,11 @@ class ProjectApprovalWorkflowService
 
     /* ----------------------------------------------------------------- */
 
-    private function record(Project $project, User $user, string $decision, ?string $note): void
+    private function record(Project $project, User $user, string $decision, ?string $note, ?int $layer = null): void
     {
         ProjectApproval::create([
             'project_id' => $project->id,
-            'layer'      => $project->current_layer,
+            'layer'      => $layer ?? $project->current_layer,
             'user_id'    => $user->id,
             'decision'   => $decision,
             'note'       => $note,

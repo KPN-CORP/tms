@@ -270,10 +270,9 @@
                 {{-- Baseline Actual: status + Submit (Leader) / Approve-Reject (Sponsor). --}}
                 @if($showActual)
                     <div class="px-4 pt-4 flex flex-wrap items-center justify-between gap-3">
-                        <span class="inline-flex items-center gap-2 text-sm">
-                            <span class="text-gray-500">Actual status:</span>
-                            <span class="text-xs rounded-full px-2 py-1 {{ $project->actualStatusBadge()[1] }}">{{ $project->actualStatusBadge()[0] }}</span>
-                        </span>
+                        {{-- Baris "Actual status" sengaja tidak ditampilkan (permintaan UI);
+                             status baseline tetap tercermin lewat pesan di bawah + tombol aksi. --}}
+                        <span></span>
                         <div class="flex items-center gap-2">
                             @if($canSubmitActual)
                                 <form method="POST" action="{{ route('projects.actual.submit', $project) }}">
@@ -297,7 +296,7 @@
                 <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                        <tr><th class="px-4 py-3">Activity</th><th class="px-4 py-3">Planning</th>@if($showActual)<th class="px-4 py-3">Actual</th>@endif<th class="px-4 py-3">PIC</th><th class="px-4 py-3">Status</th>@if($canEdit)<th class="px-4 py-3 text-right">Action</th>@endif</tr>
+                        <tr><th class="px-4 py-3">Activity</th><th class="px-4 py-3">Planning</th>@if($showActual)<th class="px-4 py-3">Actual</th>@endif<th class="px-4 py-3">PIC</th><th class="px-4 py-3">Remarks</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Attachment</th>@if($canEditRow)<th class="px-4 py-3 text-right">Action</th>@endif</tr>
                     </thead>
                     <tbody class="divide-y">
                         @forelse($project->implementationPlans as $plan)
@@ -305,110 +304,150 @@
                                 <td class="px-4 py-3">{{ $plan->activity }}</td>
                                 <td class="px-4 py-3 text-xs">{{ optional($plan->planning_start)->format('d/m/y') ?? '-' }} &ndash; {{ optional($plan->planning_end)->format('d/m/y') ?? '-' }}</td>
                                 @if($showActual)
-                                <td class="px-4 py-3 text-xs align-top" x-data="{ upd: false }">
-                                    {{-- Ringkasan actual (read-only) --}}
-                                    <div>{{ optional($plan->actual_start)->format('d/m/y') ?? '-' }} &ndash; {{ optional($plan->actual_end)->format('d/m/y') ?? '-' }}</div>
-                                    @if($plan->actual_days !== null)<div class="text-gray-400">{{ $plan->actual_days }} hari</div>@endif
-                                    @if($plan->attachment_path)
-                                        <a href="{{ route('projects.implementation.attachment', [$project, $plan]) }}" class="text-red-700 hover:underline">📎 {{ \Illuminate\Support\Str::limit($plan->attachment_name, 18) }}</a>
-                                    @endif
-                                    @if($plan->remarks)<div class="text-gray-500 max-w-[200px] whitespace-normal break-words">{{ $plan->remarks }}</div>@endif
+                                    <td class="px-4 py-3 text-xs align-top">
+                                        <div>{{ optional($plan->actual_start)->format('d/m/y') ?? '-' }} &ndash; {{ optional($plan->actual_end)->format('d/m/y') ?? '-' }}</div>
+                                        @if($plan->actual_days !== null)<div class="text-gray-400">{{ $plan->actual_days }} day(s)</div>@endif
+                                    </td>
+                                @endif
 
-                                    @if($canTrack)
-                                        <button type="button" @click="upd = true" class="mt-1 text-red-700 font-semibold hover:underline">Update</button>
-                                        {{-- Dialog: Update Actual Implementation Plan --}}
-                                        <div x-show="upd" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="upd = false">
-                                            <div class="fixed inset-0 bg-black/40" @click="upd = false"></div>
-                                            <div class="{{ $modalCard }} text-left" x-transition.opacity
-                                                 x-data="{ s: '{{ optional($plan->actual_start)->format('Y-m-d') }}', e: '{{ optional($plan->actual_end)->format('Y-m-d') }}',
-                                                           get days(){ if(!this.s || !this.e) return null; const a = new Date(this.s), b = new Date(this.e); if (b < a) return null; return Math.floor((b - a) / 86400000) + 1; } }">
-                                                <h3 class="text-lg font-semibold text-gray-800 mb-1">Update Actual</h3>
+                                <td class="px-4 py-3 text-xs">{{ collect($plan->pic_user_ids)->map(fn($id) => optional($usersById[$id] ?? null)->name)->filter()->implode(', ') ?: '-' }}</td>
+
+                                {{-- Remarks: kolom sendiri, dibatasi lebarnya agar tabel tidak melar. --}}
+                                <td class="px-4 py-3 text-xs align-top">
+                                    <div class="max-w-[220px] whitespace-normal break-words text-gray-600">{{ $plan->remarks ?: '-' }}</div>
+                                </td>
+
+                                {{-- Status: live (dari actual) HANYA di view Implementation.
+                                     Di view Project Proposal = snapshot proposal → selalu "Not Started". --}}
+                                <td class="px-4 py-3"><span class="text-xs rounded-full px-2 py-1 bg-gray-100 text-gray-700">{{ $showActual ? $plan->status_label : 'Not Started' }}</span></td>
+
+
+                                {{-- Attachment: satu ikon dokumen. 1 berkas -> langsung terbuka di tab baru;
+                                     lebih dari 1 -> dialog berisi daftar berkas, tiap baris membuka tab baru. --}}
+                                <td class="px-4 py-3 text-xs align-top" x-data="{ filesOpen: false }">
+                                    @php $atts = $plan->attachments; @endphp
+                                    @if($atts->isEmpty())
+                                        <span class="text-gray-300">-</span>
+                                    @elseif($atts->count() === 1)
+                                        <a href="{{ route('projects.implementation.attachments.view', [$project, $plan, $atts->first()]) }}"
+                                           target="_blank" rel="noopener" title="{{ $atts->first()->file_name }}"
+                                           class="inline-flex items-center gap-1 text-red-700 hover:underline">
+                                            <x-doc-icon />
+                                        </a>
+                                    @else
+                                        <button type="button" @click="filesOpen = true"
+                                                title="{{ $atts->count() }} files"
+                                                class="inline-flex items-center gap-1 text-red-700 hover:underline">
+                                            <x-doc-icon />
+                                            <span class="font-semibold">{{ $atts->count() }}</span>
+                                        </button>
+                                        <div x-show="filesOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="filesOpen = false">
+                                            <div class="fixed inset-0 bg-black/40" @click="filesOpen = false"></div>
+                                            <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 text-left" x-transition.opacity>
+                                                <h3 class="text-lg font-semibold text-gray-800 mb-1">Attachments</h3>
                                                 <p class="text-sm text-gray-500 mb-4">{{ $plan->activity }}</p>
-                                                {{-- replacing: true begitu user memilih berkas baru padahal sudah ada
-                                                     berkas lama. Dipakai untuk memunculkan dialog konfirmasi HANYA pada
-                                                     kasus penggantian, bukan pada unggahan pertama. --}}
-                                                <form method="POST" action="{{ route('projects.implementation.actual', [$project, $plan]) }}" enctype="multipart/form-data" class="space-y-3"
-                                                      x-data="{ hasExisting: {{ $plan->attachment_path ? 'true' : 'false' }}, picked: '', get replacing(){ return this.hasExisting && this.picked !== ''; } }">
-                                                    @csrf @method('PUT')
-                                                    <x-record-version :model="$plan" />
-                                                    <div class="grid grid-cols-2 gap-2">
-                                                        <label class="text-xs text-gray-500">Actual Timeline Start<input type="date" name="actual_start" x-model="s" :max="e" class="{{ $inp }} w-full"></label>
-                                                        <label class="text-xs text-gray-500">Actual Timeline End<input type="date" name="actual_end" x-model="e" :min="s" class="{{ $inp }} w-full"></label>
-                                                    </div>
-                                                    <div class="text-xs text-gray-500">Actual Timeline Days<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="days !== null ? days + ' day(s)' : '-'"></div></div>
-                                                    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Remark</label><textarea name="remarks" rows="2" maxlength="2000" placeholder="Notes (max 2000 characters)" class="{{ $inp }} w-full">{{ $plan->remarks }}</textarea></div>
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
-                                                        @if($plan->attachment_path)
-                                                            <p class="text-xs text-gray-500 mb-1">
-                                                                Current file:
-                                                                <a href="{{ route('projects.implementation.attachment', [$project, $plan]) }}" class="text-red-700 hover:underline">{{ $plan->attachment_name }}</a>
-                                                                — choose a new file to replace it.
-                                                            </p>
-                                                            @if($plan->attachment_uploaded_at)
-                                                                <p class="text-xs text-gray-400 mb-1">
-                                                                    {{ $plan->attachment_replace_count > 0 ? 'Last replaced' : 'Uploaded' }}
-                                                                    by {{ optional($plan->attachmentUploader)->name ?? 'Unknown' }}
-                                                                    on <x-datetime :value="$plan->attachment_uploaded_at" />
-                                                                    @if($plan->attachment_replace_count > 0)
-                                                                        &middot; replaced {{ $plan->attachment_replace_count }}&times;
-                                                                    @endif
-                                                                </p>
-                                                            @endif
-                                                        @endif
-                                                        <input type="file" name="attachment" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png,.pptx"
-                                                               @change="picked = $event.target.value" class="text-sm w-full">
-                                                        <p class="text-xs text-gray-400 mt-1">Max 7 MB, 1 file — .pdf, .docx, .xlsx, .jpg, .jpeg, .png, .pptx</p>
-                                                        <p x-show="replacing" x-cloak class="text-xs text-amber-700 mt-1">
-                                                            The current file will be permanently replaced when you save.
-                                                        </p>
-                                                        @error('attachment')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
-                                                    </div>
-                                                    <div class="flex justify-end gap-3 pt-1">
-                                                        <button type="button" @click="upd = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
-                                                        {{-- Atribut data-confirm dipasang HANYA saat mengganti berkas; dialog
-                                                             konfirmasi global di layout yang menanganinya. --}}
-                                                        <button type="submit"
-                                                                :data-confirm="replacing ? 'This will permanently replace the current attachment. The previous file cannot be recovered. Continue?' : null"
-                                                                :data-confirm-title="replacing ? 'Replace Attachment?' : null"
-                                                                :data-confirm-ok="replacing ? 'Yes, Replace File' : null"
-                                                                class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
-                                                    </div>
-                                                </form>
+                                                <ul class="space-y-2 max-h-72 overflow-y-auto">
+                                                    @foreach($atts as $att)
+                                                        <li>
+                                                            <a href="{{ route('projects.implementation.attachments.view', [$project, $plan, $att]) }}"
+                                                               target="_blank" rel="noopener"
+                                                               class="flex items-center gap-2 border rounded-lg px-3 py-2 hover:bg-gray-50">
+                                                                <x-doc-icon class="text-red-700" />
+                                                                <span class="truncate text-gray-700">{{ $att->file_name }}</span>
+                                                            </a>
+                                                        </li>
+                                                    @endforeach
+                                                </ul>
+                                                <div class="flex justify-end pt-4">
+                                                    <button type="button" @click="filesOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Close</button>
+                                                </div>
                                             </div>
                                         </div>
                                     @endif
                                 </td>
-                                @endif
-                                <td class="px-4 py-3 text-xs">{{ collect($plan->pic_user_ids)->map(fn($id) => optional($usersById[$id] ?? null)->name)->filter()->implode(', ') ?: '-' }}</td>
-                                {{-- Status: live (dari actual) HANYA di view Implementation.
-                                     Di view Project Proposal = snapshot proposal → selalu "Not Started". --}}
-                                <td class="px-4 py-3"><span class="text-xs rounded-full px-2 py-1 bg-gray-100 text-gray-700">{{ $showActual ? $plan->status_label : 'Not Started' }}</span></td>
-                                @if($canEdit)
+
+
+                                @if($canEditRow)
                                 <td class="px-4 py-3 text-right" x-data="{ editOpen: false }">
                                     <div class="flex items-center justify-end gap-3">
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
-                                        <form method="POST" action="{{ route('projects.implementation.destroy', [$project, $plan]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        {{-- Delete hanya untuk Leader; anggota tim cukup Edit. --}}
+                                        @if($canDeleteRow)
+                                            <form method="POST" action="{{ route('projects.implementation.destroy', [$project, $plan]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        @endif
                                     </div>
-                                    {{-- Dialog: Edit Activity --}}
+
+                                    {{-- Dialog Edit: SATU dialog berisi field proposal + field Actual.
+                                         Bagi anggota tim non-Leader field proposal dikunci (readonly/disabled)
+                                         dan server pun mengabaikannya, sehingga hanya Actual yang tersimpan. --}}
                                     <div x-show="editOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="editOpen = false">
                                         <div class="fixed inset-0 bg-black/40" @click="editOpen = false"></div>
                                         <div class="{{ $modalCard }} text-left" x-transition.opacity x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
-                                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Activity</h3>
-                                            <form method="POST" action="{{ route('projects.implementation.update', [$project, $plan]) }}" class="space-y-3">
+                                            <h3 class="text-lg font-semibold text-gray-800 mb-1">Edit Activity</h3>
+                                            @if($proposalReadOnly)
+                                                <p class="text-xs text-gray-500 mb-4">Planned fields are set in the proposal and cannot be changed here. You can fill in the Actual, Remarks, and Attachment.</p>
+                                            @else
+                                                <p class="text-sm text-gray-500 mb-4">{{ $plan->activity }}</p>
+                                            @endif
+
+                                            <form method="POST" action="{{ route('projects.implementation.update', [$project, $plan]) }}" enctype="multipart/form-data" class="space-y-3"
+                                                  x-data="{
+                                                      s: '{{ optional($plan->actual_start)->format('Y-m-d') }}',
+                                                      e: '{{ optional($plan->actual_end)->format('Y-m-d') }}',
+                                                      get days(){ if(!this.s || !this.e) return null; const a = new Date(this.s), b = new Date(this.e); if (b < a) return null; return Math.floor((b - a) / 86400000) + 1; }
+                                                  }">
                                                 @csrf @method('PUT')
-                                                    <x-record-version :model="$plan" />
-                                                <div><label class="block text-xs font-semibold text-gray-600 mb-1">Activity</label><input name="activity" value="{{ $plan->activity }}" required class="{{ $inp }} w-full"></div>
-{{-- Start dibatasi <= End dan sebaliknya, jadi tanggal keliru tidak bisa dipilih. --}}
+                                                <x-record-version :model="$plan" />
+
+                                                <div><label class="block text-xs font-semibold text-gray-600 mb-1">Activity</label>
+                                                    <input name="activity" value="{{ $plan->activity }}" required @readonly($proposalReadOnly)
+                                                           class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></div>
+
                                                 <div class="grid grid-cols-2 gap-2"
                                                      x-data="{ ps: '{{ optional($plan->planning_start)->format('Y-m-d') }}', pe: '{{ optional($plan->planning_end)->format('Y-m-d') }}' }">
-                                                    <label class="text-xs text-gray-500">Planned Start Date<input type="date" name="planning_start" x-model="ps" :max="pe" class="{{ $inp }} w-full"></label>
-                                                    <label class="text-xs text-gray-500">Planned End Date<input type="date" name="planning_end" x-model="pe" :min="ps" class="{{ $inp }} w-full"></label>
+                                                    <label class="text-xs text-gray-500">Planned Start Date<input type="date" name="planning_start" x-model="ps" :max="pe" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
+                                                    <label class="text-xs text-gray-500">Planned End Date<input type="date" name="planning_end" x-model="pe" :min="ps" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
                                                 </div>
+
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">PIC</label>
-                                                    <select name="pic_user_ids[]" multiple placeholder="Click to select PIC (you can choose more than one)…" class="{{ $inp }} w-full">
+                                                    <select name="pic_user_ids[]" multiple @disabled($proposalReadOnly)
+                                                            placeholder="Click to select PIC (you can choose more than one)…" class="{{ $inp }} w-full">
                                                         @foreach($teamMembers as $tm)<option value="{{ $tm->id }}" @selected(in_array($tm->id, (array) $plan->pic_user_ids))>{{ $tm->name }}</option>@endforeach
                                                     </select></div>
+
+                                                @if($showActual)
+                                                    <div class="border-t pt-3">
+                                                        <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Actual</p>
+                                                        <div class="grid grid-cols-2 gap-2">
+                                                            <label class="text-xs text-gray-500">Actual Timeline Start<input type="date" name="actual_start" x-model="s" :max="e" class="{{ $inp }} w-full"></label>
+                                                            <label class="text-xs text-gray-500">Actual Timeline End<input type="date" name="actual_end" x-model="e" :min="s" class="{{ $inp }} w-full"></label>
+                                                        </div>
+                                                        <div class="text-xs text-gray-500 mt-2">Actual Timeline Days<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="days !== null ? days + ' day(s)' : '-'"></div></div>
+                                                    </div>
+                                                @endif
+
+                                                <div><label class="block text-xs font-semibold text-gray-600 mb-1">Remarks</label>
+                                                    <textarea name="remarks" rows="2" maxlength="2000" placeholder="Notes (max 2000 characters)" class="{{ $inp }} w-full">{{ $plan->remarks }}</textarea></div>
+
+                                                <div>
+                                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
+                                                    @if($plan->attachments->isNotEmpty())
+                                                        <ul class="mb-2 space-y-1">
+                                                            @foreach($plan->attachments as $att)
+                                                                <li class="flex items-center justify-between gap-2 border rounded-lg px-3 py-1.5 text-sm">
+                                                                    <a href="{{ route('projects.implementation.attachments.view', [$project, $plan, $att]) }}" target="_blank" rel="noopener"
+                                                                       class="flex items-center gap-2 min-w-0 text-red-700 hover:underline">
+                                                                        <x-doc-icon /><span class="truncate">{{ $att->file_name }}</span>
+                                                                    </a>
+                                                                    <button type="submit" form="del-plan-att-{{ $att->id }}" class="shrink-0 text-red-600 text-xs hover:underline"
+                                                                            data-confirm="Delete this attachment?" data-confirm-title="Delete Attachment" data-confirm-ok="Yes, Delete">Delete</button>
+                                                                </li>
+                                                            @endforeach
+                                                        </ul>
+                                                    @endif
+                                                    <x-file-dropzone name="attachments[]" />
+                                                </div>
+
                                                 <div class="flex justify-end gap-3 pt-1">
                                                     <button type="button" @click="editOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
                                                     <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
@@ -419,8 +458,16 @@
                                 </td>
                                 @endif
                             </tr>
+
+                            {{-- Form hapus lampiran ditaruh di luar form Edit (form tidak boleh bersarang). --}}
+                            @if($canEditRow)
+                                @foreach($plan->attachments as $att)
+                                    <form id="del-plan-att-{{ $att->id }}" method="POST" class="hidden"
+                                          action="{{ route('projects.implementation.attachments.destroy', [$project, $plan, $att]) }}">@csrf @method('DELETE')</form>
+                                @endforeach
+                            @endif
                         @empty
-                            <tr><td colspan="{{ 4 + ($showActual ? 1 : 0) + ($canEdit ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">No activities yet.</td></tr>
+                            <tr><td colspan="{{ 6 + ($showActual ? 1 : 0) + ($canEditRow ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">No activities yet.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -437,10 +484,10 @@
                 <div x-show="addOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="addOpen = false">
                     <div class="fixed inset-0 bg-black/40" @click="addOpen = false"></div>
                     <div class="{{ $modalCard }}" x-transition.opacity
-                         x-data="{ rows: [{ _id: 0, activity:'', planning_start:'', planning_end:'', actual_start:'', actual_end:'' }], next: 1 }"
+                         x-data="{ rows: [{ _id: 0, activity:'', planning_start:'', planning_end:'', actual_start:'', actual_end:'', remarks:'' }], next: 1 }"
                          x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
                         <h3 class="text-lg font-semibold text-gray-800 mb-4">Add Activity</h3>
-                        <form method="POST" action="{{ route('projects.implementation.store', $project) }}" class="space-y-3">
+                        <form method="POST" action="{{ route('projects.implementation.store', $project) }}" enctype="multipart/form-data" class="space-y-3">
                             @csrf
                             <template x-for="(row, i) in rows" :key="row._id">
                                 <div class="border rounded-lg p-3 grid grid-cols-2 gap-2 relative">
@@ -456,9 +503,17 @@
                                         <select :name="'rows['+i+'][pic_user_ids][]'" multiple placeholder="Click to select PIC (you can choose more than one)…" class="{{ $inp }} w-full">
                                             @foreach($teamMembers as $tm)<option value="{{ $tm->id }}">{{ $tm->name }}</option>@endforeach
                                         </select></div>
+
+                                    <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Remarks</label>
+                                        <textarea :name="'rows['+i+'][remarks]'" x-model="row.remarks" rows="2" maxlength="2000"
+                                                  placeholder="Notes (max 2000 characters)" class="{{ $inp }} w-full"></textarea></div>
+
+                                    {{-- Nama field dirangkai per baris karena berada di dalam x-for. --}}
+                                    <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
+                                        <x-file-dropzone bind-name="'rows['+i+'][attachments][]'" /></div>
                                 </div>
                             </template>
-                            <button type="button" @click="rows.push({ _id: next++, activity:'', planning_start:'', planning_end:'', actual_start:'', actual_end:'' }); $nextTick(() => window.tmsInit && window.tmsInit($root))"
+                            <button type="button" @click="rows.push({ _id: next++, activity:'', planning_start:'', planning_end:'', actual_start:'', actual_end:'', remarks:'' }); $nextTick(() => window.tmsInit && window.tmsInit($root))"
                                     class="text-sm text-red-700 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-50">+ Add row</button>
                             <div class="flex justify-end gap-3 pt-1">
                                 <button type="button" @click="addOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
@@ -481,7 +536,7 @@
                 <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                        <tr><th class="px-4 py-3">Indicator</th><th class="px-4 py-3">Description</th><th class="px-4 py-3">Baseline</th><th class="px-4 py-3">Achievement Value</th>@if($showActual)<th class="px-4 py-3">Achievement</th>@endif<th class="px-4 py-3">UoM</th><th class="px-4 py-3">Weightage (%)</th><th class="px-4 py-3">Type</th>@if($showActual)<th class="px-4 py-3">% Improve</th>@endif @if($canEdit)<th class="px-4 py-3 text-right">Action</th>@endif</tr>
+                        <tr><th class="px-4 py-3">Indicator</th><th class="px-4 py-3">Description</th><th class="px-4 py-3">Baseline</th><th class="px-4 py-3">Achievement Value</th>@if($showActual)<th class="px-4 py-3">Achievement</th>@endif<th class="px-4 py-3">UoM</th><th class="px-4 py-3">Weightage (%)</th><th class="px-4 py-3">Type</th>@if($showActual)<th class="px-4 py-3">% Improve</th>@endif @if($canEditRow)<th class="px-4 py-3 text-right">Action</th>@endif</tr>
                     </thead>
                     <tbody class="divide-y">
                         @forelse($project->indicators as $ind)
@@ -491,49 +546,47 @@
                                 <td class="px-4 py-3">{{ $ind->baseline }}</td>
                                 <td class="px-4 py-3">{{ $ind->achievement_value }}</td>
                                 @if($showActual)
-                                <td class="px-4 py-3 text-xs">
-                                    @if($canTrack)
-                                        <form method="POST" action="{{ route('projects.indicators.achievement', [$project, $ind]) }}" class="flex items-center gap-1">
-                                            @csrf @method('PUT')
-                                                    <x-record-version :model="$ind" />
-                                            <input type="number" step="any" name="achievement" value="{{ $ind->achievement }}" placeholder="actual" class="border rounded px-1 py-0.5 w-20 text-xs">
-                                            <button class="text-red-700 font-semibold">Save</button>
-                                        </form>
-                                    @else
-                                        {{ $ind->achievement ?? '-' }}
-                                    @endif
-                                </td>
+                                {{-- Achievement kini diisi lewat dialog Edit (seragam dgn Project Proposal),
+                                     bukan form inline. --}}
+                                <td class="px-4 py-3 text-xs">{{ $ind->achievement ?? '-' }}</td>
                                 @endif
                                 <td class="px-4 py-3">{{ $ind->uom }}</td>
                                 <td class="px-4 py-3">{{ $ind->weightage }}</td>
                                 <td class="px-4 py-3 text-xs">{{ $ind->type }}</td>
                                 @if($showActual)<td class="px-4 py-3">{{ $ind->improvement !== null ? $ind->improvement.'%' : '-' }}</td>@endif
-                                @if($canEdit)
+                                @if($canEditRow)
                                 <td class="px-4 py-3 text-right" x-data="{ editOpen: false }">
                                     <div class="flex items-center justify-end gap-3">
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
-                                        <form method="POST" action="{{ route('projects.indicators.destroy', [$project, $ind]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        @if($canDeleteRow)
+                                            <form method="POST" action="{{ route('projects.indicators.destroy', [$project, $ind]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        @endif
                                     </div>
                                     {{-- Dialog: Edit Indicator --}}
                                     <div x-show="editOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="editOpen = false">
                                         <div class="fixed inset-0 bg-black/40" @click="editOpen = false"></div>
                                         <div class="{{ $modalCard }} text-left" x-transition.opacity x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
-                                            <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Success Indicator</h3>
+                                            <h3 class="text-lg font-semibold text-gray-800 mb-1">Edit Success Indicator</h3>
+                                            @if($proposalReadOnly)
+                                                <p class="text-xs text-gray-500 mb-4">All fields come from the approved proposal and are locked. Only Achievement can be filled in here.</p>
+                                            @else
+                                                <div class="mb-4"></div>
+                                            @endif
                                             <form method="POST" action="{{ route('projects.indicators.update', [$project, $ind]) }}" class="grid grid-cols-2 gap-2">
                                                 @csrf @method('PUT')
                                                     <x-record-version :model="$ind" />
-                                                <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Name</label><input name="indicator" value="{{ $ind->indicator }}" required class="{{ $inp }} w-full"></div>
-                                                <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Description</label><textarea name="description" rows="2" class="{{ $inp }} w-full">{{ $ind->description }}</textarea></div>
-                                                <label class="text-xs text-gray-500">Baseline<input type="number" step="any" name="baseline" value="{{ $ind->baseline }}" class="{{ $inp }} w-full"></label>
-                                                <label class="text-xs text-gray-500">Achievement Value <span class="text-gray-400">(target)</span><input type="number" step="any" name="achievement_value" value="{{ $ind->achievement_value }}" class="{{ $inp }} w-full"></label>
+                                                <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Name</label><input name="indicator" value="{{ $ind->indicator }}" required @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></div>
+                                                <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Description</label><textarea name="description" rows="2" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif">{{ $ind->description }}</textarea></div>
+                                                <label class="text-xs text-gray-500">Baseline<input type="number" step="any" name="baseline" value="{{ $ind->baseline }}" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
+                                                <label class="text-xs text-gray-500">Achievement Value <span class="text-gray-400">(target)</span><input type="number" step="any" name="achievement_value" value="{{ $ind->achievement_value }}" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
                                                 @if($showActual)
                                                 <label class="text-xs text-gray-500 col-span-2">Achievement <span class="text-gray-400">(aktual)</span><input type="number" step="any" name="achievement" value="{{ $ind->achievement }}" class="{{ $inp }} w-full"></label>
                                                 @endif
                                                 <label class="text-xs text-gray-500">UoM
-                                                    <select name="uom" class="{{ $inp }} w-full">@include('projects._uom-options', ['selected' => $ind->uom])</select></label>
-                                                <label class="text-xs text-gray-500">Weightage (%)<input type="number" step="any" name="weightage" value="{{ $ind->weightage }}" class="{{ $inp }} w-full"></label>
+                                                    <select name="uom" @disabled($proposalReadOnly) class="{{ $inp }} w-full">@include('projects._uom-options', ['selected' => $ind->uom])</select></label>
+                                                <label class="text-xs text-gray-500">Weightage (%)<input type="number" step="any" name="weightage" value="{{ $ind->weightage }}" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
                                                 <label class="text-xs text-gray-500 col-span-2">Type <span class="text-red-600">*</span>
-                                                    <select name="type" required class="{{ $inp }} w-full"><option value="">Select Type…</option>@foreach(\App\Models\ImplementationIndicator::TYPES as $t)<option value="{{ $t }}" @selected($ind->type === $t)>{{ $t }}</option>@endforeach</select></label>
+                                                    <select name="type" required @disabled($proposalReadOnly) class="{{ $inp }} w-full"><option value="">Select Type…</option>@foreach(\App\Models\ImplementationIndicator::TYPES as $t)<option value="{{ $t }}" @selected($ind->type === $t)>{{ $t }}</option>@endforeach</select></label>
                                                 <div class="col-span-2 flex justify-end gap-3 pt-1">
                                                     <button type="button" @click="editOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
                                                     <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
@@ -545,7 +598,7 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="{{ 7 + ($showActual ? 2 : 0) + ($canEdit ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">No indicators yet.</td></tr>
+                            <tr><td colspan="{{ 7 + ($showActual ? 2 : 0) + ($canEditRow ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">No indicators yet.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -625,7 +678,7 @@
                 <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                        <tr><th class="px-4 py-3 w-12">No</th><th class="px-4 py-3">Item Name</th><th class="px-4 py-3">Qty</th><th class="px-4 py-3">UoM</th><th class="px-4 py-3">Price</th><th class="px-4 py-3">Total Price</th>@if($showActual)<th class="px-4 py-3">Actual (Qty × Price = Cost)</th>@endif @if($canEdit)<th class="px-4 py-3 text-right">Action</th>@endif</tr>
+                        <tr><th class="px-4 py-3 w-12">No</th><th class="px-4 py-3">Item Name</th><th class="px-4 py-3">Qty</th><th class="px-4 py-3">UoM</th><th class="px-4 py-3">Price</th><th class="px-4 py-3">Total Price</th>@if($showActual)<th class="px-4 py-3">Actual Qty</th><th class="px-4 py-3">Actual Price</th><th class="px-4 py-3">Actual Cost</th>@endif<th class="px-4 py-3">Attachment</th>@if($canEditRow)<th class="px-4 py-3 text-right">Action</th>@endif</tr>
                     </thead>
                     <tbody class="divide-y">
                         @forelse($project->budgets as $b)
@@ -635,26 +688,54 @@
                                 <td class="px-4 py-3">Rp {{ number_format((float) $b->unit_price) }}</td>
                                 <td class="px-4 py-3">Rp {{ number_format($b->planned_total) }}</td>
                                 @if($showActual)
-                                <td class="px-4 py-3 text-xs">
-                                    @if($canTrack)
-                                        <form method="POST" action="{{ route('projects.budgets.actual', [$project, $b]) }}" class="flex items-center gap-1">
-                                            @csrf @method('PUT')
-                                                    <x-record-version :model="$b" />
-                                            <input type="number" step="any" name="actual_qty" value="{{ $b->actual_qty }}" placeholder="qty" class="border rounded px-1 py-0.5 w-16 text-xs">
-                                            <input type="number" step="any" name="actual_price" value="{{ $b->actual_price }}" placeholder="price" class="border rounded px-1 py-0.5 w-20 text-xs">
-                                            <button class="text-red-700 font-semibold">Save</button>
-                                            <span class="text-gray-400">= {{ $b->actual_cost !== null ? number_format((float) $b->actual_cost) : '-' }}</span>
-                                        </form>
+                                {{-- Actual dipecah tiga kolom; pengisiannya lewat dialog Edit. --}}
+                                <td class="px-4 py-3 text-xs">{{ $b->actual_qty !== null ? $b->actual_qty : '-' }}</td>
+                                <td class="px-4 py-3 text-xs">{{ $b->actual_price !== null ? 'Rp ' . number_format((float) $b->actual_price) : '-' }}</td>
+                                <td class="px-4 py-3 text-xs font-semibold">{{ $b->actual_cost !== null ? 'Rp ' . number_format((float) $b->actual_cost) : '-' }}</td>
+                                @endif
+
+                                {{-- Attachment: logika sama dgn Implementation Plan —
+                                     1 berkas langsung terbuka, lebih dari 1 lewat dialog daftar. --}}
+                                <td class="px-4 py-3 text-xs align-top" x-data="{ filesOpen: false }">
+                                    @php $batts = $b->attachments; @endphp
+                                    @if($batts->isEmpty())
+                                        <span class="text-gray-300">-</span>
+                                    @elseif($batts->count() === 1)
+                                        <a href="{{ route('projects.budgets.attachments.view', [$project, $b, $batts->first()]) }}"
+                                           target="_blank" rel="noopener" title="{{ $batts->first()->file_name }}"
+                                           class="inline-flex items-center gap-1 text-red-700 hover:underline"><x-doc-icon /></a>
                                     @else
-                                        {{ $b->actual_cost !== null ? number_format((float) $b->actual_cost) : '-' }}
+                                        <button type="button" @click="filesOpen = true" title="{{ $batts->count() }} files"
+                                                class="inline-flex items-center gap-1 text-red-700 hover:underline">
+                                            <x-doc-icon /><span class="font-semibold">{{ $batts->count() }}</span>
+                                        </button>
+                                        <div x-show="filesOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="filesOpen = false">
+                                            <div class="fixed inset-0 bg-black/40" @click="filesOpen = false"></div>
+                                            <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 text-left" x-transition.opacity>
+                                                <h3 class="text-lg font-semibold text-gray-800 mb-1">Attachments</h3>
+                                                <p class="text-sm text-gray-500 mb-4">{{ $b->item }}</p>
+                                                <ul class="space-y-2 max-h-72 overflow-y-auto">
+                                                    @foreach($batts as $att)
+                                                        <li><a href="{{ route('projects.budgets.attachments.view', [$project, $b, $att]) }}" target="_blank" rel="noopener"
+                                                               class="flex items-center gap-2 border rounded-lg px-3 py-2 hover:bg-gray-50">
+                                                            <x-doc-icon class="text-red-700" /><span class="truncate text-gray-700">{{ $att->file_name }}</span></a></li>
+                                                    @endforeach
+                                                </ul>
+                                                <div class="flex justify-end pt-4">
+                                                    <button type="button" @click="filesOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Close</button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     @endif
                                 </td>
-                                @endif
-                                @if($canEdit)
+
+                                @if($canEditRow)
                                 <td class="px-4 py-3 text-right" x-data="{ editOpen: false }">
                                     <div class="flex items-center justify-end gap-3">
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
-                                        <form method="POST" action="{{ route('projects.budgets.destroy', [$project, $b]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        @if($canDeleteRow)
+                                            <form method="POST" action="{{ route('projects.budgets.destroy', [$project, $b]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        @endif
                                     </div>
                                     {{-- Dialog: Edit Budget --}}
                                     <div x-show="editOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="editOpen = false">
@@ -662,15 +743,48 @@
                                         <div class="{{ $modalCard }} text-left" x-transition.opacity x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))"
                                              x-data="{ q: {{ (float) $b->qty }}, p: {{ (float) $b->unit_price }} }">
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Budget</h3>
-                                            <form method="POST" action="{{ route('projects.budgets.update', [$project, $b]) }}" class="grid grid-cols-2 gap-2">
+                                            <form method="POST" action="{{ route('projects.budgets.update', [$project, $b]) }}" enctype="multipart/form-data" class="grid grid-cols-2 gap-2">
                                                 @csrf @method('PUT')
                                                     <x-record-version :model="$b" />
-                                                <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Item Name</label><input name="item" value="{{ $b->item }}" maxlength="500" required class="{{ $inp }} w-full"></div>
-                                                <label class="text-xs text-gray-500">Qty<input type="number" step="any" min="0" name="qty" x-model="q" value="{{ $b->qty }}" class="{{ $inp }} w-full"></label>
+                                                <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Item Name</label><input name="item" value="{{ $b->item }}" maxlength="500" required @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></div>
+                                                <label class="text-xs text-gray-500">Qty<input type="number" step="any" min="0" name="qty" x-model="q" value="{{ $b->qty }}" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
                                                 <label class="text-xs text-gray-500">UoM
-                                                    <select name="uom" class="{{ $inp }} w-full">@include('projects._uom-options', ['selected' => $b->uom])</select></label>
-                                                <label class="text-xs text-gray-500">Price (IDR)<input type="number" step="any" min="0" name="unit_price" x-model="p" value="{{ $b->unit_price }}" class="{{ $inp }} w-full"></label>
+                                                    <select name="uom" @disabled($proposalReadOnly) class="{{ $inp }} w-full">@include('projects._uom-options', ['selected' => $b->uom])</select></label>
+                                                <label class="text-xs text-gray-500">Price (IDR)<input type="number" step="any" min="0" name="unit_price" x-model="p" value="{{ $b->unit_price }}" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
                                                 <div class="text-xs text-gray-500">Total Price<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="'Rp ' + ((Number(q)||0) * (Number(p)||0)).toLocaleString('id-ID')"></div></div>
+
+                                                @if($showActual)
+                                                    {{-- Actual dipindah ke dialog ini agar seragam dgn Project Proposal. --}}
+                                                    <div class="col-span-2 border-t pt-3"
+                                                         x-data="{ aq: '{{ $b->actual_qty }}', ap: '{{ $b->actual_price }}' }">
+                                                        <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Actual</p>
+                                                        <div class="grid grid-cols-2 gap-2">
+                                                            <label class="text-xs text-gray-500">Actual Qty<input type="number" step="any" name="actual_qty" x-model="aq" class="{{ $inp }} w-full"></label>
+                                                            <label class="text-xs text-gray-500">Actual Price (IDR)<input type="number" step="any" name="actual_price" x-model="ap" class="{{ $inp }} w-full"></label>
+                                                        </div>
+                                                        <div class="text-xs text-gray-500 mt-2">Actual Cost<div class="{{ $inp }} w-full bg-gray-50 text-gray-700" x-text="'Rp ' + ((Number(aq)||0) * (Number(ap)||0)).toLocaleString('id-ID')"></div></div>
+                                                    </div>
+                                                @endif
+
+                                                <div class="col-span-2">
+                                                    <label class="block text-xs font-semibold text-gray-600 mb-1">Attachment</label>
+                                                    @if($b->attachments->isNotEmpty())
+                                                        <ul class="mb-2 space-y-1">
+                                                            @foreach($b->attachments as $att)
+                                                                <li class="flex items-center justify-between gap-2 border rounded-lg px-3 py-1.5 text-sm">
+                                                                    <a href="{{ route('projects.budgets.attachments.view', [$project, $b, $att]) }}" target="_blank" rel="noopener"
+                                                                       class="flex items-center gap-2 min-w-0 text-red-700 hover:underline">
+                                                                        <x-doc-icon /><span class="truncate">{{ $att->file_name }}</span>
+                                                                    </a>
+                                                                    <button type="submit" form="del-budget-att-{{ $att->id }}" class="shrink-0 text-red-600 text-xs hover:underline"
+                                                                            data-confirm="Delete this attachment?" data-confirm-title="Delete Attachment" data-confirm-ok="Yes, Delete">Delete</button>
+                                                                </li>
+                                                            @endforeach
+                                                        </ul>
+                                                    @endif
+                                                    <x-file-dropzone name="attachments[]" />
+                                                </div>
+
                                                 <div class="col-span-2 flex justify-end gap-3 pt-1">
                                                     <button type="button" @click="editOpen = false" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
                                                     <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
@@ -681,14 +795,42 @@
                                 </td>
                                 @endif
                             </tr>
+
+                            {{-- Form hapus lampiran di luar form Edit (form tidak boleh bersarang). --}}
+                            @if($canEditRow)
+                                @foreach($b->attachments as $att)
+                                    <form id="del-budget-att-{{ $att->id }}" method="POST" class="hidden"
+                                          action="{{ route('projects.budgets.attachments.destroy', [$project, $b, $att]) }}">@csrf @method('DELETE')</form>
+                                @endforeach
+                            @endif
                         @empty
                             {{-- Sebelum proposal disubmit budget masih bisa diisi ("No budget yet");
                                  setelah disubmit tanpa budget, keadaannya sudah final
                                  sehingga kalimatnya menjadi "No budget submitted". --}}
                             @php $budgetEmptyText = in_array($project->status, \App\Models\Project::EDITABLE_STATUSES, true) ? 'No budget yet.' : 'No budget submitted.'; @endphp
-                            <tr><td colspan="{{ 6 + ($showActual ? 1 : 0) + ($canEdit ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">{{ $budgetEmptyText }}</td></tr>
+                            <tr><td colspan="{{ 7 + ($showActual ? 3 : 0) + ($canEditRow ? 1 : 0) }}" class="px-4 py-6 text-center text-gray-400">{{ $budgetEmptyText }}</td></tr>
                         @endforelse
                     </tbody>
+
+                    {{-- Baris total: Total Budget = Σ Total Price, Total Cost = Σ Actual Cost. --}}
+                    @if($project->budgets->isNotEmpty())
+                        @php
+                            $totalBudget = $project->budgets->sum(fn ($r) => $r->planned_total);
+                            $totalCost   = $project->budgets->sum(fn ($r) => (float) $r->actual_cost);
+                            $sisaKolom   = 1 + ($canEditRow ? 1 : 0);
+                        @endphp
+                        <tfoot class="bg-gray-50 font-semibold text-gray-700">
+                            <tr>
+                                <td class="px-4 py-3 text-right" colspan="5">Total Budget</td>
+                                <td class="px-4 py-3">Rp {{ number_format($totalBudget) }}</td>
+                                @if($showActual)
+                                    <td class="px-4 py-3 text-right" colspan="2">Total Cost</td>
+                                    <td class="px-4 py-3">Rp {{ number_format($totalCost) }}</td>
+                                @endif
+                                <td class="px-4 py-3" colspan="{{ $sisaKolom }}"></td>
+                            </tr>
+                        </tfoot>
+                    @endif
                 </table>
                 </div>
                 @if($canEdit)
@@ -816,7 +958,7 @@
                 <div x-show="open" class="p-6">
                     @foreach($project->approvals as $a)
                         <div class="flex items-start gap-3 border-b py-2 last:border-0 text-sm">
-                            <span class="text-xs rounded-full px-2 py-1 shrink-0 {{ $a->decision === 'approve' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">Layer {{ $a->layer }} · {{ ucfirst($a->decision) }}</span>
+                            <span class="text-xs rounded-full px-2 py-1 shrink-0 {{ ['approve' => 'bg-green-100 text-green-700', 'revision' => 'bg-amber-100 text-amber-800'][$a->decision] ?? 'bg-red-100 text-red-700' }}">Layer {{ $a->layer }} · {{ $a->decision === 'revision' ? 'Revision Required' : ucfirst($a->decision) }}</span>
                             <div>
                                 <span class="font-semibold">{{ optional($a->user)->name }}</span>
                                 <span class="text-gray-400">· <x-datetime :value="$a->created_at" /></span>
@@ -848,8 +990,11 @@
 
         {{-- ================= Aksi bawah: Draft / Submit / keputusan + Cancel Project ================= --}}
         @php $showActions = ($isLeader && $canEdit) || ($isSponsor && $project->status === 'submitted') || $isReviewer; @endphp
-        @if($showActions || $canCancel)
-            <div class="bg-white rounded-xl shadow p-6 space-y-4" x-data="{ cancelOpen: false }">
+        @if($showActions || $canCancel || $canSubmitChanges)
+            {{-- Kartu putih hanya dipasang bila ada blok isi (form Draft/Submit proposal
+                 atau panel keputusan). Untuk baris tombol saja, latar dibiarkan polos. --}}
+            <div @class(['bg-white rounded-xl shadow p-6 space-y-4' => $showActions, 'space-y-4' => ! $showActions])
+                 x-data="{ cancelOpen: false }">
 
                 @if($isLeader && $canEdit)
                     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -870,26 +1015,61 @@
                 @elseif($isSponsor && $project->status === 'submitted')
                     <h3 class="text-lg font-semibold mb-3">Keputusan Sponsor</h3>
                     <div class="mb-3"><label class="block text-sm font-semibold text-gray-600 mb-1">Note</label>
-                        <textarea form="approveForm" id="sponsor-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Note (required when requesting revision)"></textarea></div>
+                        <textarea form="approveForm" id="sponsor-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Note (required for Revision Required)"></textarea></div>
                     <div class="flex gap-3">
                         <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
-                        <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}" onsubmit="this.note.value=document.getElementById('sponsor-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Request Revision</button></form>
+                        <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}" onsubmit="this.note.value=document.getElementById('sponsor-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
                     </div>
                 @elseif($isReviewer)
                     <h3 class="text-lg font-semibold mb-3">Keputusan Committee {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }} (Layer {{ $project->current_layer }})</h3>
                     <div class="mb-3"><label class="block text-sm font-semibold text-gray-600 mb-1">Note</label>
-                        <textarea form="pApprove" id="committee-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Note (optional)"></textarea></div>
+                        <textarea form="pApprove" id="committee-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Note (optional; required for Revision Required)"></textarea></div>
                     <div class="flex gap-3">
                         <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
+                        {{-- Revision Required: tersedia di SEMUA layer proposal. Project langsung
+                             kembali ke Project Leader (status Revision Required), bukan ditolak. --}}
+                        @if($project->status === 'committee_review')
+                            <form method="POST" action="{{ route('projects.review.revision', $project) }}" onsubmit="this.note.value=document.getElementById('committee-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
+                        @endif
                         <form method="POST" action="{{ route('projects.review.reject', $project) }}" onsubmit="this.note.value=document.getElementById('committee-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
                     </div>
                 @endif
 
-                {{-- Cancel Project — HANYA Project Leader & Project Sponsor. Klik → dialog isi alasan. --}}
-                @if($canCancel)
-                    <div class="border-t pt-4 flex justify-end">
-                        <button type="button" @click="cancelOpen = true" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Cancel Project</button>
+                {{-- Baris aksi bawah: Save as Draft / Update Project / Cancel Project.
+                     Selalu rata kanan; bila salah satu tombol tidak berhak tampil,
+                     sisanya merapat sendiri tanpa menyisakan ruang kosong. --}}
+                @if($canSubmitChanges || $canCancel)
+                    <div class="flex flex-wrap items-center justify-end gap-3 pt-2">
+                        @if($canSubmitChanges)
+                            <form method="POST" action="{{ route('projects.draft', $project) }}">
+                                @csrf<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Save as Draft</button>
+                            </form>
+                            <form method="POST" action="{{ route('projects.changes.submit', $project) }}">
+                                @csrf
+                                <button @class([
+                                            'px-6 py-2 rounded-lg font-semibold',
+                                            'bg-red-700 text-white hover:bg-red-800' => $pendingDrafts->isNotEmpty(),
+                                            'bg-gray-200 text-gray-500 cursor-not-allowed' => $pendingDrafts->isEmpty(),
+                                        ])
+                                        @disabled($pendingDrafts->isEmpty())
+                                        data-confirm="Submit the pending proposal changes for approval? They only take effect once approved."
+                                        data-confirm-title="Update Project?"
+                                        data-confirm-ok="Yes, Submit for Approval">
+                                    Update Project
+                                    @if($pendingDrafts->isNotEmpty())
+                                        <span class="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-white/25 text-xs">{{ $pendingDrafts->count() }}</span>
+                                    @endif
+                                </button>
+                            </form>
+                        @endif
+
+                        @if($canCancel)
+                            <button type="button" @click="cancelOpen = true" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Cancel Project</button>
+                        @endif
                     </div>
+                @endif
+
+                @if($canCancel)
 
                     <div x-show="cancelOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="cancelOpen = false">
                         <div class="fixed inset-0 bg-black/40" @click="cancelOpen = false"></div>

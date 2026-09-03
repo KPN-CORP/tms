@@ -19,6 +19,12 @@ class ProjectBudget extends Model
         'actual_qty', 'actual_price', 'actual_cost', 'remarks',
     ];
 
+    /** Lampiran baris budget ini — bisa lebih dari satu berkas. */
+    public function attachments()
+    {
+        return $this->hasMany(ProjectBudgetAttachment::class, 'project_budget_id')->orderBy('id');
+    }
+
     /** Planning total (Qty x Unit Price). */
     public function getPlannedTotalAttribute(): float
     {

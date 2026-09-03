@@ -146,6 +146,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/review/projects', [ProjectController::class, 'reviewQueue'])->name('projects.review');
     Route::post('/projects/{project}/review-approve', [ProjectController::class, 'reviewApprove'])->name('projects.review.approve');
     Route::post('/projects/{project}/review-reject', [ProjectController::class, 'reviewReject'])->name('projects.review.reject');
+    Route::post('/projects/{project}/review-revision', [ProjectController::class, 'reviewRevision'])->name('projects.review.revision');
     Route::post('/projects/{project}/submit-completion', [ProjectController::class, 'submitCompletion'])->name('projects.completion.submit');
 
     // Project Update Request (perubahan saat berjalan) + Cancellation
@@ -163,6 +164,13 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/projects/{project}/implementation/{plan}', [ProjectController::class, 'destroyImplementation'])->name('projects.implementation.destroy');
     Route::put('/projects/{project}/implementation/{plan}/actual', [ProjectController::class, 'updateImplementationActual'])->name('projects.implementation.actual');
     Route::get('/projects/{project}/implementation/{plan}/attachment', [ProjectController::class, 'downloadImplementationAttachment'])->name('projects.implementation.attachment');
+    // Lampiran Implementation Plan (boleh lebih dari satu berkas per activity).
+    Route::get('/projects/{project}/implementation/{plan}/attachments/{attachment}', [ProjectController::class, 'viewPlanAttachment'])->name('projects.implementation.attachments.view');
+    Route::delete('/projects/{project}/implementation/{plan}/attachments/{attachment}', [ProjectController::class, 'destroyPlanAttachment'])->name('projects.implementation.attachments.destroy');
+
+    // Lampiran baris Budget (boleh lebih dari satu berkas).
+    Route::get('/projects/{project}/budgets/{budget}/attachments/{attachment}', [ProjectController::class, 'viewBudgetAttachment'])->name('projects.budgets.attachments.view');
+    Route::delete('/projects/{project}/budgets/{budget}/attachments/{attachment}', [ProjectController::class, 'destroyBudgetAttachment'])->name('projects.budgets.attachments.destroy');
     // Baseline Actual: Leader submit → Sponsor approve/reject.
     Route::post('/projects/{project}/actual/submit', [ProjectController::class, 'submitActual'])->name('projects.actual.submit');
     Route::post('/projects/{project}/actual/approve', [ProjectController::class, 'approveActual'])->name('projects.actual.approve');
@@ -179,6 +187,8 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/projects/{project}/members/{member}', [ProjectController::class, 'updateMember'])->name('projects.members.update');
     Route::delete('/projects/{project}/members/{member}', [ProjectController::class, 'destroyMember'])->name('projects.members.destroy');
     Route::post('/projects/{project}/draft', [ProjectController::class, 'saveDraft'])->name('projects.draft');
+    // Kirim perubahan proposal yang tertahan menjadi change request per section.
+    Route::post('/projects/{project}/submit-changes', [ProjectController::class, 'submitChanges'])->name('projects.changes.submit');
     Route::post('/projects/{project}/attachments', [ProjectController::class, 'storeAttachment'])->name('projects.attachments.store');
     Route::get('/projects/{project}/attachments/{attachment}', [ProjectController::class, 'downloadAttachment'])->name('projects.attachments.download');
     Route::get('/projects/{project}/attachments/{attachment}/view', [ProjectController::class, 'viewAttachment'])->name('projects.attachments.view');

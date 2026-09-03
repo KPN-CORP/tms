@@ -50,9 +50,55 @@
             {{-- Pertahankan tab aktif saat search/filter di-submit --}}
             <input type="hidden" name="tab" value="{{ $tab }}">
 
-            {{-- Filter: search + BU + Department (TANPA dropdown status; status pakai tab) --}}
-            <x-list-filter-bar :business-units="$businessUnits" :departments="$departments"
-                :reset-route="route('ideas.taskbox', ['tab' => $tab])" placeholder="Search Idea ID, name, or problem…" />
+            {{-- Filter: Search + Business Unit + Unit (dari hcis, cascade).
+                 Markup & perilakunya dibuat sama persis dgn halaman My Ideas. --}}
+            <div class="flex flex-wrap items-start gap-3 p-4 border-b border-gray-100">
+                @if(request('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
+                @if(request('dir'))<input type="hidden" name="dir" value="{{ request('dir') }}">@endif
+
+                <div class="w-60">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Search</label>
+                    <input name="q" value="{{ request('q') }}" placeholder=""
+                           x-data x-on:input.debounce.500ms="$el.form.requestSubmit()"
+                           class="w-full h-[38px] border border-gray-300 rounded-lg px-3 text-sm focus:ring focus:ring-red-200">
+                </div>
+
+                <div class="w-60">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Business Unit</label>
+                    {{-- Ganti BU → reset Unit lalu submit (agar filter Unit lama tidak ikut) --}}
+                    <select name="bu" id="filter-bu" data-remote-options="{{ route('org.business-units') }}"
+                            onchange="var u=document.getElementById('filter-unit'); if(u.tomselect){u.tomselect.clear(true);}else{u.value='';} this.form.requestSubmit()"
+                            class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
+                        <option value=""></option>
+                        @if(request('bu'))<option value="{{ request('bu') }}" selected>{{ request('bu') }}</option>@endif
+                    </select>
+                </div>
+
+                <div class="w-60">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Unit</label>
+                    {{-- Cascade via AJAX dari hcis (departments.department_name) sesuai BU terpilih --}}
+                    <select name="unit" id="filter-unit"
+                            data-remote-parent="#filter-bu" data-remote-url="{{ route('org.unit-names') }}" data-selected="{{ request('unit') }}"
+                            onchange="this.form.requestSubmit()"
+                            class="w-full h-[38px] appearance-none border border-gray-300 rounded-lg px-3 text-sm bg-white">
+                        <option value=""></option>
+                        @if(request('unit'))<option value="{{ request('unit') }}" selected>{{ request('unit') }}</option>@endif
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-transparent mb-1 select-none">.</label>
+                    <button class="h-[38px] px-5 bg-gray-800 text-white rounded-lg text-sm hover:bg-gray-900">Apply</button>
+                </div>
+
+                @if(request('q') || request('bu') || request('unit'))
+                    <div>
+                        <label class="block text-xs font-semibold text-transparent mb-1 select-none">.</label>
+                        <a href="{{ route('ideas.taskbox', ['tab' => $tab]) }}"
+                           class="inline-flex items-center h-[38px] px-4 border rounded-lg text-sm hover:bg-gray-100">Reset</a>
+                    </div>
+                @endif
+            </div>
 
             <div class="overflow-x-auto">
                 <table class="w-full text-left">

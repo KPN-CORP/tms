@@ -13,7 +13,7 @@ class Project extends Model
     public const CATEGORIES = ['QCC', 'QCP', 'SS'];
 
     /** Status di mana Project Leader masih boleh mengedit proposal. */
-    public const EDITABLE_STATUSES = ['draft', 'revision'];
+    public const EDITABLE_STATUSES = ['draft', 'revision_required'];
 
     /** Status "project sedang berjalan" (fase eksekusi/tracking). */
     public const EXECUTION_STATUSES = ['approved', 'ongoing', 'delayed'];
@@ -26,7 +26,7 @@ class Project extends Model
      * bisa dibedakan.
      *
      * Pemetaan per fase menu:
-     *   Proposal       : draft, submitted, revision, committee_review, approved, rejected
+     *   Proposal       : draft, submitted, revision_required, committee_review, approved, rejected
      *   Implementation : ongoing, delayed
      *   Completion     : completion_review, completed
      *   Lintas fase    : cancelled
@@ -34,7 +34,7 @@ class Project extends Model
     public const STATUS_BADGES = [
         'draft'             => ['Draft', 'bg-gray-100 text-gray-700'],
         'submitted'         => ['Submitted', 'bg-blue-100 text-blue-700'],
-        'revision'          => ['Revision Required', 'bg-amber-100 text-amber-800'],
+        'revision_required' => ['Revision Required', 'bg-amber-100 text-amber-800'],
         'committee_review'  => ['On Review', 'bg-yellow-100 text-yellow-800'],
         'approved'          => ['Approved', 'bg-green-100 text-green-700'],
         'rejected'          => ['Rejected', 'bg-red-100 text-red-700'],
@@ -143,7 +143,7 @@ class Project extends Model
     }
 
     /**
-     * Leader boleh mengedit proposal saat draft/revision, ATAU saat ada
+     * Leader boleh mengedit proposal saat draft/revision required, ATAU saat ada
      * update request yang sudah di-approve (belum di-apply).
      */
     public function canLeaderEditProposal(User $user): bool
@@ -226,7 +226,12 @@ class Project extends Model
 
     public function statusLogs()
     {
-        return $this->hasMany(ProjectStatusLog::class)->latest();
+        // created_at DESC = terbaru di atas. Tie-break id ASC: bila beberapa log
+        // ditulis pada detik yang sama (mis. approval Sponsor L1 lalu auto-approve
+        // L2), urutannya tetap sesuai kejadian - L1 dulu, baru L2.
+        return $this->hasMany(ProjectStatusLog::class)
+            ->orderByDesc('created_at')
+            ->orderBy('id');
     }
 
     public function approvals()

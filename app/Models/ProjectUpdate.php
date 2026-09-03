@@ -19,17 +19,22 @@ class ProjectUpdate extends Model
         'planning' => 'Planning / Target (Impl. Plan & Indicators)',
         'team'     => 'Team Member',
         'general'  => 'General',
+        // Jenis baru yang selaras dgn approval_type di committee_assignments.
+        'team_change'           => 'Team Change',
+        'plan_indicator_change' => 'Plan & Indicator Change',
+        'budget_change'         => 'Budget Change',
     ];
 
     protected $fillable = [
         'project_id', 'requested_by', 'change_type', 'description',
         'approver_role', 'status', 'reviewed_by', 'review_note',
-        'snapshot_before', 'snapshot_after',
+        'snapshot_before', 'snapshot_after', 'payload', 'current_layer',
     ];
 
     protected $casts = [
         'snapshot_before' => 'array',
         'snapshot_after'  => 'array',
+        'payload'         => 'array',
     ];
 
     public function project()

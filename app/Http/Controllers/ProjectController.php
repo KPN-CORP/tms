@@ -10,15 +10,19 @@ use App\Models\Department;
 use App\Models\Idea;
 use App\Models\ImplementationIndicator;
 use App\Models\ImplementationPlan;
+use App\Models\ImplementationPlanAttachment;
 use App\Models\Project;
+use App\Models\ProjectApproval;
 use App\Models\ProjectAttachment;
 use App\Models\ProjectBudget;
+use App\Models\ProjectBudgetAttachment;
 use App\Models\ProjectCategory;
 use App\Models\ProjectMember;
 use App\Models\ProjectUpdate;
 use App\Models\User;
 use App\Services\Idea\IdeaWorkflowService;
 use App\Services\Project\ProjectApprovalWorkflowService;
+use App\Services\Project\ProjectChangeStagingService;
 use App\Services\Project\ProjectUpdateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -154,7 +158,7 @@ class ProjectController extends Controller
                 'submitted' => 'submitted',
                 'approved'  => 'approved',
                 'review'    => 'committee_review', // "On Review"
-                'revision'  => 'revision',         // "Revision Required"
+                'revision'  => 'revision_required', // tab "Revision Required"
                 'rejected'  => 'rejected',
             ],
             'tabDefs' => [
@@ -391,6 +395,7 @@ class ProjectController extends Controller
             $to   = Project::STATUS_BADGES[$log->new_status][0] ?? $log->new_status;
             $items->push([
                 'at'    => $log->created_at,
+                'seq'   => $log->id,
                 'kind'  => 'status',
                 'title' => "Status: {$from} → {$to}",
                 'note'  => $log->remarks,
@@ -402,6 +407,7 @@ class ProjectController extends Controller
             $type = ProjectUpdate::CHANGE_TYPES[$upd->change_type] ?? $upd->change_type;
             $items->push([
                 'at'    => $upd->created_at,
+                'seq'   => $upd->id,
                 'kind'  => 'update',
                 'title' => "Update request ({$type}) — " . ucfirst($upd->status),
                 'note'  => $upd->description,
@@ -412,6 +418,7 @@ class ProjectController extends Controller
             if ($upd->reviewed_by && $upd->updated_at) {
                 $items->push([
                     'at'    => $upd->updated_at,
+                    'seq'   => $upd->id,
                     'kind'  => 'update',
                     'title' => "Update request ({$type}) " . ucfirst($upd->status),
                     'note'  => $upd->review_note,
@@ -430,6 +437,7 @@ class ProjectController extends Controller
             );
             $items->push([
                 'at'    => $plan->updated_at,
+                'seq'   => $plan->id,
                 'kind'  => 'plan',
                 'title' => 'Implementation actual: ' . $plan->activity,
                 'note'  => $range,
@@ -437,9 +445,12 @@ class ProjectController extends Controller
             ]);
         }
 
+        // Terbaru di atas (-timestamp). Bila beberapa entri jatuh pada detik yang
+        // sama - mis. approval Sponsor L1 lalu auto-approve L2 - tie-break 'seq'
+        // menaik menjaga urutan kejadian: L1 dulu, baru L2.
         return $items
             ->filter(fn ($i) => $i['at'] !== null)
-            ->sortByDesc(fn ($i) => $i['at'])
+            ->sortBy(fn ($i) => [-$i['at']->getTimestamp(), $i['seq']])
             ->take($limit)
             ->values();
     }
@@ -515,6 +526,13 @@ class ProjectController extends Controller
             ->unique('id')
             ->values();
 
+        // Status berbasis tanggal (Ongoing saat mencapai Planned Start) dihitung ulang
+        // setiap detail dibuka. Tanpa cron, inilah titik paling awal perubahan terlihat.
+        if ($project->isInExecution()) {
+            $this->recomputeExecutionStatus($project, $user);
+            $project->refresh();
+        }
+
         $updateSvc = app(ProjectUpdateService::class);
 
         // Hanya muat user PIC yang benar-benar dipakai (untuk resolusi nama di tabel plan) —
@@ -550,6 +568,15 @@ class ProjectController extends Controller
             'users'              => User::whereIn('id', $picIds)->get(),
             'teamMembers'        => $teamMembers,
             'canUploadAttachment' => $project->isTeamMember($user) || $user->hasRole('Super Admin'),
+            // Dialog Edit per baris: dibuka utk Leader (fase proposal) maupun anggota
+            // tim (fase implementation). $proposalReadOnly menandai field asal proposal
+            // yang tidak boleh diubah oleh anggota tim non-Leader.
+            'canEditRow'       => $this->canEditRow($project, $user),
+            // Perubahan proposal yang masih ditahan (belum diajukan approval).
+            'pendingDrafts'    => app(ProjectChangeStagingService::class)->drafts($project),
+            'canSubmitChanges' => $project->project_leader_id === $user->id && $project->isInExecution(),
+            'canDeleteRow'     => $project->canLeaderEditProposal($user),
+            'proposalReadOnly' => ! $this->leaderMayEditProposalFields($project, $user),
         ];
 
         // Mode lihat-saja (tombol mata di daftar My Project): matikan SEMUA
@@ -559,6 +586,7 @@ class ProjectController extends Controller
             foreach ([
                 'canEdit', 'canTrack', 'canSubmitActual', 'isActualSponsor',
                 'canSubmitCompletion', 'canRequestUpdate', 'canCancel', 'canUploadAttachment',
+                'canEditRow', 'canDeleteRow', 'canSubmitChanges',
             ] as $flag) {
                 $data[$flag] = false;
             }
@@ -597,7 +625,7 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
 
         // Alirkan ke committee proposal (atau langsung Approved bila belum ada committee).
-        $wf->start($project, 'committee_review', $request->user(), $note ?? 'Approved by the Project Sponsor.');
+        $wf->start($project, 'committee_review', $request->user(), $note);
 
         return back()->with('success', 'Proposal approved by the Sponsor.');
     }
@@ -645,6 +673,20 @@ class ProjectController extends Controller
         $wf->approve($project, $request->user(), $note);
 
         return redirect()->route('projects.review')->with('success', "Keputusan tersimpan untuk {$project->project_id}.");
+    }
+
+    public function reviewRevision(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
+    {
+        abort_unless($wf->isCurrentReviewer($project, $request->user()), 403);
+        abort_unless($project->status === 'committee_review', 403,
+            'Revision Required only applies to a proposal that is under committee review.');
+
+        // Catatan wajib: Leader perlu tahu apa yang harus diperbaiki.
+        $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
+        $wf->requestRevision($project, $request->user(), $note);
+
+        return redirect()->route('projects.review')
+            ->with('success', "Revision required: {$project->project_id} returned to the Project Leader.");
     }
 
     public function reviewReject(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
@@ -790,6 +832,36 @@ class ProjectController extends Controller
             && app(IdeaWorkflowService::class)->isLastLayerCommittee($project->idea, $user);
     }
 
+    /**
+     * Kirim seluruh perubahan proposal yang masih draft menjadi change request,
+     * SATU permintaan per jenis section (Team / Plan & Indicator / Budget).
+     */
+    public function submitChanges(Request $request, Project $project, ProjectChangeStagingService $svc)
+    {
+        abort_unless($project->project_leader_id === $request->user()->id && $project->isInExecution(), 403,
+            'Only the Project Leader of a running project may submit changes.');
+
+        $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
+
+        $terkirim = $svc->submitDrafts($project, $request->user(), $note);
+
+        if (! $terkirim) {
+            return back()->with('error', 'There is no pending change to submit.');
+        }
+
+        return $this->backToSection($project, 'section-implementation',
+            'Submitted for approval: ' . implode(', ', $terkirim) . '.',
+            ['phase' => 'implementation']);
+    }
+
+    /** Pesan sukses yang menjelaskan bila perubahan masih menunggu pengajuan. */
+    private function pesanSimpan(string $normal, int $distage): string
+    {
+        return $distage > 0
+            ? "Saved. {$distage} proposal field(s) are held as a draft change and take effect only after approval - press Update Project to submit."
+            : $normal;
+    }
+
     /** Format persen tanpa desimal berlebih: 33.50 -> "33.5", 100.00 -> "100". */
     private function pct(float $v): string
     {
@@ -809,7 +881,19 @@ class ProjectController extends Controller
         $this->authorizeSponsor($request, $project);
 
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
-        $this->transition($project, 'revision', $request->user(), $note);
+
+        // Sponsor = Layer 1, jadi keputusannya ikut tercatat di Approval History.
+        ProjectApproval::create([
+            'project_id' => $project->id,
+            'layer'      => ProjectApprovalWorkflowService::SPONSOR_LAYER,
+            'user_id'    => $request->user()->id,
+            'decision'   => 'revision',
+            'note'       => $note,
+        ]);
+
+        $this->transition($project, 'revision_required', $request->user(),
+            'Revision required at layer ' . ProjectApprovalWorkflowService::SPONSOR_LAYER
+            . " (Project Sponsor); returned to the Project Leader. Note: {$note}");
 
         return back()->with('success', 'Proposal returned to the Project Leader for revision.');
     }
@@ -852,22 +936,38 @@ class ProjectController extends Controller
             'rows.*.actual_end'       => ['nullable', 'date', 'after_or_equal:rows.*.actual_start'],
             'rows.*.pic_user_ids'     => ['nullable', 'array'],
             'rows.*.pic_user_ids.*'   => ['integer', 'exists:kpncorp.users,id'],
+            'rows.*.remarks'          => ['nullable', 'string', 'max:2000'],
+            'rows.*.attachments'      => ['nullable', 'array'],
+            'rows.*.attachments.*'    => $this->attachmentRules(),
         ], [
             'rows.*.planning_end.after_or_equal' => 'Planned End Date must be on or after Planned Start Date.',
             'rows.*.actual_end.after_or_equal'   => 'Actual End must be on or after Actual Start.',
         ]);
 
         $seq = (int) $project->implementationPlans()->max('sequence_no');
-        foreach (array_values($request->input('rows')) as $r) {
-            $project->implementationPlans()->create([
+        // Berkas tidak ikut di $request->input(); diambil per indeks baris dari file bag.
+        $berkasPerBaris = $request->file('rows') ?: [];
+
+        foreach (array_values($request->input('rows')) as $i => $r) {
+            $plan = $project->implementationPlans()->create([
                 'activity'       => $r['activity'],
                 'planning_start' => $r['planning_start'] ?? null,
                 'planning_end'   => $r['planning_end'] ?? null,
                 'actual_start'   => $r['actual_start'] ?? null,
                 'actual_end'     => $r['actual_end'] ?? null,
                 'pic_user_ids'   => $r['pic_user_ids'] ?? [],
+                'remarks'        => $r['remarks'] ?? null,
                 'sequence_no'    => ++$seq,
             ]);
+
+            foreach (($berkasPerBaris[$i]['attachments'] ?? []) as $file) {
+                $plan->attachments()->create([
+                    'file_name'   => $file->getClientOriginalName(),
+                    'file_path'   => $file->store("project-implementation/{$project->id}"),
+                    'file_size'   => $file->getSize(),
+                    'uploaded_by' => $request->user()->id,
+                ]);
+            }
         }
 
         return $this->backToSection($project, 'section-implementation', 'Activity added.');
@@ -875,29 +975,82 @@ class ProjectController extends Controller
 
     public function updateImplementation(Request $request, Project $project, ImplementationPlan $plan)
     {
-        $this->authorizeLeader($request, $project);
+        // Satu dialog Edit untuk semua peran; yang membedakan hanya field mana yang
+        // boleh ikut tersimpan. Field proposal dari member SENGAJA diabaikan di sini
+        // (bukan cuma di-readonly di layar) agar tidak bisa ditembus lewat request manual.
+        $mayEditProposal = $this->authorizeRowEdit($request, $project);
         abort_unless($plan->project_id === $project->id, 404);
 
-        $data = $request->validate([
-            'activity'       => ['required', 'string', 'max:2000'],
-            'planning_start' => ['nullable', 'date'],
-            'planning_end'   => ['nullable', 'date', 'after_or_equal:planning_start'],
-            'pic_user_ids'   => ['nullable', 'array'],
-            'pic_user_ids.*' => ['integer', 'exists:kpncorp.users,id'],
-        ], [
+        $rules = [
+            'actual_start' => ['nullable', 'date'],
+            'actual_end'   => ['nullable', 'date', 'after_or_equal:actual_start'],
+            'remarks'      => ['nullable', 'string', 'max:2000'],
+        ];
+
+        if ($mayEditProposal) {
+            $rules += [
+                'activity'       => ['required', 'string', 'max:2000'],
+                'planning_start' => ['nullable', 'date'],
+                'planning_end'   => ['nullable', 'date', 'after_or_equal:planning_start'],
+                'pic_user_ids'   => ['nullable', 'array'],
+                'pic_user_ids.*' => ['integer', 'exists:kpncorp.users,id'],
+            ];
+        }
+
+        $data = $request->validate($rules, [
             'planning_end.after_or_equal' => 'Planned End Date must be on or after Planned Start Date.',
+            'actual_end.after_or_equal'   => 'Actual End must be on or after Actual Start.',
         ]);
 
-        $this->withRecordLock($request, $plan, function ($plan) use ($data) {
-            $plan->update([
-                'activity'       => $data['activity'],
-                'planning_start' => $data['planning_start'] ?? null,
-                'planning_end'   => $data['planning_end'] ?? null,
-                'pic_user_ids'   => $data['pic_user_ids'] ?? [],
-            ]);
-        });
+        // Actual & Remarks = realisasi lapangan -> selalu langsung tersimpan.
+        $langsung = [
+            'actual_start' => $data['actual_start'] ?? null,
+            'actual_end'   => $data['actual_end'] ?? null,
+            'remarks'      => $data['remarks'] ?? null,
+        ];
 
-        return $this->backToSection($project, 'section-implementation', 'Activity updated.');
+        $proposal = $mayEditProposal ? [
+            'activity'       => $data['activity'],
+            'planning_start' => $data['planning_start'] ?? null,
+            'planning_end'   => $data['planning_end'] ?? null,
+            'pic_user_ids'   => $data['pic_user_ids'] ?? [],
+        ] : [];
+
+        $distage = $this->writeOrStage($request, $project, $plan, $langsung, $proposal);
+
+        // Lampiran (boleh banyak) disimpan setelah baris tersimpan.
+        $this->storePlanAttachments($request, $project, $plan->fresh());
+
+        if ($project->isInExecution()) {
+            $this->recomputeExecutionStatus($project->fresh(), $request->user());
+        }
+
+        return $this->backToSection($project, 'section-implementation',
+            $this->pesanSimpan('Activity updated.', $distage),
+            $project->isInExecution() ? ['phase' => 'implementation'] : []);
+    }
+
+    /** Simpan berkas lampiran baru (multi-file) untuk sebuah Implementation Plan. */
+    private function storePlanAttachments(Request $request, Project $project, ImplementationPlan $plan): void
+    {
+        $files = $request->file('attachments') ?: array_filter([$request->file('attachment')]);
+        if (! $files) {
+            return;
+        }
+
+        $request->validate([
+            'attachments'   => ['nullable', 'array'],
+            'attachments.*' => $this->attachmentRules(),
+        ]);
+
+        foreach ($files as $file) {
+            $plan->attachments()->create([
+                'file_name'   => $file->getClientOriginalName(),
+                'file_path'   => $file->store("project-implementation/{$project->id}"),
+                'file_size'   => $file->getSize(),
+                'uploaded_by' => $request->user()->id,
+            ]);
+        }
     }
 
     public function destroyImplementation(Request $request, Project $project, ImplementationPlan $plan)
@@ -963,6 +1116,92 @@ class ProjectController extends Controller
         return $this->backToSection($project, 'section-implementation', 'Actual implementation updated.', ['phase' => 'implementation']);
     }
 
+    /**
+     * Buka satu lampiran Implementation Plan di tab baru. Berkas yang bisa
+     * ditampilkan langsung (pdf/gambar) dikirim inline; sisanya diunduh.
+     */
+    public function viewPlanAttachment(Request $request, Project $project, ImplementationPlan $plan, ImplementationPlanAttachment $attachment)
+    {
+        abort_unless($plan->project_id === $project->id, 404);
+        abort_unless($attachment->implementation_plan_id === $plan->id, 404);
+        abort_unless(
+            Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
+                || $request->user()->hasRole('Super Admin'),
+            403
+        );
+
+        return $attachment->isInlineViewable()
+            ? $this->viewAttachmentFile($attachment->file_path, $attachment->file_name)
+            : $this->downloadAttachmentFile($attachment->file_path, $attachment->file_name);
+    }
+
+    /** Hapus satu lampiran Implementation Plan (hak sama dgn mengedit barisnya). */
+    public function destroyPlanAttachment(Request $request, Project $project, ImplementationPlan $plan, ImplementationPlanAttachment $attachment)
+    {
+        $this->authorizeRowEdit($request, $project);
+        abort_unless($plan->project_id === $project->id, 404);
+        abort_unless($attachment->implementation_plan_id === $plan->id, 404);
+
+        $this->deleteAttachmentFile($attachment->file_path);
+        $attachment->delete();
+
+        return $this->backToSection($project, 'section-implementation', 'Attachment removed.',
+            $project->isInExecution() ? ['phase' => 'implementation'] : []);
+    }
+
+    /** Buka satu lampiran baris Budget di tab baru. */
+    public function viewBudgetAttachment(Request $request, Project $project, ProjectBudget $budget, ProjectBudgetAttachment $attachment)
+    {
+        abort_unless($budget->project_id === $project->id, 404);
+        abort_unless($attachment->project_budget_id === $budget->id, 404);
+        abort_unless(
+            Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
+                || $request->user()->hasRole('Super Admin'),
+            403
+        );
+
+        return $attachment->isInlineViewable()
+            ? $this->viewAttachmentFile($attachment->file_path, $attachment->file_name)
+            : $this->downloadAttachmentFile($attachment->file_path, $attachment->file_name);
+    }
+
+    /** Hapus satu lampiran baris Budget (hak sama dgn mengedit barisnya). */
+    public function destroyBudgetAttachment(Request $request, Project $project, ProjectBudget $budget, ProjectBudgetAttachment $attachment)
+    {
+        $this->authorizeRowEdit($request, $project);
+        abort_unless($budget->project_id === $project->id, 404);
+        abort_unless($attachment->project_budget_id === $budget->id, 404);
+
+        $this->deleteAttachmentFile($attachment->file_path);
+        $attachment->delete();
+
+        return $this->backToSection($project, 'section-budget', 'Attachment removed.',
+            $project->isInExecution() ? ['phase' => 'implementation'] : []);
+    }
+
+    /** Simpan berkas lampiran baru (multi-file) untuk sebuah baris Budget. */
+    private function storeBudgetAttachments(Request $request, Project $project, ProjectBudget $budget): void
+    {
+        $files = $request->file('attachments') ?: [];
+        if (! $files) {
+            return;
+        }
+
+        $request->validate([
+            'attachments'   => ['nullable', 'array'],
+            'attachments.*' => $this->attachmentRules(),
+        ]);
+
+        foreach ($files as $file) {
+            $budget->attachments()->create([
+                'file_name'   => $file->getClientOriginalName(),
+                'file_path'   => $file->store("project-budget/{$project->id}"),
+                'file_size'   => $file->getSize(),
+                'uploaded_by' => $request->user()->id,
+            ]);
+        }
+    }
+
     /** Unduh attachment sebuah Implementation Plan (akses = anggota project). */
     public function downloadImplementationAttachment(Request $request, Project $project, ImplementationPlan $plan)
     {
@@ -981,6 +1220,93 @@ class ProjectController extends Controller
      * Otorisasi update "actual" saat project berjalan — boleh SEMUA anggota tim
      * (Leader/Sponsor/Member), bukan hanya Leader (tracking implementation).
      */
+    /**
+     * Boleh membuka dialog Edit sebuah baris (Implementation Plan / Indicator / Budget)?
+     * Leader saat proposal masih bisa diubah, ATAU anggota tim saat project berjalan
+     * dan Actual masih draft. Yang membedakan: apa saja yang boleh ia ubah di dalamnya
+     * (lihat leaderMayEditProposalFields()).
+     */
+    private function canEditRow(Project $project, User $user): bool
+    {
+        return $project->canLeaderEditProposal($user)
+            || ($project->isTeamMember($user) && $project->isInExecution() && $project->actualIsDraft());
+    }
+
+    /**
+     * Boleh menyentuh field asal proposal?
+     *  - fase proposal  : Leader saat draft/revision -> tersimpan LANGSUNG.
+     *  - fase berjalan  : Leader juga boleh, tapi hasilnya masuk STAGING dan baru
+     *                     berlaku setelah change request disetujui.
+     */
+    private function leaderMayEditProposalFields(Project $project, User $user): bool
+    {
+        return $project->canLeaderEditProposal($user)
+            || ($project->project_leader_id === $user->id && $project->isInExecution());
+    }
+
+    /** Perubahan field proposal harus ditampung (belum berlaku) alih-alih ditulis langsung? */
+    private function stagesProposalChanges(Project $project, User $user): bool
+    {
+        return ! $project->canLeaderEditProposal($user)
+            && $project->project_leader_id === $user->id
+            && $project->isInExecution();
+    }
+
+    /**
+     * Tulis perubahan: field proposal ke staging bila project sudah berjalan,
+     * selebihnya langsung ke barisnya. Mengembalikan jumlah field yang di-stage.
+     */
+    private function writeOrStage(Request $request, Project $project, $row, array $langsung, array $proposal): int
+    {
+        $staging = $this->stagesProposalChanges($project, $request->user());
+
+        $this->withRecordLock($request, $row, function ($row) use ($langsung, $proposal, $staging) {
+            $row->update($staging ? $langsung : array_merge($langsung, $proposal));
+        });
+
+        if (! $staging || ! $proposal) {
+            return 0;
+        }
+
+        // Hanya field yang benar-benar BERBEDA yang ditampung.
+        $berubah = collect($proposal)
+            ->reject(fn ($v, $k) => $this->sameValue($row->{$k} ?? null, $v))
+            ->all();
+
+        if ($berubah) {
+            app(ProjectChangeStagingService::class)
+                ->stage($project, $request->user(), $row::class, $row->getKey(), $berubah);
+        }
+
+        return count($berubah);
+    }
+
+    /** Bandingkan nilai lama vs baru dgn toleran terhadap tipe (tanggal, angka, array). */
+    private function sameValue($lama, $baru): bool
+    {
+        if ($lama instanceof \DateTimeInterface) {
+            $lama = $lama->format('Y-m-d');
+        }
+        if (is_array($lama) || is_array($baru)) {
+            return json_encode((array) $lama) === json_encode((array) $baru);
+        }
+
+        return (string) $lama === (string) $baru;
+    }
+
+    /**
+     * Gate bersama untuk dialog Edit: menolak bila tidak berhak sama sekali, dan
+     * mengembalikan penanda apakah field proposal boleh ikut diubah.
+     */
+    private function authorizeRowEdit(Request $request, Project $project): bool
+    {
+        $user = $request->user();
+        abort_unless($this->canEditRow($project, $user), 403,
+            'Only the Project Leader (during draft/revision) or a team member while the project is running may edit this.');
+
+        return $this->leaderMayEditProposalFields($project, $user);
+    }
+
     private function authorizeTeamExecution(Request $request, Project $project): void
     {
         // Anggota tim, project berjalan, DAN Actual masih draft (sebelum submit/baseline).
@@ -1052,7 +1378,12 @@ class ProjectController extends Controller
         $anyDelayed = $plans->contains(fn ($p) => $p->status_label === 'Delayed');
         $anyStarted = $plans->contains(fn ($p) => $p->actual_start !== null);
 
-        $new = $anyDelayed ? 'delayed' : ($anyStarted ? 'ongoing' : 'approved');
+        // Ongoing juga terpicu oleh TANGGAL: begitu hari ini mencapai Planned Start
+        // salah satu activity, project dianggap berjalan walau Actual belum diinput.
+        $anyDue = $plans->contains(fn ($p) => $p->planning_start
+            && now()->startOfDay()->gte($p->planning_start->startOfDay()));
+
+        $new = $anyDelayed ? 'delayed' : (($anyStarted || $anyDue) ? 'ongoing' : 'approved');
 
         if ($new !== $project->status) {
             $this->transition($project, $new, $user, 'Auto: execution status updated from activity progress.');
@@ -1111,8 +1442,22 @@ class ProjectController extends Controller
 
     public function updateIndicator(Request $request, Project $project, ImplementationIndicator $indicator)
     {
-        $this->authorizeLeader($request, $project);
+        $mayEditProposal = $this->authorizeRowEdit($request, $project);
         abort_unless($indicator->project_id === $project->id, 404);
+
+        // Member hanya boleh mengisi Achievement (aktual); sisanya field proposal.
+        if (! $mayEditProposal) {
+            $data = $request->validate(['achievement' => ['nullable', 'numeric']]);
+
+            $this->withRecordLock($request, $indicator, function ($indicator) use ($data) {
+                $indicator->update([
+                    'achievement' => $data['achievement'] ?? null,
+                    'improvement' => ImplementationIndicator::calcImprovement($indicator->baseline, $data['achievement'] ?? null, $indicator->type),
+                ]);
+            });
+
+            return $this->backToSection($project, 'section-indicators', 'Achievement updated.', ['phase' => 'implementation']);
+        }
 
         $data = $request->validate([
             'indicator'         => ['required', 'string', 'max:255'],
@@ -1135,21 +1480,26 @@ class ProjectController extends Controller
             ]);
         }
 
-        $this->withRecordLock($request, $indicator, function ($indicator) use ($data) {
-            $indicator->update([
-                'indicator'         => $data['indicator'],
-                'description'       => $data['description'] ?? null,
-                'baseline'          => $data['baseline'] ?? null,
-                'achievement_value' => $data['achievement_value'] ?? null,
-                'achievement'       => $data['achievement'] ?? null,
-                'uom'               => $data['uom'] ?? null,
-                'weightage'         => $data['weightage'] ?? null,
-                'type'              => $data['type'] ?? null,
-                'improvement'       => ImplementationIndicator::calcImprovement($data['baseline'] ?? null, $data['achievement'] ?? null, $data['type'] ?? null),
-            ]);
-        });
+        // Achievement = realisasi -> langsung; sisanya field proposal -> staging saat berjalan.
+        $langsung = [
+            'achievement' => $data['achievement'] ?? null,
+            'improvement' => ImplementationIndicator::calcImprovement($data['baseline'] ?? null, $data['achievement'] ?? null, $data['type'] ?? null),
+        ];
+        $proposal = [
+            'indicator'         => $data['indicator'],
+            'description'       => $data['description'] ?? null,
+            'baseline'          => $data['baseline'] ?? null,
+            'achievement_value' => $data['achievement_value'] ?? null,
+            'uom'               => $data['uom'] ?? null,
+            'weightage'         => $data['weightage'] ?? null,
+            'type'              => $data['type'] ?? null,
+        ];
 
-        return $this->backToSection($project, 'section-indicators', 'Indicator updated.');
+        $distage = $this->writeOrStage($request, $project, $indicator, $langsung, $proposal);
+
+        return $this->backToSection($project, 'section-indicators',
+            $this->pesanSimpan('Indicator updated.', $distage),
+            $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
     /**
@@ -1210,26 +1560,61 @@ class ProjectController extends Controller
 
     public function updateBudget(Request $request, Project $project, ProjectBudget $budget)
     {
-        $this->authorizeLeader($request, $project);
+        $mayEditProposal = $this->authorizeRowEdit($request, $project);
         abort_unless($budget->project_id === $project->id, 404);
+
+        // Member hanya boleh mengisi Actual Qty & Actual Price.
+        if (! $mayEditProposal) {
+            $data = $request->validate([
+                'actual_qty'   => ['nullable', 'numeric'],
+                'actual_price' => ['nullable', 'numeric'],
+            ]);
+            $cost = (isset($data['actual_qty']) && isset($data['actual_price']))
+                ? (float) $data['actual_qty'] * (float) $data['actual_price']
+                : null;
+
+            $this->withRecordLock($request, $budget, function ($budget) use ($data, $cost) {
+                $budget->update($data + ['actual_cost' => $cost]);
+            });
+
+            $this->storeBudgetAttachments($request, $project, $budget);
+
+            return $this->backToSection($project, 'section-budget', 'Actual budget updated.', ['phase' => 'implementation']);
+        }
 
         $data = $request->validate([
             'item'       => ['required', 'string', 'max:500'],
             'qty'        => ['nullable', 'numeric', 'min:0'],
             'uom'        => ['nullable', Rule::in(ImplementationIndicator::uoms())],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            // Dialog Edit kini memuat Actual juga; Leader boleh mengisi keduanya.
+            'actual_qty'   => ['nullable', 'numeric'],
+            'actual_price' => ['nullable', 'numeric'],
         ]);
 
-        $this->withRecordLock($request, $budget, function ($budget) use ($data) {
-            $budget->update([
-                'item'       => $data['item'],
-                'qty'        => $data['qty'] ?? null,
-                'uom'        => $data['uom'] ?? null,
-                'unit_price' => $data['unit_price'] ?? null,
-            ]);
-        });
+        $cost = (isset($data['actual_qty']) && isset($data['actual_price']))
+            ? (float) $data['actual_qty'] * (float) $data['actual_price']
+            : null;
 
-        return $this->backToSection($project, 'section-budget', 'Budget updated.');
+        $langsung = [
+            'actual_qty'   => $data['actual_qty'] ?? null,
+            'actual_price' => $data['actual_price'] ?? null,
+            'actual_cost'  => $cost,
+        ];
+        $proposal = [
+            'item'       => $data['item'],
+            'qty'        => $data['qty'] ?? null,
+            'uom'        => $data['uom'] ?? null,
+            'unit_price' => $data['unit_price'] ?? null,
+        ];
+
+        $distage = $this->writeOrStage($request, $project, $budget, $langsung, $proposal);
+
+        $this->storeBudgetAttachments($request, $project, $budget);
+
+        return $this->backToSection($project, 'section-budget',
+            $this->pesanSimpan('Budget updated.', $distage),
+            $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
     public function destroyBudget(Request $request, Project $project, ProjectBudget $budget)
@@ -1330,11 +1715,12 @@ class ProjectController extends Controller
             'role'    => ['required', 'string', 'max:100'],
         ]);
 
-        $this->withRecordLock($request, $member, function ($member) use ($data) {
-            $member->update(['user_id' => $data['user_id'], 'role' => $data['role']]);
-        });
+        $distage = $this->writeOrStage($request, $project, $member, [],
+            ['user_id' => $data['user_id'], 'role' => $data['role']]);
 
-        return $this->backToSection($project, 'section-team', 'Team member updated.');
+        return $this->backToSection($project, 'section-team',
+            $this->pesanSimpan('Team member updated.', $distage),
+            $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
     public function destroyMember(Request $request, Project $project, ProjectMember $member)
