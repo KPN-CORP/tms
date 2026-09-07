@@ -63,6 +63,15 @@ class OrgController extends Controller
         return $this->respond($request, fn ($bu) => KpnLocation::areasFor($bu));
     }
 
+    /**
+     * JSON daftar Job Level dari hcis (employees.job_level), mis. 1A, 2A, ... 10B.
+     * Tidak cascade dari BU: job level berlaku lintas Business Unit.
+     */
+    public function jobLevels()
+    {
+        return response()->json(KpnEmployee::jobLevels()->values());
+    }
+
     /** JSON daftar contribution_level (companies) untuk sebuah Business Unit. */
     public function companies(Request $request)
     {

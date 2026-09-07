@@ -172,7 +172,7 @@ class CommitteeAssignmentController extends Controller
 
         $type = $rows->first()->approval_type;
 
-        if ($type === 'project_proposal' && ! $layers->contains(fn ($l) => $l['layer'] === 1)) {
+        if (CommitteeAssignment::usesSponsorLayer($type) && ! $layers->contains(fn ($l) => $l['layer'] === 1)) {
             $layers = $layers->prepend([
                 'layer'    => 1,
                 // Orangnya berbeda per project (diambil dari field Sponsor project),
@@ -233,6 +233,13 @@ class CommitteeAssignmentController extends Controller
                 ->delete();
 
             foreach (($data['layers'] ?? []) as $layer => $email) {
+                // Layer 1 milik Project Sponsor untuk type tsb — abaikan bila
+                // sempat terkirim (mis. form lama / request manual).
+                if ((int) $layer === CommitteeAssignment::SPONSOR_LAYER
+                    && CommitteeAssignment::usesSponsorLayer($data['approval_type'])) {
+                    continue;
+                }
+
                 if (! $email) {
                     continue;
                 }

@@ -157,8 +157,18 @@ class ProjectApprovalWorkflowService
     public function isCurrentReviewer(Project $project, User $user): bool
     {
         $flow = self::FLOWS[$project->status] ?? null;
+        if (! $flow) {
+            return false;
+        }
 
-        return $flow && $project->businessUnitId() && (clone $this->committeeQuery($project, $flow['type']))
+        // Layer 1 dipegang Project Sponsor untuk flow yang memakai sponsor layer
+        // (mis. Project Completion); committee baru mulai Layer 2.
+        if (CommitteeAssignment::usesSponsorLayer($flow['type'])
+            && (int) $project->current_layer === self::SPONSOR_LAYER) {
+            return $project->project_sponsor_id === $user->id;
+        }
+
+        return $project->businessUnitId() && (clone $this->committeeQuery($project, $flow['type']))
             ->where('layer', $project->current_layer)
             ->where('user_id', $user->id)
             ->exists();
@@ -172,11 +182,24 @@ class ProjectApprovalWorkflowService
     {
         $flow = self::FLOWS[$reviewStatus];
 
+        // Project Completion: Layer 1 SELALU Project Sponsor, jadi alurnya tetap
+        // masuk review walau committee (Layer 2+) belum dikonfigurasi.
+        $lewatSponsor = CommitteeAssignment::usesSponsorLayer($flow['type'])
+            && $reviewStatus === 'completion_review';
+
         // Belum ada committee untuk flow ini → JANGAN masuk review.
         // Project Proposal: tetap 'submitted' (no_committee). Flow lain: langsung final.
-        if (! $this->committeeExists($project, $flow['type'])) {
+        if (! $lewatSponsor && ! $this->committeeExists($project, $flow['type'])) {
             $fallback = $flow['no_committee'] ?? $flow['final'];
             $this->transition($project, $fallback, $user, "No committee for {$flow['type']}; status set to {$fallback}.");
+
+            return;
+        }
+
+        if ($lewatSponsor) {
+            $this->transition($project, $reviewStatus, $user, $remarks);
+            $project->update(['current_layer' => self::SPONSOR_LAYER]);
+            $this->autoApproveRequesterLayers($project, $flow);
 
             return;
         }
@@ -226,10 +249,15 @@ class ProjectApprovalWorkflowService
                 break;
             }
 
-            $isSelf = (clone $this->committeeQuery($project, $flow['type']))
-                ->where('layer', $project->current_layer)
-                ->where('user_id', $requester->id)
-                ->exists();
+            // Layer 1 milik Project Sponsor pada flow ber-sponsor layer; layer lain
+            // dicocokkan ke committee_assignments seperti biasa.
+            $isSelf = (CommitteeAssignment::usesSponsorLayer($flow['type'])
+                    && (int) $project->current_layer === self::SPONSOR_LAYER)
+                ? $project->project_sponsor_id === $requester->id
+                : (clone $this->committeeQuery($project, $flow['type']))
+                    ->where('layer', $project->current_layer)
+                    ->where('user_id', $requester->id)
+                    ->exists();
 
             if (! $isSelf) {
                 break;
@@ -249,15 +277,20 @@ class ProjectApprovalWorkflowService
 
         $this->record($project, $user, 'approve', $note);
 
-        $current = $project->current_layer;
-        $next    = $current + 1;
+        $current = (int) $project->current_layer;
 
-        $hasNext = (clone $this->committeeQuery($project, $flow['type']))
-            ->where('layer', $next)
-            ->exists();
+        // Layer committee berikutnya yang benar-benar ada. Layer 1 dilewati bila
+        // flow ini memakai sponsor layer, karena Layer 1 bukan committee.
+        $minimal = CommitteeAssignment::usesSponsorLayer($flow['type'])
+            ? max($current, self::SPONSOR_LAYER)
+            : $current;
 
-        if ($hasNext) {
-            $project->update(['current_layer' => $next]);
+        $next = (clone $this->committeeQuery($project, $flow['type']))
+            ->where('layer', '>', $minimal)
+            ->min('layer');
+
+        if ($next) {
+            $project->update(['current_layer' => (int) $next]);
             $this->log($project, $project->status, $project->status, $user, "Approved layer {$current}, continuing to layer {$next}.");
         } else {
             $this->transition($project, $flow['final'], $user, $note ?? "Approved final layer ({$current}).");
@@ -304,6 +337,17 @@ class ProjectApprovalWorkflowService
     {
         return Project::whereIn('status', array_keys(self::FLOWS))
             ->where(function ($outer) use ($user) {
+                // Sponsor sebagai pemegang Layer 1 (mis. Project Completion).
+                foreach (self::FLOWS as $statusSponsor => $flowSponsor) {
+                    if (! CommitteeAssignment::usesSponsorLayer($flowSponsor['type'])) {
+                        continue;
+                    }
+                    $outer->orWhere(fn ($q) => $q
+                        ->where('status', $statusSponsor)
+                        ->where('current_layer', self::SPONSOR_LAYER)
+                        ->where('project_sponsor_id', $user->id));
+                }
+
                 foreach (self::FLOWS as $status => $flow) {
                     $budgetScoped = CommitteeAssignment::usesBudgetRange($flow['type']);
 

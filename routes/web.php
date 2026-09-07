@@ -12,6 +12,8 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\GuidelineController;
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\EmailNotificationController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SlaSettingController;
 use App\Http\Controllers\Auth\SsoController;
 
@@ -52,6 +54,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/org/unit-names', [\App\Http\Controllers\OrgController::class, 'unitNames'])->name('org.unit-names');
     Route::get('/org/locations', [\App\Http\Controllers\OrgController::class, 'locations'])->name('org.locations');
     Route::get('/org/companies', [\App\Http\Controllers\OrgController::class, 'companies'])->name('org.companies');
+    Route::get('/org/job-levels', [\App\Http\Controllers\OrgController::class, 'jobLevels'])->name('org.job-levels');
     Route::get('/org/employees', [\App\Http\Controllers\OrgController::class, 'employees'])->name('org.employees');
     Route::get('/org/users', [\App\Http\Controllers\OrgController::class, 'users'])->name('org.users');
 
@@ -153,6 +156,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/projects/{project}/updates', [ProjectController::class, 'requestUpdate'])->name('projects.updates.request');
     Route::post('/projects/{project}/updates/{update}/approve', [ProjectController::class, 'approveUpdate'])->name('projects.updates.approve');
     Route::post('/projects/{project}/updates/{update}/reject', [ProjectController::class, 'rejectUpdate'])->name('projects.updates.reject');
+    Route::post('/projects/{project}/updates/{update}/revision', [ProjectController::class, 'revisionUpdate'])->name('projects.updates.revision');
     Route::post('/projects/{project}/updates/{update}/apply', [ProjectController::class, 'applyUpdate'])->name('projects.updates.apply');
     Route::post('/projects/{project}/cancel', [ProjectController::class, 'cancelProject'])->name('projects.cancel');
 
@@ -172,9 +176,6 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/projects/{project}/budgets/{budget}/attachments/{attachment}', [ProjectController::class, 'viewBudgetAttachment'])->name('projects.budgets.attachments.view');
     Route::delete('/projects/{project}/budgets/{budget}/attachments/{attachment}', [ProjectController::class, 'destroyBudgetAttachment'])->name('projects.budgets.attachments.destroy');
     // Baseline Actual: Leader submit → Sponsor approve/reject.
-    Route::post('/projects/{project}/actual/submit', [ProjectController::class, 'submitActual'])->name('projects.actual.submit');
-    Route::post('/projects/{project}/actual/approve', [ProjectController::class, 'approveActual'])->name('projects.actual.approve');
-    Route::post('/projects/{project}/actual/reject', [ProjectController::class, 'rejectActual'])->name('projects.actual.reject');
     Route::post('/projects/{project}/indicators', [ProjectController::class, 'storeIndicator'])->name('projects.indicators.store');
     Route::put('/projects/{project}/indicators/{indicator}', [ProjectController::class, 'updateIndicator'])->name('projects.indicators.update');
     Route::put('/projects/{project}/indicators/{indicator}/achievement', [ProjectController::class, 'updateIndicatorAchievement'])->name('projects.indicators.achievement');
@@ -287,7 +288,18 @@ Route::middleware(['auth'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | SLA Setting (izin: sla.manage)
+    | Report — seluruh data Idea & Project (izin: report.view)
+    |--------------------------------------------------------------------------
+    */
+
+    Route::middleware('permission:report.view')->group(function () {
+        Route::get('/report', [ReportController::class, 'index'])->name('reports.index');
+        Route::get('/report/download', [ReportController::class, 'download'])->name('reports.download');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | SLA > SLA Settings (izin: sla.manage)
     |--------------------------------------------------------------------------
     */
 
@@ -297,6 +309,19 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/sla/{sla}', [SlaSettingController::class, 'update'])->name('sla.update');
         Route::post('/sla/{sla}/toggle', [SlaSettingController::class, 'toggle'])->name('sla.toggle');
         Route::delete('/sla/{sla}', [SlaSettingController::class, 'destroy'])->name('sla.destroy');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | SLA > Email Notifications (izin: reminder.manage)
+    |--------------------------------------------------------------------------
+    */
+
+    Route::prefix('admin')->name('admin.')->middleware('permission:reminder.manage')->group(function () {
+        Route::get('/email-notifications', [EmailNotificationController::class, 'index'])->name('email-notifications.index');
+        Route::post('/email-notifications', [EmailNotificationController::class, 'store'])->name('email-notifications.store');
+        Route::post('/email-notifications/recipients', [EmailNotificationController::class, 'recipients'])->name('email-notifications.recipients');
+        Route::put('/email-notifications/{notification}', [EmailNotificationController::class, 'update'])->name('email-notifications.update');
     });
 
 });

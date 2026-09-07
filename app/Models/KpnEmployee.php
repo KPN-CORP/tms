@@ -44,6 +44,24 @@ class KpnEmployee extends Model
     }
 
     /** Daftar Unit/Department (tanpa kurung) untuk sebuah Business Unit (group_company). */
+    /**
+     * Daftar Job Level unik (1A, 2A, ... 10B) untuk dropdown Filter Job Level.
+     * Diurut angka dulu baru hurufnya supaya 10A tidak mendahului 2A.
+     */
+    public static function jobLevels(): \Illuminate\Support\Collection
+    {
+        return static::query()
+            ->whereNull('deleted_at')
+            ->whereNotNull('job_level')->where('job_level', '!=', '')
+            ->distinct()
+            ->pluck('job_level')
+            ->map(fn ($v) => trim((string) $v))
+            ->filter()
+            ->unique()
+            ->sortBy(fn ($v) => [(int) preg_replace('/\D/', '', $v) ?: 999, $v], SORT_REGULAR)
+            ->values();
+    }
+
     public static function unitsFor(string $businessUnit): \Illuminate\Support\Collection
     {
         return static::query()

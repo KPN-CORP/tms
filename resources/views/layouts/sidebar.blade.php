@@ -19,9 +19,16 @@
 
     // Review Projects tampil bila user terdaftar sebagai committee untuk review
     // project (proposal/completion) di layer mana pun. (Super Admin selalu boleh.)
+    // Committee change request (team/plan/budget) dan Project Sponsor juga menilai
+    // permintaan perubahan, jadi keduanya ikut membuka Task Box.
+    $changeQueue = app(\App\Services\Project\ProjectChangeStagingService::class)->reviewQueueFor($user);
+
     $isProjectCommittee = $user->hasRole('Super Admin')
-        || \App\Models\CommitteeAssignment::whereIn('approval_type', ['project_proposal', 'project_completion'])
-            ->where('user_id', $user->id)->exists();
+        || $changeQueue->isNotEmpty()
+        || \App\Models\CommitteeAssignment::whereIn('approval_type', [
+                'project_proposal', 'project_completion',
+                'team_change', 'plan_indicator_change', 'budget_change',
+            ])->where('user_id', $user->id)->exists();
 
     // Badge Task Box = jumlah item yang MENUNGGU KEPUTUSAN user ini dan benar-benar
     // BISA ia tindak — yaitu antrean di layer committee-nya sendiri (reviewQueueFor),
@@ -37,8 +44,11 @@
         ? app(\App\Services\Idea\IdeaWorkflowService::class)->reviewQueueFor($user)->count()
         : 0;
 
+    // Badge = antrean proposal/completion DITAMBAH permintaan perubahan yang
+    // menunggu keputusan user ini.
     $projectTaskCount = $isProjectCommittee
         ? app(\App\Services\Project\ProjectApprovalWorkflowService::class)->reviewQueueFor($user)->count()
+            + $changeQueue->count()
         : 0;
 
     // Item: [label, route, permission(null=semua login), show(override boolean), active].
@@ -78,9 +88,19 @@
             ['label' => 'Role Management',      'route' => 'admin.roles.index', 'permission' => 'role.manage', 'active' => ['admin.roles.*']],
             // User Management di-hide sementara (menu saja). Uncomment untuk mengaktifkan kembali.
             // ['label' => 'User Management',      'route' => 'admin.users.index', 'permission' => 'user.manage', 'active' => ['admin.users.*']],
-            ['label' => 'SLA Setting',          'route' => 'admin.sla.index', 'permission' => 'sla.manage', 'active' => ['admin.sla.*']],
+            ['label' => 'SLA', 'route' => null, 'permission' => null,
+                'show' => $user->can('sla.manage') || $user->can('reminder.manage'),
+                'active' => ['admin.sla.*', 'admin.email-notifications.*'],
+                'children' => [
+                    ['label' => 'SLA Settings',        'route' => 'admin.sla.index',                 'permission' => 'sla.manage',      'active' => ['admin.sla.*']],
+                    ['label' => 'Email Notifications', 'route' => 'admin.email-notifications.index', 'permission' => 'reminder.manage', 'active' => ['admin.email-notifications.*']],
+                ],
+            ],
             // Activity Log — menu di-hide (pencatatan audit tetap jalan). Uncomment untuk memunculkan.
             // ['label' => 'Activity Log',         'route' => 'admin.activity-logs.index', 'permission' => 'audit.view', 'active' => ['admin.activity-logs.*']],
+        ],
+        'Report' => [
+            ['label' => 'Report', 'route' => 'reports.index', 'permission' => 'report.view', 'active' => ['reports.*']],
         ],
         'Guidelines' => [
             ['label' => 'Guidelines', 'route' => 'guidelines.index', 'permission' => 'guideline.view', 'active' => ['guidelines.*']],
@@ -152,7 +172,9 @@
                                 </svg>
                             </button>
                             <div x-show="open" x-cloak class="ml-4 pl-2 border-l border-gray-200">
-                                @foreach($item['children'] as $child)
+                                {{-- Sub-menu ikut disaring $visible: sub-menu dgn 'permission'
+                                     hanya tampil bila user memang punya izinnya. --}}
+                                @foreach(array_filter($item['children'], $visible) as $child)
                                     <a href="{{ $child['route'] ? route($child['route']) : '#' }}"
                                        class="{{ $childActive($child) ? $activeClass : $itemClass }} text-sm py-2">
                                         {{ $child['label'] }}

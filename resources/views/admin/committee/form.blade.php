@@ -88,7 +88,7 @@
             <p class="text-sm text-gray-500">Approval: <span class="font-semibold">{{ $types[$type] }}</span> — BU: <span class="font-semibold">{{ optional($businessUnits->firstWhere('id', $selectedBuId))->name }}</span> — Unit: <span class="font-semibold">{{ $selectedUnitName ?: 'All Units (BU-wide)' }}</span>@if($usesRange) — Budget: <span class="font-semibold">{{ \App\Models\CommitteeAssignment::budgetRangeLabel($selectedMin, $selectedMax) }}</span>@endif</p>
 
             <h3 class="text-lg font-semibold">Reviewer per Layer</h3>
-            @php $isProposal = $type === 'project_proposal'; @endphp
+            @php $isProposal = \App\Models\CommitteeAssignment::usesSponsorLayer($type); @endphp
             @if($isProposal)
                 <p class="text-xs text-gray-500 -mt-2">Layer 1 is automatically the project's <b>Project Sponsor</b>. Configure the committee from Layer 2.</p>
             @endif

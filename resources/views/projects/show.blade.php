@@ -267,32 +267,6 @@
         <div id="section-implementation" class="bg-white rounded-xl shadow overflow-hidden scroll-mt-6" {!! $collapsible('impl', 'addOpen: false') !!}>
             <button type="button" @click="open = ! open" class="{{ $secBtn }}"><span>Implementation Detail</span>{!! $chevron !!}</button>
             <div x-show="open">
-                {{-- Baseline Actual: status + Submit (Leader) / Approve-Reject (Sponsor). --}}
-                @if($showActual)
-                    <div class="px-4 pt-4 flex flex-wrap items-center justify-between gap-3">
-                        {{-- Baris "Actual status" sengaja tidak ditampilkan (permintaan UI);
-                             status baseline tetap tercermin lewat pesan di bawah + tombol aksi. --}}
-                        <span></span>
-                        <div class="flex items-center gap-2">
-                            @if($canSubmitActual)
-                                <form method="POST" action="{{ route('projects.actual.submit', $project) }}">
-                                    @csrf
-                                    <button data-confirm="Submit the Actual to the Project Sponsor for approval? The Actual will be locked while waiting." data-confirm-title="Submit Actual?" data-confirm-ok="Yes, Submit"
-                                            class="px-4 py-1.5 text-sm bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit Actual</button>
-                                </form>
-                            @endif
-                            @if($isActualSponsor)
-                                <form method="POST" action="{{ route('projects.actual.approve', $project) }}">@csrf<button data-confirm="Approve the Actual baseline? It will be locked afterwards." data-confirm-title="Approve Actual?" data-confirm-ok="Yes, Approve" class="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
-                                <form method="POST" action="{{ route('projects.actual.reject', $project) }}">@csrf<button data-confirm="Return the Actual to the team for revision?" data-confirm-title="Reject Actual?" data-confirm-ok="Yes, Reject" class="px-4 py-1.5 text-sm border border-red-300 text-red-600 rounded-lg font-semibold hover:bg-red-50">Reject</button></form>
-                            @endif
-                        </div>
-                    </div>
-                    @if($project->actualIsPending())
-                        <p class="px-4 pt-2 text-xs text-amber-600">Actual is locked while waiting for Project Sponsor approval.</p>
-                    @elseif($project->actualIsBaselined())
-                        <p class="px-4 pt-2 text-xs text-green-600">Actual baseline approved &amp; locked. Further changes require a change request.</p>
-                    @endif
-                @endif
                 <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
@@ -951,6 +925,121 @@
             </div>
         </div>
 
+        {{-- ===== Change Request menunggu keputusan user ini =====
+             Muncul untuk Sponsor / Committee pada layer yang sedang aktif.
+             Tiap field ditampilkan dua baris: BEFORE (pudar) lalu AFTER (normal),
+             sehingga hasil revisi mudah dibandingkan dgn nilai sebelumnya. --}}
+        @if(isset($changeReviews) && $changeReviews->isNotEmpty())
+            @foreach($changeReviews as $review)
+                @php $upd = $review['update']; @endphp
+                <div class="bg-white rounded-xl shadow overflow-hidden border border-amber-200">
+                    <div class="px-6 py-4 border-b bg-amber-50">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-800">
+                                    Change Request &mdash; {{ $review['label'] }}
+                                </h3>
+                                <p class="text-sm text-gray-600 mt-0.5">
+                                    Requested by {{ optional($upd->requester)->name ?? '—' }}
+                                    &middot; <x-datetime :value="$upd->updated_at" />
+                                    @if($upd->approver_role === 'committee')
+                                        &middot; Layer {{ $upd->current_layer }}
+                                    @else
+                                        &middot; Project Sponsor
+                                    @endif
+                                </p>
+                                @if($upd->review_note)
+                                    <p class="text-sm text-amber-800 mt-1">
+                                        <span class="font-semibold">Previous note:</span> {{ $upd->review_note }}
+                                    </p>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
+                                <tr>
+                                    <th class="px-4 py-2">Item</th>
+                                    <th class="px-4 py-2">Field</th>
+                                    <th class="px-4 py-2">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($review['diff'] as $d)
+                                    @php
+                                        $fmt = function ($v) {
+                                            if (is_array($v)) return implode(', ', $v);
+                                            if (is_bool($v))  return $v ? 'Yes' : 'No';
+                                            return ($v === null || $v === '') ? '—' : $v;
+                                        };
+                                    @endphp
+                                    {{-- Satu field = dua baris. Garis pemisah hanya di ATAS pasangan,
+                                         supaya Before & After terbaca sebagai satu kesatuan. --}}
+                                    <tr class="border-t">
+                                        {{-- Item & Field mewakili KEDUA baris, jadi tidak ikut dipudarkan. --}}
+                                        <td class="px-4 py-2 text-gray-600 align-top" rowspan="2">{{ $d['label'] }}</td>
+                                        <td class="px-4 py-2 text-gray-600 align-top" rowspan="2">{{ $d['field'] }}</td>
+                                        {{-- BEFORE: dipudarkan agar nilai baru yang menonjol. --}}
+                                        <td class="px-4 pt-2 pb-0.5">
+                                            <span class="opacity-50 text-gray-500">
+                                                <span class="text-xs uppercase tracking-wide mr-2">Before</span>
+                                                <span class="line-through">{{ $fmt($d['before']) }}</span>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    {{-- AFTER: warna normal. --}}
+                                    <tr>
+                                        <td class="px-4 pt-0.5 pb-2 text-gray-900 font-semibold">
+                                            <span class="text-xs uppercase tracking-wide mr-2 text-gray-400 font-normal">After</span>
+                                            {{ $fmt($d['after']) }}
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="3" class="px-4 py-3 text-gray-400">No field changes recorded.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-6 border-t space-y-3">
+                        {{-- Bentuk & aturan note disamakan dgn panel keputusan lainnya. --}}
+                        <div x-data="{ note: '', err: false }">
+                            <div class="mb-3">
+                                <textarea id="cr-note-{{ $upd->id }}" rows="2"
+                                          x-ref="crNote" x-model="note" @input="err = false"
+                                          :class="err ? 'border-red-400 focus:ring-red-200' : 'border-gray-300 focus:ring-red-200'"
+                                          class="w-full border rounded-lg px-4 py-2 focus:ring"
+                                          placeholder="Note (optional for Approve; required for Revision Required and Reject)"></textarea>
+                                <p x-show="err" x-cloak class="mt-1 text-xs text-red-600">
+                                    Please write a note explaining your decision.
+                                </p>
+                            </div>
+                            <div class="flex flex-wrap gap-3">
+                                <form method="POST" action="{{ route('projects.updates.approve', [$project, $upd]) }}"
+                                      @submit="$el.note.value = note">
+                                    @csrf<input type="hidden" name="note">
+                                    <button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button>
+                                </form>
+                                {{-- Revision Required tersedia di SETIAP layer approval --}}
+                                <form method="POST" action="{{ route('projects.updates.revision', [$project, $upd]) }}"
+                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); }">
+                                    @csrf<input type="hidden" name="note">
+                                    <button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button>
+                                </form>
+                                <form method="POST" action="{{ route('projects.updates.reject', [$project, $upd]) }}"
+                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); }">
+                                    @csrf<input type="hidden" name="note">
+                                    <button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        @endif
+
         {{-- Approval History --}}
         @if($project->approvals->isNotEmpty())
             <div class="bg-white rounded-xl shadow overflow-hidden" {!! $collapsible('approval') !!}>
@@ -996,10 +1085,74 @@
             <div @class(['bg-white rounded-xl shadow p-6 space-y-4' => $showActions, 'space-y-4' => ! $showActions])
                  x-data="{ cancelOpen: false }">
 
-                @if($isLeader && $canEdit)
+                @if($isSponsor && $project->status === 'submitted')
+                    {{-- Note wajib diisi HANYA untuk Revision Required; Approve boleh tanpa
+                         catatan. Pengecekan di sini menahan submit lebih awal, aturan yang
+                         sama tetap divalidasi ulang di server. --}}
+                    <div x-data="{ note: '', err: false }">
+                        <h3 class="text-lg font-semibold mb-3">Sponsor Approval</h3>
+                        <div class="mb-3">
+                            <textarea form="approveForm" id="sponsor-decision-note" name="note" rows="2"
+                                      x-ref="sponsorNote" x-model="note" @input="err = false"
+                                      :class="err ? 'border-red-400 focus:ring-red-200' : 'border-gray-300 focus:ring-red-200'"
+                                      class="w-full border rounded-lg px-4 py-2 focus:ring"
+                                      placeholder="Note (required for Revision Required)"></textarea>
+                            <p x-show="err" x-cloak class="mt-1 text-xs text-red-600">
+                                Please write a note explaining what needs to be revised.
+                            </p>
+                        </div>
+                        <div class="flex gap-3">
+                            <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
+                            <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}"
+                                  @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.sponsorNote?.focus(); $event.preventDefault(); }">
+                                @csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
+                        </div>
+                    </div>
+                @elseif($isReviewer)
+                    {{-- Bentuk panel disamakan dgn Sponsor Approval: tanpa label "Note",
+                         dan catatan WAJIB untuk Revision Required maupun Reject (Approve
+                         boleh kosong). Server tetap memvalidasi ulang aturan yang sama. --}}
+                    <div x-data="{ note: '', err: false }">
+                        <h3 class="text-lg font-semibold mb-3">Committee {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }} Approval (Layer {{ $project->current_layer }})</h3>
+                        <div class="mb-3">
+                            <textarea form="pApprove" id="committee-decision-note" name="note" rows="2"
+                                      x-ref="committeeNote" x-model="note" @input="err = false"
+                                      :class="err ? 'border-red-400 focus:ring-red-200' : 'border-gray-300 focus:ring-red-200'"
+                                      class="w-full border rounded-lg px-4 py-2 focus:ring"
+                                      placeholder="Note (optional for Approve; required for Revision Required and Reject)"></textarea>
+                            <p x-show="err" x-cloak class="mt-1 text-xs text-red-600">
+                                Please write a note explaining your decision.
+                            </p>
+                        </div>
+                        <div class="flex flex-wrap gap-3">
+                            <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
+                            {{-- Revision Required: tersedia di SEMUA layer proposal. Project langsung
+                                 kembali ke Project Leader (status Revision Required), bukan ditolak. --}}
+                            @if($project->status === 'committee_review')
+                                <form method="POST" action="{{ route('projects.review.revision', $project) }}"
+                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
+                            @endif
+                            <form method="POST" action="{{ route('projects.review.reject', $project) }}"
+                                  @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- SATU baris aksi: keterangan di kiri, seluruh tombol sejajar di kanan
+                     (Draft & Submit pada fase proposal, Save as Draft & Update Project
+                     saat berjalan, lalu Cancel Project). Tombol yang tidak berhak tampil
+                     dilewati begitu saja sehingga sisanya tetap merapat sebaris. --}}
+                @php $aksiLeaderProposal = $isLeader && $canEdit; @endphp
+                @if($aksiLeaderProposal || $canSubmitChanges || $canCancel)
                     <div class="flex flex-wrap items-center justify-between gap-3">
-                        <div class="text-sm text-gray-500">Lengkapi Impl. Plan & Success Indicators (total weight 100%), lalu submit.</div>
-                        <div class="flex items-center gap-3">
+                        @if($aksiLeaderProposal)
+                            <div class="text-sm text-gray-500">Lengkapi Impl. Plan &amp; Success Indicators (total weight 100%), lalu submit.</div>
+                        @else
+                            <span></span>
+                        @endif
+
+                        <div class="flex flex-wrap items-center gap-3">
+                        @if($aksiLeaderProposal)
                             <form method="POST" action="{{ route('projects.draft', $project) }}">
                                 @csrf<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Draft</button>
                             </form>
@@ -1010,36 +1163,8 @@
                                     data-confirm-ok="Yes, Submit Proposal"
                                     class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Submit</button>
                             </form>
-                        </div>
-                    </div>
-                @elseif($isSponsor && $project->status === 'submitted')
-                    <h3 class="text-lg font-semibold mb-3">Keputusan Sponsor</h3>
-                    <div class="mb-3"><label class="block text-sm font-semibold text-gray-600 mb-1">Note</label>
-                        <textarea form="approveForm" id="sponsor-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Note (required for Revision Required)"></textarea></div>
-                    <div class="flex gap-3">
-                        <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
-                        <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}" onsubmit="this.note.value=document.getElementById('sponsor-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
-                    </div>
-                @elseif($isReviewer)
-                    <h3 class="text-lg font-semibold mb-3">Keputusan Committee {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }} (Layer {{ $project->current_layer }})</h3>
-                    <div class="mb-3"><label class="block text-sm font-semibold text-gray-600 mb-1">Note</label>
-                        <textarea form="pApprove" id="committee-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200" placeholder="Note (optional; required for Revision Required)"></textarea></div>
-                    <div class="flex gap-3">
-                        <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
-                        {{-- Revision Required: tersedia di SEMUA layer proposal. Project langsung
-                             kembali ke Project Leader (status Revision Required), bukan ditolak. --}}
-                        @if($project->status === 'committee_review')
-                            <form method="POST" action="{{ route('projects.review.revision', $project) }}" onsubmit="this.note.value=document.getElementById('committee-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
                         @endif
-                        <form method="POST" action="{{ route('projects.review.reject', $project) }}" onsubmit="this.note.value=document.getElementById('committee-decision-note').value">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
-                    </div>
-                @endif
 
-                {{-- Baris aksi bawah: Save as Draft / Update Project / Cancel Project.
-                     Selalu rata kanan; bila salah satu tombol tidak berhak tampil,
-                     sisanya merapat sendiri tanpa menyisakan ruang kosong. --}}
-                @if($canSubmitChanges || $canCancel)
-                    <div class="flex flex-wrap items-center justify-end gap-3 pt-2">
                         @if($canSubmitChanges)
                             <form method="POST" action="{{ route('projects.draft', $project) }}">
                                 @csrf<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Save as Draft</button>
@@ -1066,6 +1191,7 @@
                         @if($canCancel)
                             <button type="button" @click="cancelOpen = true" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Cancel Project</button>
                         @endif
+                        </div>
                     </div>
                 @endif
 

@@ -74,46 +74,13 @@ class Project extends Model
         return in_array($this->status, self::EXECUTION_STATUSES, true);
     }
 
-    /* ---- Baseline Actual Implementation (draft → pending → baselined) ---- */
-
-    public function actualIsDraft(): bool
-    {
-        return in_array($this->actual_status, [null, '', 'draft'], true);
-    }
-
-    public function actualIsPending(): bool
-    {
-        return $this->actual_status === 'pending';
-    }
-
-    public function actualIsBaselined(): bool
-    {
-        return $this->actual_status === 'baselined';
-    }
-
-    /** Actual boleh diedit langsung hanya oleh anggota tim, saat berjalan & masih draft. */
-    public function canEditActual(User $user): bool
-    {
-        return $this->isInExecution() && $this->isTeamMember($user) && $this->actualIsDraft();
-    }
-
-    /** [label, kelas badge] untuk status baseline Actual. */
-    public function actualStatusBadge(): array
-    {
-        return match ($this->actual_status) {
-            'pending'   => ['Waiting Sponsor Approval', 'bg-amber-100 text-amber-700'],
-            'baselined' => ['Actual Baselined', 'bg-green-100 text-green-700'],
-            default     => ['Actual Draft', 'bg-gray-100 text-gray-700'],
-        };
-    }
-
-    /** [label, kelas warna badge] untuk status saat ini. */
     /** Kolom ber-ID user pada project. */
     protected function activityUserFields(): array
     {
         return ['project_leader_id', 'project_sponsor_id'];
     }
 
+    /** [label, kelas warna badge] untuk status saat ini. */
     public function statusBadge(): array
     {
         return self::STATUS_BADGES[$this->status]
@@ -252,14 +219,13 @@ class Project extends Model
      *
      *   proposal       : canLeaderEditProposal() — Leader saat draft/revision,
      *                    atau setelah ada update request yang disetujui.
-     *   implementation : authorizeTeamExecution() — anggota tim, project berjalan,
-     *                    dan Actual masih draft (belum di-baseline).
+     *   implementation : authorizeTeamExecution() — anggota tim & project berjalan.
      *   completion     : tidak ada yang bisa diubah lagi.
      */
     public function isEditableInPhase(User $user, ?string $phase = null): bool
     {
         return match ($phase) {
-            'implementation' => $this->isTeamMember($user) && $this->isInExecution() && $this->actualIsDraft(),
+            'implementation' => $this->isTeamMember($user) && $this->isInExecution(),
             'completion'     => false,
             default          => $this->canLeaderEditProposal($user),
         };

@@ -26,6 +26,24 @@ class CommitteeAssignment extends Model
     /** Approval type yang memakai dimensi budget (range min–max). */
     public const BUDGET_SCOPED_TYPES = ['project_proposal', 'budget_change'];
 
+    /** Layer yang selalu dipegang Project Sponsor. */
+    public const SPONSOR_LAYER = 1;
+
+    /**
+     * Approval type yang Layer 1-nya OTOMATIS Project Sponsor project terkait,
+     * sehingga committee dikonfigurasi mulai Layer 2. Hanya "Idea Submission"
+     * yang tidak punya sponsor, jadi ia bebas dikonfigurasi dari Layer 1.
+     */
+    public const SPONSOR_LAYER_TYPES = [
+        'project_proposal', 'team_change', 'plan_indicator_change',
+        'budget_change', 'project_completion',
+    ];
+
+    public static function usesSponsorLayer(?string $type): bool
+    {
+        return in_array((string) $type, self::SPONSOR_LAYER_TYPES, true);
+    }
+
     /** Sentinel "tak hingga" untuk batas atas range (bilangan bulat, kolom decimal 20,2). */
     public const BUDGET_MAX_UNBOUNDED = 999999999999999;
 

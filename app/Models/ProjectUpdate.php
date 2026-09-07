@@ -28,13 +28,14 @@ class ProjectUpdate extends Model
     protected $fillable = [
         'project_id', 'requested_by', 'change_type', 'description',
         'approver_role', 'status', 'reviewed_by', 'review_note',
-        'snapshot_before', 'snapshot_after', 'payload', 'current_layer',
+        'snapshot_before', 'snapshot_after', 'payload', 'payload_before', 'current_layer',
     ];
 
     protected $casts = [
         'snapshot_before' => 'array',
         'snapshot_after'  => 'array',
         'payload'         => 'array',
+        'payload_before'  => 'array',
     ];
 
     public function project()

@@ -25,7 +25,7 @@
         'committee' => 'Committee', 'backup-approver' => 'Committee', 'override' => 'Committee',
         'budget' => 'Budget',
         'guideline' => 'Guideline',
-        'audit' => 'Monitoring', 'dashboard' => 'Monitoring', 'history' => 'Monitoring',
+        'audit' => 'Monitoring', 'dashboard' => 'Monitoring', 'history' => 'Monitoring', 'report' => 'Monitoring',
         'role' => 'Administration', 'user' => 'Administration', 'team' => 'Administration',
         'job-level' => 'Administration', 'sla' => 'Administration', 'reminder' => 'Administration',
         'visibility' => 'Administration',

@@ -2,6 +2,7 @@
 
 namespace App\Services\Project;
 
+use App\Models\CommitteeAssignment;
 use App\Models\ImplementationIndicator;
 use App\Models\ImplementationPlan;
 use App\Models\Project;
@@ -61,7 +62,7 @@ class ProjectChangeStagingService
      * Simpan perubahan sebagai draft. Satu draft per (project, change_type);
      * perubahan berikutnya digabungkan ke draft yang sama agar tidak menumpuk.
      */
-    public function stage(Project $project, User $user, string $modelClass, int $modelId, array $changes): ?ProjectUpdate
+    public function stage(Project $project, User $user, string $modelClass, int $modelId, array $changes, array $before = []): ?ProjectUpdate
     {
         $section = $this->sectionOf($modelClass);
         if (! $section || ! $changes) {
@@ -70,41 +71,59 @@ class ProjectChangeStagingService
 
         $type = self::SECTION_TYPE[$section];
 
-        return DB::transaction(function () use ($project, $user, $type, $modelClass, $modelId, $changes) {
+        return DB::transaction(function () use ($project, $user, $type, $modelClass, $modelId, $changes, $before) {
+            // Draft baru maupun permintaan yang dikembalikan untuk revisi sama-sama
+            // menampung suntingan berikutnya, sehingga hasil revisi menyatu di
+            // permintaan yang sama (bukan membuat permintaan baru).
             $draft = ProjectUpdate::where('project_id', $project->id)
                 ->where('change_type', $type)
-                ->where('status', 'draft')
+                ->whereIn('status', ['draft', 'revision_required'])
                 ->lockForUpdate()
                 ->first();
 
             $payload = $draft?->payload ?? [];
+            $awal    = $draft?->payload_before ?? [];
             $key     = $modelClass . '#' . $modelId;
 
             // Gabungkan dgn perubahan sebelumnya pada baris yang sama.
             $payload[$key] = array_merge($payload[$key] ?? [], $changes);
 
+            // Nilai SEBELUM hanya dicatat sekali per field: yang benar-benar asli,
+            // bukan hasil suntingan sebelumnya di sesi yang sama.
+            $awal[$key] = array_merge($before, $awal[$key] ?? []);
+
             if ($draft) {
-                $draft->update(['payload' => $payload, 'requested_by' => $user->id]);
+                $draft->update([
+                    'payload'        => $payload,
+                    'payload_before' => $awal,
+                    'requested_by'   => $user->id,
+                ]);
 
                 return $draft;
             }
 
             return ProjectUpdate::create([
-                'project_id'    => $project->id,
-                'requested_by'  => $user->id,
-                'change_type'   => $type,
-                'description'   => self::TYPE_LABEL[$type] . ' (pending submission)',
-                'approver_role' => 'sponsor',   // ditentukan ulang saat submit
-                'status'        => 'draft',
-                'payload'       => $payload,
+                'project_id'     => $project->id,
+                'requested_by'   => $user->id,
+                'change_type'    => $type,
+                'description'    => self::TYPE_LABEL[$type] . ' (pending submission)',
+                'approver_role'  => 'sponsor',   // ditentukan ulang saat submit
+                'status'         => 'draft',
+                'payload'        => $payload,
+                'payload_before' => $awal,
             ]);
         });
     }
 
-    /** Draft yang belum dikirim untuk project ini. */
+    /**
+     * Permintaan yang belum dikirim: draft baru DAN yang dikembalikan penilai
+     * untuk revisi — keduanya menunggu Leader menekan "Update Project".
+     */
     public function drafts(Project $project)
     {
-        return ProjectUpdate::where('project_id', $project->id)->where('status', 'draft')->get();
+        return ProjectUpdate::where('project_id', $project->id)
+            ->whereIn('status', ['draft', 'revision_required'])
+            ->get();
     }
 
     /**
@@ -116,6 +135,8 @@ class ProjectChangeStagingService
         $terkirim = [];
 
         foreach ($this->drafts($project) as $draft) {
+            // Hasil revisi diperiksa ulang dari layer pertama agar layer yang sudah
+            // menyetujui sebelumnya tidak terlewat menilai perubahan barunya.
             [$role, $layer] = $this->routing($project, $draft->change_type);
 
             $draft->update([
@@ -140,13 +161,21 @@ class ProjectChangeStagingService
      */
     public function routing(Project $project, string $type): array
     {
-        $layers = app(ProjectApprovalWorkflowService::class)->committeeLayersFor($project, $type);
+        // Layer 1 SELALU Project Sponsor. Committee (bila ada) menyusul dari Layer 2.
+        return ['sponsor', CommitteeAssignment::SPONSOR_LAYER];
+    }
 
-        if ($layers->isEmpty()) {
-            return ['sponsor', 1];
-        }
+    /** Layer committee berikutnya setelah $layer (mengabaikan Layer 1 milik Sponsor). */
+    private function nextCommitteeLayer(Project $project, string $type, int $layer): ?int
+    {
+        $next = app(ProjectApprovalWorkflowService::class)
+            ->committeeLayersFor($project, $type)
+            ->pluck('layer')
+            ->map(fn ($l) => (int) $l)
+            ->filter(fn ($l) => $l > max($layer, CommitteeAssignment::SPONSOR_LAYER))
+            ->min();
 
-        return ['committee', (int) $layers->min('layer')];
+        return $next ? (int) $next : null;
     }
 
     /** Apakah $user penilai permintaan ini pada layer yang sedang aktif? */
@@ -158,7 +187,8 @@ class ProjectChangeStagingService
 
         $project = $update->project;
 
-        if ($update->approver_role === 'sponsor') {
+        // Layer 1 = Project Sponsor; layer berikutnya = committee sesuai konfigurasi.
+        if ((int) $update->current_layer === CommitteeAssignment::SPONSOR_LAYER) {
             return $project->project_sponsor_id === $user->id;
         }
 
@@ -177,16 +207,19 @@ class ProjectChangeStagingService
     {
         $project = $update->project;
 
-        if ($update->approver_role === 'committee') {
-            $next = app(ProjectApprovalWorkflowService::class)
-                ->committeeLayersFor($project, $update->change_type)
-                ->where('layer', $update->current_layer + 1);
+        // Setelah Sponsor (Layer 1) maupun setelah sebuah layer committee, cari
+        // layer committee berikutnya. Bila tidak ada lagi, payload diterapkan.
+        $next = $this->nextCommitteeLayer($project, $update->change_type, (int) $update->current_layer);
 
-            if ($next->isNotEmpty()) {
-                $update->update(['current_layer' => $update->current_layer + 1, 'reviewed_by' => $user->id, 'review_note' => $note]);
+        if ($next !== null) {
+            $update->update([
+                'current_layer' => $next,
+                'approver_role' => 'committee',
+                'reviewed_by'   => $user->id,
+                'review_note'   => $note,
+            ]);
 
-                return 'forwarded';
-            }
+            return 'forwarded';
         }
 
         $this->applyPayload($update);
@@ -199,6 +232,80 @@ class ProjectChangeStagingService
         ]);
 
         return 'applied';
+    }
+
+    /**
+     * Kembalikan ke pengaju untuk diperbaiki. Tersedia di SETIAP layer approval.
+     * Payload sengaja dipertahankan supaya Leader menyunting dari perubahan yang
+     * sudah dibuat, bukan mengulang dari nol.
+     */
+    public function requestRevision(ProjectUpdate $update, User $user, string $note): void
+    {
+        $update->update([
+            'status'      => 'revision_required',
+            'reviewed_by' => $user->id,
+            'review_note' => $note,
+        ]);
+    }
+
+    /** Permintaan perubahan yang menunggu keputusan $user (untuk Task Box). */
+    public function reviewQueueFor(User $user)
+    {
+        return ProjectUpdate::with('project')
+            ->where('status', 'pending')
+            ->whereIn('change_type', array_keys(self::TYPE_LABEL))
+            ->get()
+            ->filter(fn ($u) => $u->project && $this->isReviewer($u, $user))
+            ->values();
+    }
+
+    /** Permintaan pada satu project yang boleh dinilai $user. */
+    public function reviewableOn(Project $project, User $user)
+    {
+        return ProjectUpdate::where('project_id', $project->id)
+            ->where('status', 'pending')
+            ->whereIn('change_type', array_keys(self::TYPE_LABEL))
+            ->get()
+            ->filter(fn ($u) => $this->isReviewer($u, $user))
+            ->values();
+    }
+
+    /**
+     * Perbandingan before/after per baris & per field, siap ditampilkan.
+     *
+     * @return array<int, array{label:string, row:string, field:string, before:mixed, after:mixed}>
+     */
+    public function diff(ProjectUpdate $update): array
+    {
+        $sebelum = (array) $update->payload_before;
+        $baris   = [];
+
+        foreach ((array) $update->payload as $key => $changes) {
+            [$class, $id] = array_pad(explode('#', $key), 2, null);
+
+            $row   = class_exists($class) ? $class::find($id) : null;
+            $label = $row && method_exists($row, 'activityLabel')
+                ? $row->activityLabel()
+                : class_basename((string) $class) . ' #' . $id;
+
+            foreach ((array) $changes as $field => $after) {
+                $baris[] = [
+                    'label'  => $label,
+                    'row'    => $key,
+                    'field'  => $this->fieldLabel($field),
+                    'before' => $sebelum[$key][$field] ?? null,
+                    'after'  => $after,
+                ];
+            }
+        }
+
+        return $baris;
+    }
+
+    /** Nama field jadi label yang enak dibaca: planning_start -> "Planning Start". */
+    private function fieldLabel(string $field): string
+    {
+        return ucwords(str_replace('_', ' ', $field));
     }
 
     /** Tolak: payload dibuang, data tetap seperti semula. */
