@@ -12,27 +12,46 @@
             <p class="text-gray-500">From idea: <span class="font-mono text-red-700">{{ $idea->idea_id }}</span> — {{ $idea->idea_name }}</p>
         </div>
 
+        @if($draft)
+            {{-- Draft yang dilanjutkan: belum terlihat Leader/Sponsor sampai Create Project. --}}
+            <div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
+                This project shell is saved as a <span class="font-semibold">draft</span> and is not visible to the
+                Leader or Sponsor yet. Complete the form and press <span class="font-semibold">Create Project</span> to assign it.
+            </div>
+        @endif
+
         <form method="POST" action="{{ route('projects.store') }}" class="bg-white rounded-xl shadow p-8 space-y-5">
             @csrf
             <input type="hidden" name="idea_id" value="{{ $idea->idea_id }}">
 
+            @php
+                // Nilai awal tiap field: old input (kembali karena error validasi)
+                // → isi draft yang dilanjutkan → default.
+                // Bentuk blok, bukan @php(...) inline: closure di dalam @php(...)
+                // tidak terkompilasi utuh oleh Blade.
+                $val = fn ($field, $default = null) => old($field, $draft->{$field} ?? $default);
+            @endphp
+
             <div>
                 <label class="block font-semibold mb-1">Project Name <span class="text-red-600">*</span></label>
-                <input type="text" name="project_name" value="{{ old('project_name', $idea->idea_name) }}"
+                <input type="text" name="project_name" value="{{ $val('project_name', $idea->idea_name) }}"
                        class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_name') border-red-500 @enderror">
                 @error('project_name')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             {{-- Category, Sponsor, Leader sejajar (3 kolom); stack di layar sempit --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                @php $selS = $preselect[old('project_sponsor_id')] ?? null; $selL = $preselect[old('project_leader_id')] ?? null; @endphp
+                @php
+                    $selS = $preselect[old('project_sponsor_id', $draftSponsor)] ?? null;
+                    $selL = $preselect[old('project_leader_id', $draftLeader)] ?? null;
+                @endphp
                 <div>
                     <label class="block font-semibold mb-1">Project Category <span class="text-red-600">*</span></label>
                     <select name="project_category_id"
                             class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_category_id') border-red-500 @enderror">
                         <option value="">Select Category</option>
                         @foreach($categories as $cat)
-                            <option value="{{ $cat->id }}" @selected((string) old('project_category_id') === (string) $cat->id)>{{ $cat->name }} ({{ $cat->code }})</option>
+                            <option value="{{ $cat->id }}" @selected((string) $val('project_category_id') === (string) $cat->id)>{{ $cat->name }} ({{ $cat->code }})</option>
                         @endforeach
                     </select>
                     @error('project_category_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
@@ -60,26 +79,30 @@
             <div>
                 <label class="block font-semibold mb-1">Project Scope <span class="text-red-600">*</span></label>
                 <textarea name="project_scope" rows="3" placeholder="Project scope"
-                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_scope') border-red-500 @enderror">{{ old('project_scope') }}</textarea>
+                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('project_scope') border-red-500 @enderror">{{ $val('project_scope') }}</textarea>
                 @error('project_scope')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div>
                 <label class="block font-semibold mb-1">Expected Outcome <span class="text-red-600">*</span></label>
                 <textarea name="expected_outcome" rows="3"
-                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('expected_outcome') border-red-500 @enderror">{{ old('expected_outcome', $idea->expected_outcome) }}</textarea>
+                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('expected_outcome') border-red-500 @enderror">{{ $val('expected_outcome', $idea->expected_outcome) }}</textarea>
                 @error('expected_outcome')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div>
                 <label class="block font-semibold mb-1">Notes <span class="text-gray-400 text-sm font-normal">(optional)</span></label>
                 <textarea name="notes" rows="3" placeholder="Additional notes (optional)"
-                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('notes') border-red-500 @enderror">{{ old('notes') }}</textarea>
+                          class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200 @error('notes') border-red-500 @enderror">{{ $val('notes') }}</textarea>
                 @error('notes')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
             </div>
 
             <div class="flex justify-end gap-3 pt-2">
                 <a href="{{ route('ideas.taskbox', ['tab' => 'approved']) }}" class="px-5 py-2 border rounded-lg hover:bg-gray-100">Cancel</a>
+                {{-- Save as Draft: formnovalidate agar field wajib yang masih kosong
+                     tidak diblokir browser — validasi draft dilonggarkan di server. --}}
+                <button type="submit" name="action" value="draft" formnovalidate
+                        class="px-6 py-2 border border-red-700 text-red-700 rounded-lg font-semibold hover:bg-red-50">Save as Draft</button>
                 <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Create Project</button>
             </div>
         </form>

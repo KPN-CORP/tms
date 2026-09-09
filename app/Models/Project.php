@@ -51,6 +51,64 @@ class Project extends Model
         return $this->project_id ?? ($this->project_name ?? 'Project #' . $this->getKey());
     }
 
+    /**
+     * Status Project Shell di menu Project Shell — DITURUNKAN dari ada/tidaknya
+     * shell untuk sebuah ide (lihat shellStatusFor() & ProjectController::shellIndex),
+     * bukan kolom status lifecycle project:
+     *   not_assigned : ide sudah approved tapi belum dibuatkan project shell
+     *   draft        : shell disimpan sebagai draft (belum dibuat, bisa dihapus)
+     *   assigned     : shell sudah dibuat & Leader/Sponsor ditetapkan
+     */
+    public const SHELL_STATUS_BADGES = [
+        'not_assigned' => ['Not Assigned', 'bg-gray-100 text-gray-600'],
+        'draft'        => ['Draft', 'bg-amber-100 text-amber-800'],
+        'assigned'     => ['Assigned', 'bg-green-100 text-green-700'],
+    ];
+
+    /** Status shell untuk satu baris menu Project Shell (null = belum ada shell). */
+    public static function shellStatusFor(?self $shell): string
+    {
+        if ($shell === null) {
+            return 'not_assigned';
+        }
+
+        return $shell->is_shell_draft ? 'draft' : 'assigned';
+    }
+
+    /** [label, kelas badge] untuk status shell. */
+    public static function shellStatusBadge(string $status): array
+    {
+        return self::SHELL_STATUS_BADGES[$status]
+            ?? [ucwords(str_replace('_', ' ', $status)), 'bg-gray-100 text-gray-700'];
+    }
+
+    /**
+     * Draft shell TIDAK PERNAH ikut pada query Project mana pun (My Project,
+     * Implementation, Completion, review queue, dashboard, report, email) —
+     * shell yang masih draft belum boleh dilihat Leader/Sponsor. Satu-satunya
+     * pintu masuknya adalah scope withShellDrafts()/onlyShellDrafts() yang
+     * dipakai menu Project Shell dan form Create Project Shell.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('excludeShellDrafts', function (Builder $query) {
+            $query->where($query->qualifyColumn('is_shell_draft'), false);
+        });
+    }
+
+    /** Sertakan draft shell (mis. saat melanjutkan draft di form Create Project Shell). */
+    public function scopeWithShellDrafts(Builder $query): Builder
+    {
+        return $query->withoutGlobalScope('excludeShellDrafts');
+    }
+
+    /** HANYA draft shell. */
+    public function scopeOnlyShellDrafts(Builder $query): Builder
+    {
+        return $query->withoutGlobalScope('excludeShellDrafts')
+            ->where($query->qualifyColumn('is_shell_draft'), true);
+    }
+
     /** Peta status review → jenis approval SLA. */
     public const SLA_REVIEW_TYPES = [
         'committee_review'  => 'project_proposal',
@@ -131,10 +189,15 @@ class Project extends Model
         'project_category',
         'project_category_id',
         'status',
+        'is_shell_draft',
         'current_layer',
         'actual_status',
         'project_sponsor_id',
         'project_leader_id',
+    ];
+
+    protected $casts = [
+        'is_shell_draft' => 'boolean',
     ];
 
     public function isEditableByLeader(User $user): bool

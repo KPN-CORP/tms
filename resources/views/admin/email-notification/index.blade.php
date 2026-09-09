@@ -23,6 +23,40 @@
 
         @if(session('success'))
             <div class="mb-4 rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3">{{ session('success') }}</div>
+
+            {{-- Dialog hasil pengiriman — muncul sekali setelah Confirm & Submit
+                 (form dikirim biasa lalu redirect, jadi dialog ditampilkan dari
+                 flash session, bukan saat klik: dengan begitu pesannya hanya
+                 tampil kalau penyimpanan memang berhasil, bukan saat validasi gagal). --}}
+            @php $terkirim = (int) session('sent_count') > 0; @endphp
+            <div x-data="{ open: true }" x-show="open" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                 @keydown.escape.window="open = false">
+                <div class="absolute inset-0 bg-black/40" @click="open = false"></div>
+
+                <div class="relative bg-white rounded-lg shadow-xl w-full max-w-md">
+                    <div class="px-6 pt-7 pb-5 text-center">
+                        <div class="mx-auto w-12 h-12 rounded-full flex items-center justify-center
+                                    {{ $terkirim ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600' }}">
+                            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                @if($terkirim)
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                @else
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                @endif
+                            </svg>
+                        </div>
+                        <h3 class="mt-4 text-lg font-bold text-gray-800">
+                            {{ $terkirim ? 'Email Sent' : 'No Recipients' }}
+                        </h3>
+                        <p class="mt-1.5 text-sm text-gray-600">{{ session('success') }}</p>
+                    </div>
+                    <div class="flex justify-center px-6 pb-6">
+                        <button type="button" @click="open = false" x-init="$nextTick(() => $el.focus())"
+                                class="px-10 py-2 bg-red-700 text-white rounded text-sm font-semibold hover:bg-red-800">OK</button>
+                    </div>
+                </div>
+            </div>
         @endif
 
         <div class="bg-white rounded-lg shadow-lg border border-gray-200">
@@ -36,7 +70,7 @@
                 </a>
             </div>
 
-            <form method="POST" action="{{ $action }}" class="px-8 pb-8 pt-2 space-y-5"
+            <form method="POST" action="{{ $action }}" class="px-8 pb-8 pt-2 space-y-5" x-ref="form"
                   x-data="notifForm({{ Js::from($arr('repeat_days')) }}, {{ Js::from($val('message', '')) }})">
                 @csrf
                 @if($isEdit) @method('PUT') @endif
@@ -316,6 +350,18 @@
                     recipients: { total: 0, sample: [], unfiltered: true, loading: true },
                     confirm: { open: false, loading: false, total: 0, recipients: [], truncated: false, unfiltered: true },
 
+                    // Akar pencarian filter = elemen <form>.
+                    // PENTING: jangan memakai this.$el di dalam method. Alpine menilai
+                    // $el sebagai elemen tempat ekspresi ditulis, jadi saat method
+                    // dipanggil dari @click tombol Submit/Refresh, $el adalah TOMBOL —
+                    // querySelector('select[...]') pada tombol selalu null sehingga
+                    // filter terkirim kosong dan dialog konfirmasi menampilkan
+                    // seluruh karyawan. $refs.form selalu menunjuk <form> karena
+                    // $refs menelusuri elemen induk.
+                    formEl() {
+                        return this.$refs.form || this.$el.closest('form') || this.$el;
+                    },
+
                     init() {
                         // Isi awal editor dipasang sbg HTML supaya format tersimpan tetap tampil.
                         this.$refs.editor.innerHTML = message || '';
@@ -326,7 +372,7 @@
                         // Hitung ulang tiap filter organisasi berubah. TomSelect dipasang
                         // setelah Alpine init, jadi pemasangan listener ditunda sesaat.
                         setTimeout(() => {
-                            this.$el.querySelectorAll('select[name$="[]"]').forEach(el => {
+                            this.formEl().querySelectorAll('select[name$="[]"]').forEach(el => {
                                 if (el.tomselect) {
                                     el.tomselect.on('change', () => this.loadRecipients());
                                 } else {
@@ -343,8 +389,9 @@
                         // sendiri, sehingga membaca option:checked mengembalikan kosong.
                         // Nilai diambil dari instance-nya; selectedOptions hanya cadangan
                         // untuk select yang belum/tidak di-TomSelect-kan.
+                        const form = this.formEl();
                         const pick = (name) => {
-                            const el = this.$el.querySelector('select[name="' + name + '[]"]');
+                            const el = form.querySelector('select[name="' + name + '[]"]');
                             if (! el) return [];
 
                             if (el.tomselect) {
@@ -390,7 +437,7 @@
                                 // Bila pengecekan gagal, jangan menghalangi: kirim form apa adanya.
                                 this.confirm.loading = false;
                                 this.syncMessage();
-                                this.$el.submit();
+                                this.formEl().submit();
                             });
                     },
 

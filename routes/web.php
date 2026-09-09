@@ -143,6 +143,9 @@ Route::middleware(['auth'])->group(function () {
     // Project Shell (diakses dari menu My Ideas > Project Shell). WAJIB di atas
     // /projects/{project} agar segmen "shell" tidak tertangkap wildcard.
     Route::get('/projects/shell', [ProjectController::class, 'shellIndex'])->name('projects.shell');
+    // Hapus draft shell. Parameter bukan {project}: route model binding memakai
+    // global scope Project yang justru membuang draft.
+    Route::delete('/projects/shell-draft/{shell}', [ProjectController::class, 'destroyShellDraft'])->name('projects.shell.draft.destroy');
     Route::get('/projects/shell/{project}', [ProjectController::class, 'shellProgress'])->name('projects.shell.progress');
 
     // Review project (proposal & completion — akses dicek via committee assignment)

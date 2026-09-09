@@ -50,23 +50,42 @@ class ProjectController extends Controller
         // --- (DI-COMMENT) Load semua employee — sekarang dropdown pakai AJAX search.
         // $employees = KpnEmployee::select('employee_id', 'fullname', 'designation')->orderBy('fullname')->get();
 
-        // Pre-fill Leader/Sponsor saat ada old input (mis. kembali karena error validasi).
+        // Draft shell yang sudah ada untuk ide ini → form melanjutkan draft tsb
+        // (satu draft per ide, lihat store()).
+        $draft = Project::onlyShellDrafts()->where('idea_id', $idea->idea_id)->first();
+
+        // Dropdown Leader/Sponsor memakai employee_id, sedangkan draft menyimpan
+        // users.id — dipetakan balik lewat relasi leader/sponsor.
+        $draftLeader  = $draft ? optional($draft->leader)->employee_id : null;
+        $draftSponsor = $draft ? optional($draft->sponsor)->employee_id : null;
+
+        // Pre-fill Leader/Sponsor: old input (mis. kembali karena error validasi)
+        // atau isi draft.
         $preselect = KpnEmployee::query()
-            ->whereIn('employee_id', array_filter([old('project_leader_id'), old('project_sponsor_id')]))
+            ->whereIn('employee_id', array_filter([
+                old('project_leader_id', $draftLeader),
+                old('project_sponsor_id', $draftSponsor),
+            ]))
             ->get()
             ->keyBy('employee_id');
 
         return view('projects.create', [
-            'idea'       => $idea,
-            'categories' => ProjectCategory::where('is_active', true)->orderBy('name')->get(),
-            'preselect'  => $preselect,
-            'searchUrl'  => route('org.employees'),
+            'idea'         => $idea,
+            'draft'        => $draft,
+            'draftLeader'  => $draftLeader,
+            'draftSponsor' => $draftSponsor,
+            'categories'   => ProjectCategory::where('is_active', true)->orderBy('name')->get(),
+            'preselect'    => $preselect,
+            'searchUrl'    => route('org.employees'),
         ]);
     }
 
     public function store(Request $request)
     {
-        $data = $request->validate([
+        // Tombol "Save as Draft" mengirim action=draft; "Create Project" tidak.
+        $isDraft = $request->input('action') === 'draft';
+
+        $rules = [
             'idea_id'             => ['required', 'exists:ideas,idea_id'],
             'project_name'        => ['required', 'string', 'max:255'],
             'project_category_id' => ['required', 'integer', 'exists:project_categories,id'],
@@ -75,59 +94,115 @@ class ProjectController extends Controller
             'notes'               => ['nullable', 'string', 'max:2000'],
             'project_sponsor_id'  => ['required', 'string', 'exists:kpncorp.employees,employee_id'],
             'project_leader_id'   => ['required', 'string', 'exists:kpncorp.employees,employee_id'],
-        ]);
+        ];
 
-        $idea     = Idea::where('idea_id', $data['idea_id'])->firstOrFail();
+        if ($isDraft) {
+            // Draft boleh belum lengkap: yang wajib jadi opsional, tapi batas
+            // panjang & referensi tetap divalidasi. Kewajiban isi ditegakkan
+            // saat "Create Project".
+            foreach ($rules as $field => $rule) {
+                if ($field === 'idea_id') {
+                    continue;
+                }
+                $rules[$field] = array_map(fn ($r) => $r === 'required' ? 'nullable' : $r, $rule);
+            }
+        }
+
+        $data = $request->validate($rules);
+
+        $idea = Idea::where('idea_id', $data['idea_id'])->firstOrFail();
         $this->authorizeShellCreator($request->user(), $idea);
 
-        $leaderEmployee = KpnEmployee::where(
-            'employee_id',
-            $data['project_leader_id']
-        )->firstOrFail();
+        $category = ! empty($data['project_category_id'])
+            ? ProjectCategory::findOrFail($data['project_category_id'])
+            : null;
 
-        $sponsorEmployee = KpnEmployee::where(
-            'employee_id',
-            $data['project_sponsor_id']
-        )->firstOrFail();
+        $leaderEmployee = ! empty($data['project_leader_id'])
+            ? KpnEmployee::where('employee_id', $data['project_leader_id'])->firstOrFail()
+            : null;
 
-        $category = ProjectCategory::findOrFail($data['project_category_id']);
+        $sponsorEmployee = ! empty($data['project_sponsor_id'])
+            ? KpnEmployee::where('employee_id', $data['project_sponsor_id'])->firstOrFail()
+            : null;
 
-        // T-86: eligibility Leader/Sponsor terhadap grade kategori.
-
-        $errors  = [];
-        if (! $category->eligibleAsLeader($leaderEmployee->grade())) {
+        // T-86: eligibility Leader/Sponsor terhadap grade kategori. Pada draft
+        // yang belum lengkap pemeriksaan dilewati — dicek lagi saat Create Project.
+        $errors = [];
+        if ($category && $leaderEmployee && ! $category->eligibleAsLeader($leaderEmployee->grade())) {
             $errors['project_leader_id'] = "Job level Leader tidak memenuhi syarat kategori {$category->code} ({$category->gradeRangeText($category->leader_grade_min, $category->leader_grade_max)}).";
         }
-        if (! $category->eligibleAsSponsor($sponsorEmployee->grade())) {
+        if ($category && $sponsorEmployee && ! $category->eligibleAsSponsor($sponsorEmployee->grade())) {
             $errors['project_sponsor_id'] = "Job level Sponsor tidak memenuhi syarat kategori {$category->code} ({$category->gradeRangeText($category->sponsor_grade_min, $category->sponsor_grade_max)}).";
         }
         if ($errors) {
             return back()->withErrors($errors)->withInput();
         }
 
-        $leaderUser  = $this->getOrCreateUser($leaderEmployee);
-        $sponsorUser = $this->getOrCreateUser($sponsorEmployee);
+        $leaderUser  = $leaderEmployee ? $this->getOrCreateUser($leaderEmployee) : null;
+        $sponsorUser = $sponsorEmployee ? $this->getOrCreateUser($sponsorEmployee) : null;
 
-        if (! $leaderUser || ! $sponsorUser) {
+        if (($leaderEmployee && ! $leaderUser) || ($sponsorEmployee && ! $sponsorUser)) {
             return back()->withErrors(array_filter([
-                'project_leader_id'  => $leaderUser ? null : 'The leader does not have a user account in hcis.',
-                'project_sponsor_id' => $sponsorUser ? null : 'The sponsor does not have a user account in hcis.',
+                'project_leader_id'  => ($leaderEmployee && ! $leaderUser) ? 'The leader does not have a user account in hcis.' : null,
+                'project_sponsor_id' => ($sponsorEmployee && ! $sponsorUser) ? 'The sponsor does not have a user account in hcis.' : null,
             ]))->withInput();
         }
 
-        $data['project_leader_id']  = $leaderUser->id;
-        $data['project_sponsor_id'] = $sponsorUser->id;
+        $data['project_leader_id']  = $leaderUser?->id;
+        $data['project_sponsor_id'] = $sponsorUser?->id;
 
+        // Satu draft per ide: Save as Draft / Create Project menimpa draft yang ada
+        // (form Create Project Shell selalu memuat draft tsb bila sudah ada).
+        $draft = Project::onlyShellDrafts()->where('idea_id', $idea->idea_id)->first();
 
+        $attributes = $data + [
+            'project_category' => $category?->code,
+            'is_shell_draft'   => $isDraft,
+        ];
 
-        $project = Project::create($data + [
-            'project_category' => $category->code,
-            'project_id'       => $this->generateProjectId($idea, $category->code),
-        ]);
+        if ($isDraft) {
+            $draft ? $draft->update($attributes) : Project::create($attributes);
+
+            return redirect()
+                ->route('projects.shell')
+                ->with('success', 'Project shell saved as draft.');
+        }
+
+        // project_id baru dibuat saat shell benar-benar dibuat (draft belum punya).
+        $attributes['project_id'] = $draft?->project_id
+            ?: $this->generateProjectId($idea, $category->code);
+
+        if ($draft) {
+            $draft->update($attributes);
+            $project = $draft;
+        } else {
+            $project = Project::create($attributes);
+        }
 
         return redirect()
             ->route('projects.show', $project)
             ->with('success', "Project shell created ({$project->project_id}).");
+    }
+
+    /**
+     * Hapus draft Project Shell. Hanya draft yang boleh dihapus — shell yang
+     * sudah dibuat dibatalkan lewat Cancel Project, bukan delete.
+     */
+    public function destroyShellDraft(Request $request, string $shell)
+    {
+        $user  = $request->user();
+        $draft = Project::onlyShellDrafts()->findOrFail($shell);
+
+        if (! $user->hasRole('Super Admin')) {
+            $idea = Idea::where('idea_id', $draft->idea_id)->firstOrFail();
+            $this->authorizeShellCreator($user, $idea);
+        }
+
+        $draft->delete();
+
+        return redirect()
+            ->route('projects.shell')
+            ->with('success', 'Draft project shell deleted.');
     }
 
 
@@ -296,42 +371,117 @@ class ProjectController extends Controller
     /* ---- Project Shell (My Ideas > Project Shell) -------------------- */
 
     /**
-     * Daftar Project Shell untuk Idea Committee layer terakhir: semua project yang
-     * lahir dari ide yang direview user ini di layer terakhir. Super Admin melihat semua.
+     * Daftar Project Shell untuk Idea Committee layer terakhir. Barisnya adalah
+     * IDE yang sudah approved LEFT JOIN project shell-nya, sehingga:
+     *   - ide yang belum dibuatkan shell tetap tampil → status "Not Assigned",
+     *   - ide dengan lebih dari satu shell tampil satu baris per shell.
+     * Super Admin melihat semua ide approved.
+     *
+     * Status per baris (Project::shellStatusFor): Not Assigned (belum ada shell)
+     * → Draft (shell masih draft, bisa dihapus) → Assigned (shell sudah dibuat).
      */
     public function shellIndex(Request $request)
     {
         $user = $request->user();
 
-        $base = $user->hasRole('Super Admin')
-            ? Project::query()
-            : Project::whereIn('idea_id', $this->lastLayerCommitteeIdeaIds($user));
+        // LEFT JOIN memakai alias 'ps' agar kolom project (id/status/created_at)
+        // tidak menabrak kolom ide; 'ideas.*' didahulukan supaya model tetap Idea.
+        $base = Idea::query()
+            ->where('ideas.status', 'approved')
+            ->leftJoin('projects as ps', 'ps.idea_id', '=', 'ideas.idea_id')
+            ->select([
+                'ideas.*',
+                'ps.id as shell_pk',
+                'ps.is_shell_draft as shell_is_draft',
+            ]);
 
-        return $this->projectList($request, [
-            'title'         => 'Project Shell',
-            'subtitle'      => 'Project shells created from ideas you reviewed at the last committee layer.',
-            'route'         => 'projects.shell',
-            'detailRoute'   => 'projects.shell.progress',
-            'phaseStatuses' => null,
-            'statusMap'     => [
-                'draft'     => 'draft',
-                'submitted' => 'submitted',
-                'approved'  => 'approved',
-                'ongoing'   => 'ongoing',
-                'completed' => 'completed',
-                'cancelled' => 'cancelled',
+        if (! $user->hasRole('Super Admin')) {
+            $base->whereIn('ideas.idea_id', $this->lastLayerCommitteeIdeaIds($user));
+        }
+
+        $config = [
+            // Search ditangani manual di bawah: entri ber-titik pada 'searchable'
+            // diartikan HasListQuery sebagai relasi, sedangkan di sini kolomnya
+            // WAJIB berkualifikasi tabel (idea_id ada di kedua tabel).
+            'searchable'   => [],
+            'sortable'     => [
+                'idea_id'      => 'ideas.idea_id',
+                'project_id'   => 'ps.project_id',
+                'project_name' => 'ps.project_name',
+                'created_at'   => 'ideas.created_at',
             ],
+            'default_sort' => 'created_at',
+            'default_dir'  => 'desc',
+        ];
+
+        // Filter BU/Unit by NAMA (dropdown dari hcis) — kolom denormalisasi di ideas.
+        $term  = trim((string) $request->get('q'));
+        $query = (clone $base)
+            ->when($request->filled('bu'), fn ($q) => $q->where('ideas.business_unit_name', $request->get('bu')))
+            ->when($request->filled('unit'), fn ($q) => $q->where('ideas.department_name', $request->get('unit')))
+            ->when($term !== '', fn ($q) => $q->where(function ($sub) use ($term) {
+                foreach (['ideas.idea_id', 'ideas.idea_name', 'ps.project_id', 'ps.project_name'] as $col) {
+                    $sub->orWhere($col, 'like', "%{$term}%");
+                }
+            }));
+
+        $this->applyListSearchSort($query, $request, $config);
+
+        // Status shell bukan kolom tunggal — disaring dari hasil JOIN.
+        $filters = [
+            'draft'        => fn ($q) => $q->where('ps.is_shell_draft', true),
+            'assigned'     => fn ($q) => $q->where('ps.is_shell_draft', false),
+            'not_assigned' => fn ($q) => $q->whereNull('ps.id'),
+        ];
+
+        // Jumlah per status (angka di tab) — sadar search & filter, sebelum tab.
+        $counts = collect($filters)
+            ->map(fn ($filter) => (clone $query)->reorder()->tap($filter)->count());
+
+        $tab = array_key_exists($request->get('tab'), $filters) ? $request->get('tab') : 'all';
+        if ($tab !== 'all') {
+            $query->tap($filters[$tab]);
+        }
+
+        $perPage = $this->listPerPage($request);
+        $rows    = $query->paginate($perPage)->withQueryString();
+
+        // Boleh membuat/melanjutkan shell? Hanya committee layer terakhir ide ybs
+        // (authorizeShellCreator). Daftar user non-admin SUDAH disaring dengan
+        // syarat yang sama, jadi pemeriksaan per baris hanya perlu untuk Super
+        // Admin — yang melihat semua ide approved, termasuk yang bukan miliknya.
+        // Baris yang tidak boleh menampilkan dialog penjelasan, bukan tombol mati.
+        $workflow    = app(IdeaWorkflowService::class);
+        $isAdminView = $user->hasRole('Super Admin');
+        $rows->getCollection()->transform(function (Idea $row) use ($workflow, $user, $isAdminView) {
+            $row->can_create_shell = ! $isAdminView || $workflow->isLastLayerCommittee($row, $user);
+
+            return $row;
+        });
+
+        // Shell (beserta Leader/Sponsor) untuk baris di halaman ini. Diambil
+        // terpisah, bukan lewat JOIN, karena users ada di koneksi kpncorp.
+        $shells = Project::withShellDrafts()
+            ->with(['leader', 'sponsor'])
+            ->whereIn('id', $rows->pluck('shell_pk')->filter()->all())
+            ->get()
+            ->keyBy('id');
+
+        return view('projects.shell-list', [
+            'rows'    => $rows,
+            'shells'  => $shells,
+            'perPage' => $perPage,
+            'buNames' => KpnBusinessUnit::names(),
+            'counts'  => $counts,
+            'total'   => $counts->sum(),
+            'tab'     => $tab,
             'tabDefs' => [
-                'all'       => 'All',
-                'draft'     => 'Draft',
-                'submitted' => 'Submitted',
-                'approved'  => 'Approved',
-                'ongoing'   => 'Ongoing',
-                'completed' => 'Completed',
-                'cancelled' => 'Cancelled',
+                'all'          => 'All',
+                'draft'        => 'Draft',
+                'assigned'     => 'Assigned',
+                'not_assigned' => 'Not Assigned',
             ],
-            'base' => $base,
-        ]);
+        ] + $this->listSortState($request, $config));
     }
 
     /** Halaman progress sebuah Project Shell: Progress Summary + Activities. */
@@ -445,24 +595,29 @@ class ProjectController extends Controller
             ]);
         }
 
-        // Terbaru di atas (-timestamp). Bila beberapa entri jatuh pada detik yang
-        // sama - mis. approval Sponsor L1 lalu auto-approve L2 - tie-break 'seq'
-        // menaik menjaga urutan kejadian: L1 dulu, baru L2.
+        // Ambil dulu $limit entri TERBARU (-timestamp), lalu tampilkan menaik:
+        // paling lama di atas, sehingga history terbaca sesuai urutan kejadian /
+        // sequence layer (Submitted -> On Review dulu, baru On Review -> On Review).
+        // Bila beberapa entri jatuh pada detik yang sama - mis. approval Sponsor L1
+        // lalu auto-approve L2 - tie-break 'seq' menaik menjaga urutan: L1 dulu, baru L2.
         return $items
             ->filter(fn ($i) => $i['at'] !== null)
             ->sortBy(fn ($i) => [-$i['at']->getTimestamp(), $i['seq']])
             ->take($limit)
+            ->sortBy(fn ($i) => [$i['at']->getTimestamp(), $i['seq']])
             ->values();
     }
 
     /**
-     * idea_id dari ide-ide yang user ini review di layer TERAKHIR.
-     * Dipersempit dulu ke ide yang sudah punya project agar tidak memeriksa semua ide.
+     * idea_id dari ide-ide APPROVED yang user ini review di layer TERAKHIR —
+     * dasar menu Project Shell (termasuk ide yang belum dibuatkan shell).
+     * Dipersempit dulu lewat committee assignment BU agar pemeriksaan layer
+     * per ide (di PHP) tidak menyapu seluruh tabel ideas.
      */
     private function lastLayerCommitteeIdeaIds(User $user): array
     {
         $candidates = Idea::query()
-            ->whereIn('idea_id', Project::query()->select('idea_id'))
+            ->where('status', 'approved')
             ->whereExists(function ($sub) use ($user) {
                 $sub->selectRaw('1')
                     ->from('committee_assignments as ca')
@@ -1885,6 +2040,10 @@ class ProjectController extends Controller
     {
         abort_unless($idea->status === 'approved', 403, 'Idea is not approved yet.');
 
+        // TIDAK ada pembebasan Super Admin: membuat shell tetap hak committee
+        // layer terakhir. Di menu Project Shell (yang memperlihatkan semua ide
+        // approved ke Super Admin) tombolnya diganti dialog penjelasan lewat
+        // flag can_create_shell — lihat shellIndex().
         $isLastLayer = app(IdeaWorkflowService::class)->isLastLayerCommittee($idea, $user);
 
         abort_unless($isLastLayer, 403, 'Only the last committee layer may create a project.');

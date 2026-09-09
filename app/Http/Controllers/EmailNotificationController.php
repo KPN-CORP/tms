@@ -75,20 +75,44 @@ class EmailNotificationController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, EmailRecipientResolver $resolver)
     {
-        EmailNotificationSchedule::create($this->validated($request));
+        $schedule = EmailNotificationSchedule::create($this->validated($request));
 
         return redirect()->route('admin.email-notifications.index')
-            ->with('success', 'Email notification saved.');
+            ->with($this->flashTerkirim($schedule, $resolver));
     }
 
-    public function update(Request $request, EmailNotificationSchedule $notification)
+    public function update(Request $request, EmailNotificationSchedule $notification, EmailRecipientResolver $resolver)
     {
         $notification->update($this->validated($request));
 
         return redirect()->route('admin.email-notifications.index')
-            ->with('success', 'Email notification updated.');
+            ->with($this->flashTerkirim($notification, $resolver));
+    }
+
+    /**
+     * Pesan untuk dialog setelah Confirm & Submit.
+     *
+     * PENTING: di titik ini TIDAK ada email yang dikirim — jadwal hanya disimpan
+     * (belum ada Mail/Job/command yang membaca email_notification_schedules).
+     * Teks "sent" dipakai atas permintaan agar admin sudah mendapat umpan balik
+     * seperti nanti saat pengiriman benar-benar aktif; ubah dua string di bawah
+     * ini saja bila kelak ingin kembali memakai kalimat "saved".
+     *
+     * Jumlah penerima dihitung ulang dari filter yang TERSIMPAN, jadi angkanya
+     * pasti sama dengan yang tampil di dialog Confirm Recipients.
+     */
+    private function flashTerkirim(EmailNotificationSchedule $schedule, EmailRecipientResolver $resolver): array
+    {
+        $jumlah = $resolver->countFor($schedule);
+
+        return [
+            'sent_count' => $jumlah,
+            'success'    => $jumlah > 0
+                ? "Email successfully sent to {$jumlah} employee(s)."
+                : 'Saved, but no employee matches these filters — so nobody received this email.',
+        ];
     }
 
     /**
