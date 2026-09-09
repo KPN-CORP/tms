@@ -342,7 +342,7 @@ class ProjectController extends Controller
             'You do not have access to this project shell.');
 
         $project->load([
-            'category', 'idea', 'sponsor', 'leader', 'members.user',
+            'category', 'idea.businessUnit', 'idea.department', 'sponsor', 'leader', 'members.user',
             'implementationPlans', 'indicators',
             'statusLogs.changedBy', 'updates.requester', 'updates.reviewer',
         ]);
@@ -1074,25 +1074,21 @@ class ProjectController extends Controller
             'actual_end.after_or_equal'   => 'Actual End must be on or after Actual Start.',
         ]);
 
-        // Saat project berjalan, Actual & Remarks TIDAK lagi langsung tersimpan:
-        // keduanya ikut change request "Plan & Indicator Change" seperti field
-        // rencana. Di fase proposal, writeOrStage() tetap menulisnya langsung.
-        $langsung = [];
-
-        $proposal = [
+        // Actual & Remarks = realisasi lapangan -> SELALU langsung tersimpan,
+        // termasuk saat project berjalan. Hanya field rencana (Activity, Planned
+        // date, PIC) yang ditahan sebagai change request "Plan & Indicator Change".
+        $langsung = [
             'actual_start' => $data['actual_start'] ?? null,
             'actual_end'   => $data['actual_end'] ?? null,
             'remarks'      => $data['remarks'] ?? null,
         ];
 
-        if ($mayEditProposal) {
-            $proposal += [
-                'activity'       => $data['activity'],
-                'planning_start' => $data['planning_start'] ?? null,
-                'planning_end'   => $data['planning_end'] ?? null,
-                'pic_user_ids'   => $data['pic_user_ids'] ?? [],
-            ];
-        }
+        $proposal = $mayEditProposal ? [
+            'activity'       => $data['activity'],
+            'planning_start' => $data['planning_start'] ?? null,
+            'planning_end'   => $data['planning_end'] ?? null,
+            'pic_user_ids'   => $data['pic_user_ids'] ?? [],
+        ] : [];
 
         $distage = $this->writeOrStage($request, $project, $plan, $langsung, $proposal);
 
@@ -1325,8 +1321,9 @@ class ProjectController extends Controller
     /** Perubahan field proposal harus ditampung (belum berlaku) alih-alih ditulis langsung? */
     private function stagesProposalChanges(Project $project, User $user): bool
     {
-        // Saat project berjalan, SEMUA suntingan — termasuk pengisian Actual oleh
-        // anggota tim — melewati change request per section, bukan langsung ke data.
+        // Saat project berjalan, suntingan field RENCANA melewati change request
+        // per section. Data realisasi (Actual, Remarks, Achievement) tidak lewat
+        // sini — writeOrStage() menulisnya langsung lewat argumen $langsung.
         return ! $project->canLeaderEditProposal($user)
             && $project->isInExecution()
             && ($project->project_leader_id === $user->id || $this->canEditRow($project, $user));
@@ -1528,12 +1525,19 @@ class ProjectController extends Controller
             ]);
         }
 
-        // Achievement pun masuk change request "Plan & Indicator Change" saat
-        // project berjalan (bukan lagi tersimpan langsung).
-        $langsung = [];
-        $proposal = [
+        // Achievement = realisasi -> langsung tersimpan; field rencana indikator
+        // tetap lewat change request saat project berjalan. Selama usulan rencana
+        // masih ditahan, % Improvement dihitung dari baseline & type yang MASIH
+        // berlaku — bukan dari usulan yang belum disetujui.
+        $ditahan  = $this->stagesProposalChanges($project, $request->user());
+        $baseline = $ditahan ? $indicator->baseline : ($data['baseline'] ?? null);
+        $type     = $ditahan ? $indicator->type : ($data['type'] ?? null);
+
+        $langsung = [
             'achievement' => $data['achievement'] ?? null,
-            'improvement' => ImplementationIndicator::calcImprovement($data['baseline'] ?? null, $data['achievement'] ?? null, $data['type'] ?? null),
+            'improvement' => ImplementationIndicator::calcImprovement($baseline, $data['achievement'] ?? null, $type),
+        ];
+        $proposal = [
             'indicator'         => $data['indicator'],
             'description'       => $data['description'] ?? null,
             'baseline'          => $data['baseline'] ?? null,
@@ -1563,11 +1567,11 @@ class ProjectController extends Controller
             'achievement' => ['nullable', 'numeric'],
         ]);
 
-        // Ikut change request "Plan & Indicator Change" seperti jalur Edit penuh.
-        $distage = $this->writeOrStage($request, $project, $indicator, [], [
+        // Achievement = realisasi, bukan field rencana -> langsung tersimpan.
+        $distage = $this->writeOrStage($request, $project, $indicator, [
             'achievement' => $data['achievement'] ?? null,
             'improvement' => ImplementationIndicator::calcImprovement($indicator->baseline, $data['achievement'] ?? null, $indicator->type),
-        ]);
+        ], []);
 
         return $this->backToSection($project, 'section-indicators',
             $this->pesanSimpan('Indicator achievement updated.', $distage), ['phase' => 'implementation']);
@@ -1621,9 +1625,9 @@ class ProjectController extends Controller
                 ? (float) $data['actual_qty'] * (float) $data['actual_price']
                 : null;
 
-            // Lewat writeOrStage agar isian member juga menjadi Budget Change,
-            // sama seperti bila Leader yang mengisinya.
-            $distage = $this->writeOrStage($request, $project, $budget, [], $data + ['actual_cost' => $cost]);
+            // Actual Qty/Price = realisasi -> langsung tersimpan, tidak ditahan
+            // sebagai Budget Change (sama seperti bila Leader yang mengisinya).
+            $distage = $this->writeOrStage($request, $project, $budget, $data + ['actual_cost' => $cost], []);
 
             $this->storeBudgetAttachments($request, $project, $budget);
 
@@ -1645,17 +1649,18 @@ class ProjectController extends Controller
             ? (float) $data['actual_qty'] * (float) $data['actual_price']
             : null;
 
-        // Actual Qty/Price/Cost masuk change request "Budget Change" saat project
-        // berjalan, satu jalur dengan field budget rencana.
-        $langsung = [];
-        $proposal = [
+        // Actual Qty/Price/Cost = realisasi -> langsung tersimpan. Field budget
+        // rencana tetap lewat change request "Budget Change" saat project berjalan.
+        $langsung = [
             'actual_qty'   => $data['actual_qty'] ?? null,
             'actual_price' => $data['actual_price'] ?? null,
             'actual_cost'  => $cost,
-            'item'         => $data['item'],
-            'qty'          => $data['qty'] ?? null,
-            'uom'          => $data['uom'] ?? null,
-            'unit_price'   => $data['unit_price'] ?? null,
+        ];
+        $proposal = [
+            'item'       => $data['item'],
+            'qty'        => $data['qty'] ?? null,
+            'uom'        => $data['uom'] ?? null,
+            'unit_price' => $data['unit_price'] ?? null,
         ];
 
         $distage = $this->writeOrStage($request, $project, $budget, $langsung, $proposal);

@@ -12,6 +12,9 @@
     {{-- Tom Select CSS di-head DULU agar override di bawah selalu menang --}}
     <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css" rel="stylesheet">
 
+    {{-- Datepicker (flatpickr): dipakai agar SEMUA input tanggal tampil dd/mm/yyyy. --}}
+    <link href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" rel="stylesheet">
+
     <style>
         [x-cloak]{ display: none !important; }
         /* App muat penuh 100vh: hanya <main> yang scroll — matikan scrollbar terluar (body). */
@@ -66,6 +69,76 @@
         .ts-wrapper .ts-control > .item{
             max-width: 100%;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        /* ---- Datepicker (flatpickr) ---------------------------------------------
+           Kalender dirender ke <body>, jadi <select> bulan dan <input type=number>
+           tahun di dalamnya ikut kena base style @tailwindcss/forms (border, padding
+           besar, ikon chevron) yang membuat header berantakan. Blok ini menetralkan
+           gaya tersebut sekaligus menyamakan aksen dengan tombol aplikasi (red-700). */
+        .flatpickr-calendar{
+            z-index: 99999 !important;              /* harus di atas modal (z-[60]) */
+            width: 19.5rem;
+            border: 1px solid #e5e7eb;
+            border-radius: .75rem;
+            box-shadow: 0 12px 28px -8px rgba(17,24,39,.25);
+            font-size: .875rem;
+        }
+        .flatpickr-calendar.arrowTop::after{ border-bottom-color: #fff; }
+        .flatpickr-calendar.arrowBottom::after{ border-top-color: #fff; }
+
+        /* Header: nama bulan + TAHUN */
+        .flatpickr-months{ padding: .5rem .25rem .125rem; }
+        .flatpickr-months .flatpickr-month{ height: 2.25rem; color: #111827; }
+        .flatpickr-current-month{
+            display: flex; align-items: center; justify-content: center; gap: .25rem;
+            height: 2.25rem; padding: 0; font-size: .9375rem; font-weight: 600;
+        }
+        /* Netralkan @tailwindcss/forms pada dua kontrol di dalam header. */
+        .flatpickr-current-month .flatpickr-monthDropdown-months,
+        .flatpickr-current-month .numInputWrapper input.cur-year{
+            -webkit-appearance: none; appearance: none;
+            background-color: transparent;
+            border: 0 !important; box-shadow: none !important; outline: none;
+            border-radius: .375rem; height: 1.875rem; line-height: 1.875rem;
+            font-size: .9375rem; font-weight: 600; color: #111827;
+        }
+        .flatpickr-current-month .numInputWrapper input.cur-year{ background-image: none !important; }
+        /* Caret kecil sebagai penanda bahwa nama bulan bisa diklik (dropdown). */
+        .flatpickr-current-month .flatpickr-monthDropdown-months{
+            padding: 0 1.25rem 0 .5rem !important; cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236b7280'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E") !important;
+            background-repeat: no-repeat; background-position: right .3rem center; background-size: .85rem;
+        }
+        .flatpickr-current-month .flatpickr-monthDropdown-months:hover{ background: #fef2f2; }
+        .flatpickr-current-month .numInputWrapper{ width: 3.75rem; }
+        .flatpickr-current-month .numInputWrapper:hover{ background: #fef2f2; border-radius: .375rem; }
+        .flatpickr-current-month .numInputWrapper input.cur-year{
+            padding: 0 .25rem !important; text-align: center;
+        }
+        /* Daftar bulan saat dropdown dibuka (dirender oleh OS/browser). */
+        .flatpickr-monthDropdown-months option{ background: #fff; color: #111827; font-weight: 500; }
+
+        /* Panah pindah bulan */
+        .flatpickr-months .flatpickr-prev-month,
+        .flatpickr-months .flatpickr-next-month{ padding: .375rem .5rem; border-radius: .375rem; }
+        .flatpickr-months .flatpickr-prev-month:hover,
+        .flatpickr-months .flatpickr-next-month:hover{ background: #fef2f2; }
+        .flatpickr-months .flatpickr-prev-month:hover svg,
+        .flatpickr-months .flatpickr-next-month:hover svg{ fill: #b91c1c; }
+
+        /* Baris nama hari + grid tanggal */
+        span.flatpickr-weekday{ color: #6b7280; font-weight: 600; font-size: .75rem; }
+        .flatpickr-day{ border-radius: .5rem; color: #374151; }
+        .flatpickr-day:hover, .flatpickr-day:focus{ background: #fee2e2; border-color: #fee2e2; color: #111827; }
+        .flatpickr-day.today{ border-color: #b91c1c; font-weight: 600; }
+        .flatpickr-day.today:hover{ background: #fee2e2; color: #111827; }
+        .flatpickr-day.selected, .flatpickr-day.selected:hover, .flatpickr-day.selected:focus{
+            background: #b91c1c !important; border-color: #b91c1c !important;
+            color: #fff !important; font-weight: 600;
+        }
+        .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay{ color: #d1d5db; }
+        .flatpickr-day.flatpickr-disabled, .flatpickr-day.flatpickr-disabled:hover{
+            color: #e5e7eb; background: transparent; border-color: transparent;
         }
     </style>
 
@@ -225,6 +298,77 @@
     });
 </script>
 
+{{-- Datepicker global (flatpickr) — diterapkan ke SEMUA <input type="date">.
+     Format input tanggal bawaan browser mengikuti locale OS (mm/dd/yyyy di en-US)
+     dan TIDAK bisa dipaksa lewat HTML; flatpickr merender kalender sendiri sehingga
+     tampilan dd/mm/yyyy konsisten di Chrome, Firefox, Safari, maupun Edge. --}}
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script>
+    // Input ASLI tetap dipertahankan (disembunyikan) berisi nilai Y-m-d, sehingga
+    // name/value yang dikirim ke server dan binding Alpine (x-model, :min, :max)
+    // sama sekali tidak berubah — yang berubah hanya tampilannya jadi dd/mm/yyyy.
+    // Idempotent (skip yang sudah ter-init) → AMAN dipanggil ulang untuk baris repeater baru.
+    // Opt-out: tambahkan atribut data-no-datepicker pada input.
+    window.tmsDate = function (root) {
+        root = root || document;
+        if (typeof flatpickr === 'undefined') return;   // CDN gagal → input native tetap berfungsi
+
+        root.querySelectorAll('input[type="date"]:not([data-no-datepicker])').forEach(function (el) {
+            if (el._flatpickr) return;
+
+            var locked   = el.hasAttribute('readonly') || el.disabled;
+            var required = el.hasAttribute('required');
+            var cls      = el.className;   // salin kelas Tailwind ke input tampilan
+
+            var fp = flatpickr(el, {
+                dateFormat:    'Y-m-d',    // nilai TERKIRIM tetap ISO (aturan `date` Laravel aman)
+                altInput:      true,
+                altFormat:     'd/m/Y',    // yang dilihat & diketik user
+                altInputClass: cls,
+                allowInput:    true,       // boleh diketik manual, mis. 31/12/2025
+                clickOpens:    !locked,
+                disableMobile: true,       // jangan jatuh balik ke picker native di HP
+                minDate:       el.getAttribute('min') || null,
+                maxDate:       el.getAttribute('max') || null,
+            });
+
+            fp.altInput._fpOwner = fp;   // dipakai handler Enter di bawah
+            fp.altInput.setAttribute('placeholder', 'dd/mm/yyyy');
+            fp.altInput.setAttribute('autocomplete', 'off');
+            if (required) fp.altInput.setAttribute('required', 'required');
+            if (locked)   { fp.altInput.readOnly = true; fp.altInput.disabled = el.disabled; }
+
+            // :min / :max dari Alpine (mis. End Date tidak boleh mendahului Start Date)
+            // mengubah ATRIBUT pada input asli. flatpickr hanya membacanya saat init,
+            // jadi perubahannya disinkronkan manual ke kalender.
+            new MutationObserver(function () {
+                fp.set('minDate', el.getAttribute('min') || null);
+                fp.set('maxDate', el.getAttribute('max') || null);
+            }).observe(el, { attributes: true, attributeFilter: ['min', 'max'] });
+        });
+    };
+
+    // Menekan Enter di input tanggal: handler bawaan flatpickr mem-parse teks memakai
+    // dateFormat (Y-m-d), sehingga ketikan "25/12/2025" jadi kosong/salah tanggal dan
+    // ikut TERKIRIM karena Enter juga men-submit form. Ditangani di fase CAPTURE pada
+    // document agar berjalan LEBIH DULU daripada handler flatpickr (stopPropagation
+    // membatalkan handler bawaan). preventDefault sengaja TIDAK dipakai supaya
+    // perilaku "Enter = submit" yang sudah ada tetap jalan — dengan nilai yang benar.
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        var fp = e.target && e.target._fpOwner;
+        if (!fp) return;
+        e.stopPropagation();
+
+        var raw = String(fp.altInput.value || '').trim();
+        if (!raw) { fp.clear(); return; }
+        var d = flatpickr.parseDate(raw, 'd/m/Y');
+        // Ketikan tidak sah → kembalikan tampilan ke nilai terakhir yang valid.
+        fp.setDate(d || fp.selectedDates[0] || null, true);
+        fp.close();
+    }, true);
+</script>
+
 {{-- Searchable dropdown (Tom Select) — diterapkan ke SEMUA <select> di aplikasi.
      Opt-out: tambahkan atribut data-no-search. Cascade: data-cascade-parent="#idParent"
      dengan tiap <option data-bu="..."> untuk menyaring anak mengikuti parent. --}}
@@ -240,6 +384,9 @@
     // Idempotent (skip yang sudah ter-init) → AMAN dipanggil ulang untuk baris repeater baru.
     window.tmsInit = function (root) {
         root = root || document;
+
+        // Semua <input type="date"> → kalender dd/mm/yyyy (lihat window.tmsDate).
+        if (window.tmsDate) window.tmsDate(root);
 
         // Untuk single-select: setelah ada nilai terpilih, matikan typing (input readonly).
         // Bisa mengetik lagi hanya setelah item dihapus (tombol × / clear).
@@ -283,8 +430,11 @@
         });
 
         // 1) Semua dropdown jadi searchable.
+        //    KECUALI <select> bulan milik kalender flatpickr (dirender ke <body>):
+        //    aturan .ts-wrapper{width:100%} memakan seluruh header kalender sehingga
+        //    input TAHUN terdorong keluar dan tidak terlihat.
         root.querySelectorAll('select:not([data-no-search])').forEach(function (el) {
-            if (el.tomselect) return;
+            if (el.tomselect || el.closest('.flatpickr-calendar')) return;
             var hasEmpty = el.querySelector('option[value=""]') !== null;
             lockSingle(new TomSelect(el, {
                 // Empty option (value="") jadi PLACEHOLDER, tidak muncul sebagai item list.

@@ -102,6 +102,12 @@
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Shell Created</label><div class="{{ $box }}"><x-datetime :value="$project->created_at" /></div></div>
                 </div>
 
+                {{-- Snapshot nama dipakai lebih dulu, relasi jadi cadangan (sama seperti halaman Project Detail). --}}
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Business Unit</label><div class="{{ $box }}">{{ optional($project->idea)->business_unit_name ?? optional(optional($project->idea)->businessUnit)->name ?? '-' }}</div></div>
+                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Targeted Unit</label><div class="{{ $box }}">{{ optional($project->idea)->department_name ?? optional(optional($project->idea)->department)->name ?? '-' }}</div></div>
+                </div>
+
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Project Scope</label><div class="{{ $box }} whitespace-pre-line">{{ $project->project_scope }}</div></div>
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Expected Outcome</label><div class="{{ $box }} whitespace-pre-line">{{ $project->expected_outcome }}</div></div>
             </div>
