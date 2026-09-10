@@ -40,7 +40,7 @@ class ProjectCategoryController extends Controller
     {
         $category->update(['is_active' => ! $category->is_active]);
 
-        return back()->with('success', $category->is_active ? 'Category restored.' : 'Category archived.');
+        return back()->with('success', $category->is_active ? 'Category activated.' : 'Category deactivated.');
     }
 
     public function destroy(ProjectCategory $category)

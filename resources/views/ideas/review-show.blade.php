@@ -10,7 +10,8 @@
         $creatorEmp = \App\Models\KpnEmployee::forEmail(optional($creator)->email);
     @endphp
 
-    <div class="p-6 space-y-6 max-w-5xl">
+    {{-- Lebar konten disamakan dgn Idea Detail & Project Detail: max-w-7xl, terpusat. --}}
+    <div class="p-6 space-y-6 mx-auto w-full max-w-7xl">
 
         <div>
             <a href="{{ route('ideas.taskbox') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Task Box</a>
@@ -81,13 +82,21 @@
                 <div class="flex gap-3">
                     <form id="approveForm" method="POST" action="{{ route('ideas.review.approve', $idea) }}">
                         @csrf
-                        <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button>
+                        <button type="submit"
+                                data-confirm="Approve this idea for Layer {{ $idea->current_layer }}? It moves on to the next approval layer, or becomes fully approved if this is the final layer."
+                                data-confirm-title="Approve Idea?"
+                                data-confirm-ok="Yes, Approve"
+                                class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button>
                     </form>
                     <form method="POST" action="{{ route('ideas.review.reject', $idea) }}"
                           onsubmit="this.note.value=document.getElementById('idea-decision-note').value">
                         @csrf
                         <input type="hidden" name="note">
-                        <button type="submit" class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button>
+                        <button type="submit"
+                                data-confirm="Reject this idea? The review stops here and it cannot continue to the remaining layers. This cannot be undone."
+                                data-confirm-title="Reject Idea?"
+                                data-confirm-ok="Yes, Reject"
+                                class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button>
                     </form>
                 </div>
             </div>

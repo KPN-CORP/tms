@@ -428,10 +428,16 @@ class ProjectController extends Controller
         $this->applyListSearchSort($query, $request, $config);
 
         // Status shell bukan kolom tunggal — disaring dari hasil JOIN.
+        // Cocokkan dengan Project::shellStatusFor(): project yang dibatalkan
+        // keluar dari Assigned dan pindah ke tab Cancelled, sehingga jumlah
+        // seluruh tab tetap sama dengan tab All.
         $filters = [
             'draft'        => fn ($q) => $q->where('ps.is_shell_draft', true),
-            'assigned'     => fn ($q) => $q->where('ps.is_shell_draft', false),
+            'assigned'     => fn ($q) => $q->where('ps.is_shell_draft', false)
+                ->where('ps.status', '!=', 'cancelled'),
             'not_assigned' => fn ($q) => $q->whereNull('ps.id'),
+            'cancelled'    => fn ($q) => $q->where('ps.is_shell_draft', false)
+                ->where('ps.status', 'cancelled'),
         ];
 
         // Jumlah per status (angka di tab) — sadar search & filter, sebelum tab.
@@ -480,6 +486,7 @@ class ProjectController extends Controller
                 'draft'        => 'Draft',
                 'assigned'     => 'Assigned',
                 'not_assigned' => 'Not Assigned',
+                'cancelled'    => 'Cancelled',
             ],
         ] + $this->listSortState($request, $config));
     }

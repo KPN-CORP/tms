@@ -124,7 +124,7 @@ class GuidelineController extends Controller
     {
         $guideline->update(['is_active' => ! $guideline->is_active]);
 
-        return back()->with('success', $guideline->is_active ? 'Guideline restored.' : 'Guideline archived.');
+        return back()->with('success', $guideline->is_active ? 'Guideline activated.' : 'Guideline deactivated.');
     }
 
     public function destroy(Guideline $guideline)

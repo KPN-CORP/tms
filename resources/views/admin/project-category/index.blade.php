@@ -18,12 +18,12 @@
     @endphp
 
     <div class="p-6 space-y-6 max-w-7xl mx-auto w-full"
-         x-data="{ open: {{ ($editing || $errors->any()) ? 'true' : 'false' }}, rows: {{ Illuminate\Support\Js::from($roleRows) }} }">
+         x-data="{ open: {{ ($editing || $errors->any()) ? 'true' : 'false' }}, tab: '{{ $editing && ! $editing->is_active ? 'inactive' : 'active' }}', rows: {{ Illuminate\Support\Js::from($roleRows) }} }">
 
         <div class="flex items-start justify-between gap-3">
             <div>
                 <h1 class="text-2xl font-bold text-gray-800">Project Category</h1>
-                <p class="text-gray-500">Project category master data (the code is used in the Project ID). Manage Add / Edit / Archive.</p>
+                <p class="text-gray-500">Project category master data (the code is used in the Project ID). Manage Add / Edit / Activate.</p>
             </div>
             <button type="button" @click="open = true"
                     class="inline-flex items-center gap-1 px-5 py-2 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800 shrink-0">+ Add Category</button>
@@ -36,54 +36,65 @@
             <div class="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3">{{ session('error') }}</div>
         @endif
 
-        {{-- List --}}
+        {{-- List — dipisah TAB Active / Inactive --}}
+        @php $byStatus = $categories->groupBy(fn ($c) => $c->is_active ? 'active' : 'inactive'); @endphp
         <div class="bg-white rounded-xl shadow overflow-hidden">
-            <table class="w-full text-left text-sm">
-                <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                    <tr>
-                        <th class="px-4 py-3">Code</th>
-                        <th class="px-4 py-3">Name</th>
-                        <th class="px-4 py-3">Leader Grade</th>
-                        <th class="px-4 py-3">Sponsor Grade</th>
-                        <th class="px-4 py-3">Max Team</th>
-                        <th class="px-4 py-3">Require Role</th>
-                        <th class="px-4 py-3">Status</th>
-                        <th class="px-4 py-3 text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y">
-                    @forelse($categories as $cat)
-                        @php $muted = $cat->is_active ? '' : 'opacity-50'; @endphp
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 font-mono font-semibold text-red-700 {{ $muted }}">{{ $cat->code }}</td>
-                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->name }}</td>
-                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->leader_grade_min ?? '-' }} &ndash; {{ $cat->leader_grade_max ?? '-' }}</td>
-                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->sponsor_grade_min ?? '-' }} &ndash; {{ $cat->sponsor_grade_max ?? '-' }}</td>
-                            <td class="px-4 py-3 {{ $muted }}">{{ $cat->max_team_members ?? '-' }}</td>
-                            <td class="px-4 py-3 {{ $muted }}">{{ collect($cat->requiredRoles())->map(fn ($r) => $r['role'].' ('.$r['total'].')')->implode(', ') ?: '-' }}</td>
-                            <td class="px-4 py-3">
-                                <span class="text-xs rounded-full px-2 py-1 {{ $cat->is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600' }}">{{ $cat->is_active ? 'Active' : 'Archived' }}</span>
-                            </td>
-                            <td class="px-4 py-3">
-                                <div class="flex items-center justify-end gap-2">
-                                    <a href="{{ route('admin.project-categories.index', ['edit' => $cat->id]) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Edit</a>
-                                    <form method="POST" action="{{ route('admin.project-categories.toggle', $cat) }}">
-                                        @csrf
-                                        <button class="px-3 py-1 text-xs border {{ $cat->is_active ? 'border-red-300 text-red-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $cat->is_active ? 'Archive' : 'Restore' }}</button>
-                                    </form>
-                                    <form method="POST" action="{{ route('admin.project-categories.destroy', $cat) }}">
-                                        @csrf @method('DELETE')
-                                        <button data-confirm="Delete category {{ $cat->code }}? This action is permanent." data-confirm-title="Delete Category" data-confirm-ok="Yes, Delete"
-                                                class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">No categories yet.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
+            <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 px-4 pt-3">
+                @foreach(['active' => 'Active', 'inactive' => 'Inactive'] as $key => $label)
+                    <button type="button" @click="tab = '{{ $key }}'"
+                            :class="tab === '{{ $key }}' ? 'border-red-700 text-red-700' : 'border-transparent text-gray-500 hover:text-gray-800'"
+                            class="px-4 py-2 -mb-px text-sm font-medium border-b-2 transition">
+                        {{ $label }}
+                        <span :class="tab === '{{ $key }}' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'"
+                              class="ml-1 inline-flex items-center justify-center min-w-5 px-1.5 py-0.5 text-xs rounded-full">{{ optional($byStatus->get($key))->count() ?? 0 }}</span>
+                    </button>
+                @endforeach
+            </div>
+
+            @foreach(['active' => 'Active', 'inactive' => 'Inactive'] as $key => $label)
+                @php $rows = $byStatus->get($key) ?? collect(); @endphp
+                <div x-show="tab === '{{ $key }}'" x-cloak>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
+                                <tr>
+                                    <th class="px-4 py-3">Code</th>
+                                    <th class="px-4 py-3">Name</th>
+                                    <th class="px-4 py-3">Leader Grade</th>
+                                    <th class="px-4 py-3">Sponsor Grade</th>
+                                    <th class="px-4 py-3">Max Team</th>
+                                    <th class="px-4 py-3">Require Role</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y">
+                                @forelse($rows as $cat)
+                                    @php $muted = $cat->is_active ? '' : 'opacity-50'; @endphp
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3 font-mono font-semibold text-red-700 {{ $muted }}">{{ $cat->code }}</td>
+                                        <td class="px-4 py-3 {{ $muted }}">{{ $cat->name }}</td>
+                                        <td class="px-4 py-3 {{ $muted }}">{{ $cat->leader_grade_min ?? '-' }} &ndash; {{ $cat->leader_grade_max ?? '-' }}</td>
+                                        <td class="px-4 py-3 {{ $muted }}">{{ $cat->sponsor_grade_min ?? '-' }} &ndash; {{ $cat->sponsor_grade_max ?? '-' }}</td>
+                                        <td class="px-4 py-3 {{ $muted }}">{{ $cat->max_team_members ?? '-' }}</td>
+                                        <td class="px-4 py-3 {{ $muted }}">{{ collect($cat->requiredRoles())->map(fn ($r) => $r['role'].' ('.$r['total'].')')->implode(', ') ?: '-' }}</td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <a href="{{ route('admin.project-categories.index', ['edit' => $cat->id]) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Edit</a>
+                                                <form method="POST" action="{{ route('admin.project-categories.toggle', $cat) }}">
+                                                    @csrf
+                                                    <button class="px-3 py-1 text-xs border {{ $cat->is_active ? 'border-red-300 text-red-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $cat->is_active ? 'Deactivate' : 'Activate' }}</button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">No {{ strtolower($label) }} categories.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endforeach
         </div>
 
         {{-- Dialog: Add / Edit Category (popup) --}}

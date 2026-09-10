@@ -116,6 +116,9 @@ class IdeaController extends Controller
             // (group_company employee-nya dari hcis), bukan BU target ide.
             'idea_id' => $this->generateIdeaId($this->submitterBusinessUnit($request->user())),
             'status'  => $isSubmit ? 'submitted' : 'draft',
+            // Di-set eksplisit (bukan mengandalkan DEFAULT database) supaya instance
+            // di memori tidak NULL — routing committee di bawah mencocokkan layer.
+            'current_layer' => 1,
         ]);
 
         $this->storeAttachments($request, $idea);

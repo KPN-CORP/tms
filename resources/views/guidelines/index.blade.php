@@ -5,7 +5,7 @@
     </x-slot>
 
     <div class="p-6 space-y-6 max-w-7xl mx-auto w-full"
-         x-data="{ open: {{ $errors->any() ? 'true' : 'false' }} }">
+         x-data="{ open: {{ $errors->any() ? 'true' : 'false' }}, tab: 'active' }">
 
         <div class="flex items-start justify-between gap-3">
             <div>
@@ -21,64 +21,75 @@
             <div class="rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3">{{ session('success') }}</div>
         @endif
 
-        {{-- List guideline yang sudah diupload --}}
-        <div class="space-y-3">
-            @forelse($guidelines as $g)
-                @php
-                    $canView     = $canManage || $g->viewableBy($isCommittee);
-                    $canDownload = $canManage || $g->downloadableBy($isCommittee);
-                @endphp
-                <div class="bg-white rounded-xl shadow p-5 {{ $g->is_active ? '' : 'opacity-60' }}">
-                    <div class="flex items-start justify-between gap-4">
-                        <div class="min-w-0">
-                            <div class="flex items-center gap-2">
-                                <h4 class="font-semibold text-gray-800 truncate">{{ $g->title }}</h4>
-                                @unless($g->is_active)
-                                    <span class="text-xs rounded-full px-2 py-0.5 bg-gray-200 text-gray-600">Archived</span>
-                                @endunless
-                            </div>
-                            @if($g->description)<p class="text-sm text-gray-500 mt-1">{{ $g->description }}</p>@endif
-                            <p class="text-xs text-gray-400 mt-2">
-                                {{ $g->file_name }} · {{ $g->readable_size }}
-                                @if($g->uploader) · by {{ $g->uploader->name }}@endif
-                                · <x-datetime :value="$g->created_at" mode="date" />
-                            </p>
-                        </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                            @if($canView && $g->isInlineViewable())
-                                <a href="{{ route('guidelines.view', $g) }}" target="_blank" rel="noopener"
-                                   class="px-3 py-1 text-xs bg-red-700 text-white rounded-lg hover:bg-red-800">View</a>
-                            @endif
-                            @if($canDownload)
-                                <a href="{{ route('guidelines.download', $g) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Download</a>
-                            @endif
-                            @if($canManage)
-                                <form method="POST" action="{{ route('guidelines.toggle', $g) }}">
-                                    @csrf
-                                    <button class="px-3 py-1 text-xs border {{ $g->is_active ? 'border-amber-300 text-amber-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $g->is_active ? 'Archive' : 'Restore' }}</button>
-                                </form>
-                                <form method="POST" action="{{ route('guidelines.destroy', $g) }}">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button data-confirm="Delete this guideline?" data-confirm-title="Delete Guideline" data-confirm-ok="Yes, Delete" class="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50">Delete</button>
-                                </form>
-                            @endif
-                        </div>
-                    </div>
+        {{-- List guideline — dipisah TAB Active / Inactive --}}
+        @php
+            $byStatus = $guidelines->groupBy(fn ($g) => $g->is_active ? 'active' : 'inactive');
+            // Non-pengelola hanya menerima guideline aktif — tab Inactive tidak relevan baginya.
+            $tabs = $canManage ? ['active' => 'Active', 'inactive' => 'Inactive'] : ['active' => 'Active'];
+        @endphp
 
-                    {{-- Ringkasan hak akses (read-only). Diatur saat upload. --}}
-                    @if($canManage)
-                        <div class="mt-3 pt-3 border-t flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                            <span class="font-semibold text-gray-500">Access:</span>
-                            <span><span class="font-semibold text-gray-600">Employee</span> — {{ collect(['View' => $g->employee_can_view, 'Download' => $g->employee_can_download])->filter()->keys()->implode(', ') ?: 'None' }}</span>
-                            <span><span class="font-semibold text-gray-600">Committee</span> — {{ collect(['View' => $g->committee_can_view, 'Download' => $g->committee_can_download])->filter()->keys()->implode(', ') ?: 'None' }}</span>
-                        </div>
-                    @endif
-                </div>
-            @empty
-                <div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">No guidelines yet.</div>
-            @endforelse
+        <div class="flex flex-wrap items-center gap-2 border-b border-gray-200" @class(['hidden' => ! $canManage])>
+            @foreach($tabs as $key => $label)
+                <button type="button" @click="tab = '{{ $key }}'"
+                        :class="tab === '{{ $key }}' ? 'border-red-700 text-red-700' : 'border-transparent text-gray-500 hover:text-gray-800'"
+                        class="px-4 py-2 -mb-px text-sm font-medium border-b-2 transition">
+                    {{ $label }}
+                    <span :class="tab === '{{ $key }}' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'"
+                          class="ml-1 inline-flex items-center justify-center min-w-5 px-1.5 py-0.5 text-xs rounded-full">{{ optional($byStatus->get($key))->count() ?? 0 }}</span>
+                </button>
+            @endforeach
         </div>
+
+        @foreach($tabs as $key => $label)
+            @php $rows = $byStatus->get($key) ?? collect(); @endphp
+            <div x-show="tab === '{{ $key }}'" x-cloak class="space-y-3">
+                @forelse($rows as $g)
+                        @php
+                            $canView     = $canManage || $g->viewableBy($isCommittee);
+                            $canDownload = $canManage || $g->downloadableBy($isCommittee);
+                        @endphp
+                        <div class="bg-white rounded-xl shadow p-5 {{ $g->is_active ? '' : 'opacity-60' }}">
+                            <div class="flex items-start justify-between gap-4">
+                                <div class="min-w-0">
+                                    <h4 class="font-semibold text-gray-800 truncate">{{ $g->title }}</h4>
+                                    @if($g->description)<p class="text-sm text-gray-500 mt-1">{{ $g->description }}</p>@endif
+                                    <p class="text-xs text-gray-400 mt-2">
+                                        {{ $g->file_name }} · {{ $g->readable_size }}
+                                        @if($g->uploader) · by {{ $g->uploader->name }}@endif
+                                        · <x-datetime :value="$g->created_at" mode="date" />
+                                    </p>
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    @if($canView && $g->isInlineViewable())
+                                        <a href="{{ route('guidelines.view', $g) }}" target="_blank" rel="noopener"
+                                           class="px-3 py-1 text-xs bg-red-700 text-white rounded-lg hover:bg-red-800">View</a>
+                                    @endif
+                                    @if($canDownload)
+                                        <a href="{{ route('guidelines.download', $g) }}" class="px-3 py-1 text-xs border rounded-lg hover:bg-gray-100">Download</a>
+                                    @endif
+                                    @if($canManage)
+                                        <form method="POST" action="{{ route('guidelines.toggle', $g) }}">
+                                            @csrf
+                                            <button class="px-3 py-1 text-xs border {{ $g->is_active ? 'border-amber-300 text-amber-600' : 'border-green-300 text-green-600' }} rounded-lg">{{ $g->is_active ? 'Deactivate' : 'Activate' }}</button>
+                                        </form>
+                                    @endif
+                                </div>
+                            </div>
+
+                            {{-- Ringkasan hak akses (read-only). Diatur saat upload. --}}
+                            @if($canManage)
+                                <div class="mt-3 pt-3 border-t flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                                    <span class="font-semibold text-gray-500">Access:</span>
+                                    <span><span class="font-semibold text-gray-600">Employee</span> — {{ collect(['View' => $g->employee_can_view, 'Download' => $g->employee_can_download])->filter()->keys()->implode(', ') ?: 'None' }}</span>
+                                    <span><span class="font-semibold text-gray-600">Committee</span> — {{ collect(['View' => $g->committee_can_view, 'Download' => $g->committee_can_download])->filter()->keys()->implode(', ') ?: 'None' }}</span>
+                                </div>
+                            @endif
+                        </div>
+                @empty
+                    <div class="bg-white rounded-xl shadow p-8 text-center text-gray-400">{{ $canManage ? 'No '.strtolower($label).' guidelines.' : 'No guidelines yet.' }}</div>
+                @endforelse
+            </div>
+        @endforeach
 
         {{-- Dialog: Upload Guideline (popup) --}}
         @if($canManage)

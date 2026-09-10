@@ -1020,18 +1020,29 @@
                                 <form method="POST" action="{{ route('projects.updates.approve', [$project, $upd]) }}"
                                       @submit="$el.note.value = note">
                                     @csrf<input type="hidden" name="note">
-                                    <button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button>
+                                    <button data-confirm="Approve this change request for Layer {{ $upd->current_layer }}? Once every layer approves, the changes are applied to the project."
+                                            data-confirm-title="Approve Change Request?"
+                                            data-confirm-ok="Yes, Approve"
+                                            class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button>
                                 </form>
                                 {{-- Revision Required tersedia di SETIAP layer approval --}}
                                 <form method="POST" action="{{ route('projects.updates.revision', [$project, $upd]) }}"
                                       @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); }">
                                     @csrf<input type="hidden" name="note">
-                                    <button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button>
+                                    <button @click="if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                            data-confirm="Send this change request back to the Project Leader for revision? Your note will be shown to them."
+                                            data-confirm-title="Request Revision?"
+                                            data-confirm-ok="Yes, Request Revision"
+                                            class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button>
                                 </form>
                                 <form method="POST" action="{{ route('projects.updates.reject', [$project, $upd]) }}"
                                       @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); }">
                                     @csrf<input type="hidden" name="note">
-                                    <button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button>
+                                    <button @click="if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                            data-confirm="Reject this change request? The requested changes are discarded and will not be applied to the project. This cannot be undone."
+                                            data-confirm-title="Reject Change Request?"
+                                            data-confirm-ok="Yes, Reject"
+                                            class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button>
                                 </form>
                             </div>
                         </div>
@@ -1102,10 +1113,18 @@
                             </p>
                         </div>
                         <div class="flex gap-3">
-                            <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
+                            <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button
+                                    data-confirm="Approve this proposal as Project Sponsor? It continues to the committee review layers."
+                                    data-confirm-title="Approve Proposal?"
+                                    data-confirm-ok="Yes, Approve"
+                                    class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
                             <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}"
                                   @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.sponsorNote?.focus(); $event.preventDefault(); }">
-                                @csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
+                                @csrf<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.sponsorNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                    data-confirm="Send this proposal back to the Project Leader for revision? Your note will be shown to them."
+                                    data-confirm-title="Request Revision?"
+                                    data-confirm-ok="Yes, Request Revision"
+                                    class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
                         </div>
                     </div>
                 @elseif($isReviewer)
@@ -1125,15 +1144,27 @@
                             </p>
                         </div>
                         <div class="flex flex-wrap gap-3">
-                            <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
+                            <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button
+                                    data-confirm="Approve this {{ $project->status === 'completion_review' ? 'completion' : 'proposal' }} for Layer {{ $project->current_layer }}? It moves on to the next approval layer, or becomes fully approved if this is the final layer."
+                                    data-confirm-title="Approve {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }}?"
+                                    data-confirm-ok="Yes, Approve"
+                                    class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
                             {{-- Revision Required: tersedia di SEMUA layer proposal. Project langsung
                                  kembali ke Project Leader (status Revision Required), bukan ditolak. --}}
                             @if($project->status === 'committee_review')
                                 <form method="POST" action="{{ route('projects.review.revision', $project) }}"
-                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
+                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                    data-confirm="Send this proposal back to the Project Leader for revision? Your note will be shown to them."
+                                    data-confirm-title="Request Revision?"
+                                    data-confirm-ok="Yes, Request Revision"
+                                    class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
                             @endif
                             <form method="POST" action="{{ route('projects.review.reject', $project) }}"
-                                  @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
+                                  @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                    data-confirm="Reject this {{ $project->status === 'completion_review' ? 'completion' : 'proposal' }}? The review stops here and it cannot continue to the remaining layers. This cannot be undone."
+                                    data-confirm-title="Reject {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }}?"
+                                    data-confirm-ok="Yes, Reject"
+                                    class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Reject</button></form>
                         </div>
                     </div>
                 @endif

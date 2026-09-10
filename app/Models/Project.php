@@ -58,11 +58,15 @@ class Project extends Model
      *   not_assigned : ide sudah approved tapi belum dibuatkan project shell
      *   draft        : shell disimpan sebagai draft (belum dibuat, bisa dihapus)
      *   assigned     : shell sudah dibuat & Leader/Sponsor ditetapkan
+     *   cancelled    : project-nya dibatalkan (status lifecycle 'cancelled') —
+     *                  satu-satunya status shell yang membaca projects.status,
+     *                  agar baris batal tidak terhitung sebagai Assigned.
      */
     public const SHELL_STATUS_BADGES = [
         'not_assigned' => ['Not Assigned', 'bg-gray-100 text-gray-600'],
         'draft'        => ['Draft', 'bg-amber-100 text-amber-800'],
         'assigned'     => ['Assigned', 'bg-green-100 text-green-700'],
+        'cancelled'    => ['Cancelled', 'bg-red-200 text-red-900'],
     ];
 
     /** Status shell untuk satu baris menu Project Shell (null = belum ada shell). */
@@ -72,7 +76,11 @@ class Project extends Model
             return 'not_assigned';
         }
 
-        return $shell->is_shell_draft ? 'draft' : 'assigned';
+        if ($shell->is_shell_draft) {
+            return 'draft';
+        }
+
+        return $shell->status === 'cancelled' ? 'cancelled' : 'assigned';
     }
 
     /** [label, kelas badge] untuk status shell. */
