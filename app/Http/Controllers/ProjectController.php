@@ -815,9 +815,14 @@ class ProjectController extends Controller
 
         // Project yang punya permintaan perubahan menunggu keputusan user ini ikut
         // masuk Task Box — keputusannya diambil di panel Change Request pada detail.
+        // Termasuk update request jenis lama (Budget/Planning/Team/General) yang
+        // rutenya ke Sponsor, supaya semua tugas approval user ada di satu tempat.
         $changeIds = app(ProjectChangeStagingService::class)
             ->reviewQueueFor($request->user())
             ->pluck('project_id')
+            ->merge(app(ProjectUpdateService::class)
+                ->reviewQueueFor($request->user())
+                ->pluck('project_id'))
             ->unique();
 
         if ($changeIds->isNotEmpty()) {

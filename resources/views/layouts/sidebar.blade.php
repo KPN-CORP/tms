@@ -17,19 +17,6 @@
                 ->orWhereHas('idea', fn ($i) => $i->where('user_id', $user->id));
         })->exists();
 
-    // Review Projects tampil bila user terdaftar sebagai committee untuk review
-    // project (proposal/completion) di layer mana pun. (Super Admin selalu boleh.)
-    // Committee change request (team/plan/budget) dan Project Sponsor juga menilai
-    // permintaan perubahan, jadi keduanya ikut membuka Task Box.
-    $changeQueue = app(\App\Services\Project\ProjectChangeStagingService::class)->reviewQueueFor($user);
-
-    $isProjectCommittee = $user->hasRole('Super Admin')
-        || $changeQueue->isNotEmpty()
-        || \App\Models\CommitteeAssignment::whereIn('approval_type', [
-                'project_proposal', 'project_completion',
-                'team_change', 'plan_indicator_change', 'budget_change',
-            ])->where('user_id', $user->id)->exists();
-
     // Badge Task Box = jumlah item yang MENUNGGU KEPUTUSAN user ini dan benar-benar
     // BISA ia tindak — yaitu antrean di layer committee-nya sendiri (reviewQueueFor),
     // gate yang sama dengan tombol Approve/Reject (isCurrentReviewer). Angkanya
@@ -44,12 +31,26 @@
         ? app(\App\Services\Idea\IdeaWorkflowService::class)->reviewQueueFor($user)->count()
         : 0;
 
-    // Badge = antrean proposal/completion DITAMBAH permintaan perubahan yang
+    // Task Box project: antrean proposal/completion (termasuk keputusan Project
+    // Sponsor di Layer 1) DITAMBAH permintaan perubahan & update request yang
     // menunggu keputusan user ini.
-    $projectTaskCount = $isProjectCommittee
-        ? app(\App\Services\Project\ProjectApprovalWorkflowService::class)->reviewQueueFor($user)->count()
-            + $changeQueue->count()
-        : 0;
+    $changeQueue = app(\App\Services\Project\ProjectChangeStagingService::class)->reviewQueueFor($user)
+        ->concat(app(\App\Services\Project\ProjectUpdateService::class)->reviewQueueFor($user));
+
+    $projectTaskCount = app(\App\Services\Project\ProjectApprovalWorkflowService::class)
+            ->reviewQueueFor($user)->count()
+        + $changeQueue->count();
+
+    // Menu Task Box tampil bila user terdaftar sebagai committee review project
+    // (proposal/completion/change) di layer mana pun, ATAU sedang punya tugas —
+    // yang terakhir membuka Task Box untuk Project Sponsor yang bukan committee.
+    // (Super Admin selalu boleh.)
+    $isProjectCommittee = $user->hasRole('Super Admin')
+        || $projectTaskCount > 0
+        || \App\Models\CommitteeAssignment::whereIn('approval_type', [
+                'project_proposal', 'project_completion',
+                'team_change', 'plan_indicator_change', 'budget_change',
+            ])->where('user_id', $user->id)->exists();
 
     // Item: [label, route, permission(null=semua login), show(override boolean), active].
     // Tampil bila route ada DAN (show!==false) DAN (permission null / user punya izin).

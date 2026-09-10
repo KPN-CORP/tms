@@ -67,6 +67,34 @@ class ProjectUpdateService
             ->pluck('user_id');
     }
 
+    /**
+     * Jenis update request yang keputusannya masih memakai service ini —
+     * yaitu SEMUA jenis kecuali yang sudah pindah ke ProjectChangeStagingService
+     * (team_change / plan_indicator_change / budget_change).
+     */
+    public function legacyTypes(): array
+    {
+        return array_values(array_diff(
+            array_keys(ProjectUpdate::CHANGE_TYPES),
+            array_keys(ProjectChangeStagingService::TYPE_LABEL)
+        ));
+    }
+
+    /**
+     * Antrean update request (jenis lama) yang MENUNGGU KEPUTUSAN $user —
+     * Sponsor maupun committee layer terakhir. Dipakai Task Box project agar
+     * permintaan yang jatuh ke Sponsor tidak hanya terlihat di halaman detail.
+     */
+    public function reviewQueueFor(User $user)
+    {
+        return ProjectUpdate::with('project')
+            ->where('status', 'pending')
+            ->whereIn('change_type', $this->legacyTypes())
+            ->get()
+            ->filter(fn ($u) => $u->project && $this->isReviewer($u, $user))
+            ->values();
+    }
+
     public function isReviewer(ProjectUpdate $update, User $user): bool
     {
         if ($update->status !== 'pending') {

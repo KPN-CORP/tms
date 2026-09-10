@@ -117,8 +117,13 @@ class Project extends Model
             ->where($query->qualifyColumn('is_shell_draft'), true);
     }
 
-    /** Peta status review → jenis approval SLA. */
+    /**
+     * Peta status review → jenis approval SLA. 'submitted' ikut memakai SLA
+     * project_proposal karena keputusan Project Sponsor ADALAH Layer 1 alur
+     * proposal — item-nya juga tampil di Task Box Sponsor.
+     */
     public const SLA_REVIEW_TYPES = [
+        'submitted'         => 'project_proposal',
         'committee_review'  => 'project_proposal',
         'completion_review' => 'project_completion',
     ];

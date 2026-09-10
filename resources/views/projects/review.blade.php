@@ -8,7 +8,7 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">Task Box</h1>
-            <p class="text-gray-500">Project proposals awaiting your review (per your proposal committee layer).</p>
+            <p class="text-gray-500">Projects awaiting your decision — as Project Sponsor or as committee member of your layer.</p>
         </div>
 
         @if(session('success'))
@@ -92,9 +92,20 @@
                                 <td class="px-6 py-4 text-sm">{{ optional($project->leader)->name }}</td>
                                 <td class="px-6 py-4 text-sm">{{ optional(optional($project->idea)->businessUnit)->name }}</td>
                                 <td class="px-6 py-4 text-sm">
-                                    <span class="inline-flex px-2 py-1 text-xs rounded-full {{ $project->status === 'completion_review' ? 'bg-teal-100 text-teal-700' : 'bg-purple-100 text-purple-700' }}">
-                                        {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }}
-                                    </span>
+                                    {{-- Jenis tugas: Completion, Proposal, atau Change Request (project
+                                         yang sudah berjalan hanya masuk sini karena permintaan perubahan). --}}
+                                    @php
+                                        [$rvLabel, $rvCls] = match (true) {
+                                            $project->status === 'completion_review' => ['Completion', 'bg-teal-100 text-teal-700'],
+                                            $project->isInExecution()                => ['Change Request', 'bg-blue-100 text-blue-700'],
+                                            default                                  => ['Proposal', 'bg-purple-100 text-purple-700'],
+                                        };
+                                    @endphp
+                                    <span class="inline-flex px-2 py-1 text-xs rounded-full {{ $rvCls }}">{{ $rvLabel }}</span>
+                                    {{-- Layer 1 proposal (status 'submitted') = keputusan Project Sponsor. --}}
+                                    @if($project->status === \App\Services\Project\ProjectApprovalWorkflowService::SPONSOR_PENDING_STATUS)
+                                        <div class="text-[11px] text-gray-400 mt-0.5">as Sponsor</div>
+                                    @endif
                                 </td>
                                 <td class="px-6 py-4 text-sm">
                                     <span class="inline-flex items-center justify-center rounded bg-gray-100 text-gray-600 text-xs font-semibold px-1.5 py-0.5">L{{ $project->current_layer }}</span>
@@ -112,7 +123,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="10" class="px-6 py-8 text-center text-gray-400">No proposals awaiting your review.</td></tr>
+                            <tr><td colspan="10" class="px-6 py-8 text-center text-gray-400">No projects awaiting your decision.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

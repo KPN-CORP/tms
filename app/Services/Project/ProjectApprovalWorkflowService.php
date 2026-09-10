@@ -24,6 +24,15 @@ class ProjectApprovalWorkflowService
     /** Layer 1 project_proposal dicadangkan untuk Project Sponsor. */
     public const SPONSOR_LAYER = 1;
 
+    /**
+     * Status project yang menunggu KEPUTUSAN PROJECT SPONSOR sebelum proposal
+     * diteruskan ke committee (lihat ProjectController::sponsorApprove /
+     * sponsorRevision, yang sama-sama mensyaratkan status ini). Bukan bagian
+     * FLOWS karena approval-nya belum dijalankan lewat committee_assignments,
+     * tapi tetap ikut reviewQueueFor agar tugasnya masuk Task Box.
+     */
+    public const SPONSOR_PENDING_STATUS = 'submitted';
+
     /** Total budget project (Σ qty × unit_price) sebagai subquery, dipakai di reviewQueueFor. */
     private const TOTAL_BUDGET_SQL = '(SELECT COALESCE(SUM(pb.qty * pb.unit_price), 0) FROM project_budgets pb WHERE pb.project_id = projects.id)';
 
@@ -335,8 +344,18 @@ class ProjectApprovalWorkflowService
     /** Antrean review (semua flow) untuk $user di layer masing-masing. */
     public function reviewQueueFor(User $user)
     {
-        return Project::whereIn('status', array_keys(self::FLOWS))
+        $statuses = array_merge(array_keys(self::FLOWS), [self::SPONSOR_PENDING_STATUS]);
+
+        return Project::whereIn('status', $statuses)
             ->where(function ($outer) use ($user) {
+                // Proposal yang baru disubmit Leader: keputusannya milik Project
+                // Sponsor (Layer 1 project_proposal) dan belum menyentuh committee.
+                // Ikut Task Box supaya Sponsor tidak perlu mencarinya di menu
+                // My Project > Project Proposal.
+                $outer->orWhere(fn ($q) => $q
+                    ->where('status', self::SPONSOR_PENDING_STATUS)
+                    ->where('project_sponsor_id', $user->id));
+
                 // Sponsor sebagai pemegang Layer 1 (mis. Project Completion).
                 foreach (self::FLOWS as $statusSponsor => $flowSponsor) {
                     if (! CommitteeAssignment::usesSponsorLayer($flowSponsor['type'])) {
