@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Services\Idea\IdeaWorkflowService;
 use App\Services\Project\ProjectApprovalWorkflowService;
 use App\Services\Project\ProjectChangeStagingService;
+use App\Services\Dashboard\MetricScopeService;
 use App\Services\Project\ProjectUpdateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -316,15 +317,36 @@ class ProjectController extends Controller
         $base = $opts['base'] ?? Project::relatedTo($request->user()->id)
             ->whereHas('idea', fn ($q) => $q->visibleTo($request->user()));
 
+        // Dibuka dari kartu Dashboard: status dibatasi ke definisi metrik, dan
+        // batasan fase halaman ini dilewati — satu metrik bisa mencakup beberapa
+        // fase sekaligus, sehingga jumlah barisnya tetap sama dgn angka kartunya.
+        $metric = $request->get('metric');
+        $metric = (MetricScopeService::exists($metric) && MetricScopeService::kindOf($metric) === 'project')
+            ? $metric
+            : null;
+
+        if ($metric) {
+            // Basis diganti seluruhnya dengan definisi metrik Dashboard. Tidak cukup
+            // hanya menyaring status: relatedTo() di atas jauh lebih luas (ikut
+            // menghitung keanggotaan tim & committee) sedangkan kartu Dashboard
+            // hanya menghitung pengaju ide / Leader / Sponsor — jumlahnya akan beda.
+            $base = app(MetricScopeService::class)->query(
+                $metric,
+                $request->user(),
+                true,       // halaman ini memang khusus data milik user sendiri
+                ['bu' => null, 'unit' => null, 'from' => null, 'to' => null]
+            );
+        }
+
         // Batasi ke status fase ini (Implementation/Completion). Proposal: null = semua.
-        if (! empty($opts['phaseStatuses'])) {
+        if (! $metric && ! empty($opts['phaseStatuses'])) {
             $base->whereIn('status', $opts['phaseStatuses']);
         }
 
         // Kebalikannya: buang status yang bukan urusan fase ini. Dipakai Proposal
         // agar status fase eksekusi/penyelesaian tidak ikut nongol. Memakai daftar
         // KECUALI (bukan daftar izin) supaya status baru tetap muncul secara default.
-        if (! empty($opts['excludeStatuses'])) {
+        if (! $metric && ! empty($opts['excludeStatuses'])) {
             $base->whereNotIn('status', $opts['excludeStatuses']);
         }
 
@@ -365,6 +387,9 @@ class ProjectController extends Controller
             'detailPhase'  => $opts['phase'] ?? null, // ?phase=... pada link Detail
             'detailRoute'  => $opts['detailRoute'] ?? 'projects.show',
             'createHint'   => $opts['createHint'] ?? null,
+            // Konteks kartu Dashboard (bila halaman ini dibuka dari sana).
+            'metric'       => $metric,
+            'metricLabel'  => $metric ? MetricScopeService::labelOf($metric) : null,
         ] + $this->listSortState($request, $config));
     }
 
@@ -660,8 +685,14 @@ class ProjectController extends Controller
      */
     public function show(Request $request, Project $project)
     {
+        // Terkait langsung dengan project, ATAU pemegang izin Report. Yang datang
+        // lewat Report dipaksa mode lihat-saja di bawah, sehingga tidak bisa mengubah
+        // apa pun meski halaman detailnya terbuka.
+        $lewatReport = ! Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
+            && $request->user()->can('report.view');
+
         abort_unless(
-            Project::relatedTo($request->user()->id)->whereKey($project->id)->exists(),
+            $lewatReport || Project::relatedTo($request->user()->id)->whereKey($project->id)->exists(),
             403
         );
 
@@ -675,11 +706,17 @@ class ProjectController extends Controller
 
         $user = $request->user();
 
-        // Field "Actual" hanya muncul saat detail dibuka dari konteks Project
-        // Implementation (?phase=implementation) DAN project memang sedang berjalan.
-        // Dibuka dari Project Proposal → tampilan tetap proposal (tanpa Actual).
+        // Permintaan perubahan pada project ini yang menunggu keputusan user.
+        // Dihitung lebih awal karena ikut menentukan tampilnya kolom Actual.
+        $changeReviews = app(ProjectChangeStagingService::class)->reviewableOn($project, $user);
+
+        // Field "Actual" ditentukan oleh FASE PROJECT, bukan oleh pintu masuk:
+        // selama proposal belum disetujui Actual disembunyikan, dan begitu proposal
+        // di-approve ia tampil di mana pun detail dibuka (My Project, Task Box,
+        // Report, dsb). Patokan ini stabil — tidak berubah mengikuti peran pembuka
+        // halaman maupun ada-tidaknya parameter di URL.
         $isImplementationView = $request->query('phase') === 'implementation';
-        $showActual = $project->isInExecution() && $isImplementationView;
+        $showActual = $project->proposalApproved();
 
         // Opsi PIC = anggota tim project (Leader + Sponsor + Members).
         $teamMembers = collect([$project->leader, $project->sponsor])
@@ -709,13 +746,13 @@ class ProjectController extends Controller
             // ?view=1 (tombol mata di daftar) memaksa halaman jadi lihat-saja,
             // walaupun user sebenarnya berwenang mengubah.
             'canEdit'            => ! $request->boolean('view') && $project->canLeaderEditProposal($user),
-            'viewOnly'           => $request->boolean('view'),
+            // Pengunjung dari Report (tanpa keterkaitan langsung) selalu read-only.
+            'viewOnly'           => $request->boolean('view') || $lewatReport,
             'isLeader'           => $project->project_leader_id === $user->id,
             'isSponsor'          => $project->project_sponsor_id === $user->id,
             'isReviewer'         => app(ProjectApprovalWorkflowService::class)->isCurrentReviewer($project, $user),
             // Actual tidak lagi punya baseline terpisah: pengisiannya menjadi change
             // request per section, jadi tidak ada status yang mengunci pengeditan.
-            'canTrack'           => $showActual && $project->isTeamMember($user),
             'canSubmitCompletion' => $project->project_leader_id === $user->id && $project->isInExecution(),
             'canRequestUpdate'   => $project->isInExecution() && $project->isTeamMember($user),
             'canCancel'          => $this->canCancel($project, $user) && ! in_array($project->status, ['completed', 'cancelled'], true),
@@ -730,10 +767,12 @@ class ProjectController extends Controller
             'canEditRow'       => $this->canEditRow($project, $user),
             // Perubahan proposal yang masih ditahan (belum diajukan approval).
             'pendingDrafts'    => app(ProjectChangeStagingService::class)->drafts($project),
+            // Nilai per baris yang menunggu approval — ditampilkan di tabel agar
+            // isian user terlihat, walau belum berlaku pada datanya.
+            'pendingChanges'   => app(ProjectChangeStagingService::class)->pendingByRow($project),
             // Permintaan perubahan yang menunggu keputusan user ini, lengkap dgn
             // perbandingan before/after tiap field.
-            'changeReviews'    => app(ProjectChangeStagingService::class)
-                ->reviewableOn($project, $user)
+            'changeReviews'    => $changeReviews
                 ->map(fn ($u) => [
                     'update' => $u,
                     'label'  => ProjectChangeStagingService::TYPE_LABEL[$u->change_type] ?? $u->change_type,
@@ -749,7 +788,7 @@ class ProjectController extends Controller
         // read-only dan berbeda nyata dari tombol pensil.
         if ($data['viewOnly']) {
             foreach ([
-                'canEdit', 'canTrack',
+                'canEdit',
                 'canSubmitCompletion', 'canRequestUpdate', 'canCancel', 'canUploadAttachment',
                 'canEditRow', 'canDeleteRow', 'canSubmitChanges',
             ] as $flag) {

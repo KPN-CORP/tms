@@ -6,6 +6,8 @@ use App\Http\Controllers\Concerns\HasListQuery;
 use App\Models\Idea;
 use App\Models\KpnBusinessUnit;
 use App\Models\Project;
+use App\Models\User;
+use App\Services\Dashboard\MetricScopeService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,29 +26,21 @@ class ReportController extends Controller
 {
     use HasListQuery;
 
-    /** Jenis laporan: key => label pada dropdown. */
+    /**
+     * Jenis laporan: key => label pada dropdown. Cukup dua — Idea dan Project.
+     * Pemilahan per fase tidak lagi jadi jenis laporan tersendiri karena tab
+     * status di atas tabel sudah menyediakan penyaringan yang sama.
+     */
     public const TYPES = [
-        'ideas'                  => 'Ideas',
-        'project_shell'          => 'Project Shell',
-        'project_proposal'       => 'Project Proposal',
-        'project_implementation' => 'Project Implementation',
-        'project_completion'     => 'Project Completion',
+        'ideas'   => 'Ideas',
+        'project' => 'Project',
     ];
-
-    /** Status yang tercakup tiap laporan project (null = semua). */
-    private const PHASE_STATUSES = [
-        'project_shell'          => null,
-        'project_proposal'       => null,   // pakai EXCLUDE di bawah
-        'project_implementation' => Project::EXECUTION_STATUSES,
-        'project_completion'     => ['completion_review', 'completed'],
-    ];
-
-    /** Status milik fase lain yang dibuang dari Project Proposal (samakan dgn menu-nya). */
-    private const PROPOSAL_EXCLUDE = ['ongoing', 'delayed', 'completion_review'];
 
     public function index(Request $request)
     {
         $type = $this->resolveType($request);
+        $metric = $request->get('metric');
+        $metric = MetricScopeService::exists($metric) ? $metric : null;
 
         [$query, $config] = $this->queryFor($type, $request);
 
@@ -56,8 +50,11 @@ class ReportController extends Controller
             ->groupBy('status')
             ->pluck('c', 'status');
 
-        $tab = (string) $request->get('tab', 'all');
-        if ($tab !== 'all' && $counts->has($tab)) {
+        // Disaring berdasarkan DAFTAR STATUS yang sah, bukan berdasarkan ada-tidaknya
+        // hasil. Kalau bersandar pada $counts, tab yang kebetulan kosong akan
+        // dilewati dan justru menampilkan SELURUH baris.
+        $tab = $this->resolveTab($request, $type);
+        if ($tab !== 'all') {
             $query->where('status', $tab);
         }
 
@@ -74,6 +71,11 @@ class ReportController extends Controller
             'statusMap' => $this->statusLabels($type),
             'buNames'   => KpnBusinessUnit::names(),
             'isIdea'    => $type === 'ideas',
+            // Judul & tombol hapus filter saat halaman dibuka dari kartu Dashboard.
+            'metric'      => $metric,
+            'metricLabel' => $metric ? MetricScopeService::labelOf($metric) : null,
+            // Ditampilkan sebagai badge agar jelas daftar ini bukan lingkup organisasi.
+            'mineOnly'    => $this->mineOnly($request),
         ] + $this->listSortState($request, $config));
     }
 
@@ -83,7 +85,7 @@ class ReportController extends Controller
         $type = $this->resolveType($request);
         [$query] = $this->queryFor($type, $request);
 
-        $tab = (string) $request->get('tab', 'all');
+        $tab = $this->resolveTab($request, $type);
         if ($tab !== 'all') {
             $query->where('status', $tab);
         }
@@ -114,9 +116,12 @@ class ReportController extends Controller
     /** @return array{0:Builder,1:array} */
     private function queryFor(string $type, Request $request): array
     {
+        // 'searchable' sengaja kosong: pencarian ditangani applySearch() karena
+        // harus menjangkau NAMA orang yang tersimpan di database hcis (koneksi lain),
+        // sehingga tidak bisa lewat whereHas biasa.
         $config = $type === 'ideas'
             ? [
-                'searchable'   => ['idea_id', 'idea_name', 'problem'],
+                'searchable'   => [],
                 'sortable'     => [
                     'idea_id'    => 'idea_id',
                     'idea_name'  => 'idea_name',
@@ -128,7 +133,7 @@ class ReportController extends Controller
                 'default_dir'  => 'desc',
             ]
             : [
-                'searchable'   => ['project_id', 'project_name'],
+                'searchable'   => [],
                 'sortable'     => [
                     'project_id'   => 'project_id',
                     'project_name' => 'project_name',
@@ -140,36 +145,98 @@ class ReportController extends Controller
                 'default_dir'  => 'desc',
             ];
 
-        if ($type === 'ideas') {
-            // TANPA visibleTo / kepemilikan: laporan memang lintas organisasi.
-            $query = Idea::query()
-                ->when($request->filled('bu'), fn ($q) => $q->where('business_unit_name', $request->get('bu')))
-                ->when($request->filled('unit'), fn ($q) => $q->where('department_name', $request->get('unit')))
-                ->with(['user']);
-        } else {
-            $query = Project::query()
-                ->when($request->filled('bu'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('business_unit_name', $request->get('bu'))))
-                ->when($request->filled('unit'), fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('department_name', $request->get('unit'))))
-                ->with(['idea', 'leader', 'sponsor', 'category', 'budgets']);
+        $metric = $request->get('metric');
+        $scope  = app(MetricScopeService::class);
+        $mine   = $this->mineOnly($request);
+        $f      = $this->filters($request);
 
-            if ($statuses = self::PHASE_STATUSES[$type] ?? null) {
-                $query->whereIn('status', $statuses);
-            }
-            if ($type === 'project_proposal') {
-                $query->whereNotIn('status', self::PROPOSAL_EXCLUDE);
-            }
+        if (MetricScopeService::exists($metric)) {
+            // Basis diambil dari definisi metrik Dashboard supaya jumlah barisnya
+            // sama persis dgn angka pada kartu yang diklik.
+            $query = $scope->query($metric, $request->user(), $mine, $f);
+        } elseif ($type === 'ideas') {
+            $query = $scope->ideaScope($request->user(), $mine, $f);
+        } else {
+            $query = $scope->projectScope($request->user(), $mine, $f);
         }
 
+        $query->with($type === 'ideas'
+            ? ['user']
+            : ['idea', 'leader', 'sponsor', 'category', 'budgets']);
+
+        $this->applySearch($query, $type, trim((string) $request->get('q')));
         $this->applyListSearchSort($query, $request, $config);
 
         return [$query, $config];
     }
 
+    /**
+     * Pencarian satu kotak untuk seluruh laporan.
+     *
+     *   Ideas   : Idea ID, Idea Name, nama pengaju (Submitted By)
+     *   Project : Project ID, Project Name, nama SELURUH anggota tim —
+     *             Project Leader, Project Sponsor, dan anggota lain.
+     *
+     * Nama orang tinggal di database hcis (koneksi terpisah), sehingga tidak bisa
+     * di-join langsung. Nama dicocokkan lebih dulu menjadi daftar user id, baru
+     * dipakai menyaring di koneksi aplikasi.
+     */
+    private function applySearch(Builder $query, string $type, string $term): void
+    {
+        if ($term === '') {
+            return;
+        }
+
+        $userIds = User::where('name', 'like', "%{$term}%")
+            ->orWhere('employee_id', 'like', "%{$term}%")
+            ->limit(500)
+            ->pluck('id');
+
+        if ($type === 'ideas') {
+            $query->where(function (Builder $q) use ($term, $userIds) {
+                $q->where('idea_id', 'like', "%{$term}%")
+                    ->orWhere('idea_name', 'like', "%{$term}%")
+                    ->when($userIds->isNotEmpty(), fn ($w) => $w->orWhereIn('user_id', $userIds));
+            });
+
+            return;
+        }
+
+        $query->where(function (Builder $q) use ($term, $userIds) {
+            $q->where('project_id', 'like', "%{$term}%")
+                ->orWhere('project_name', 'like', "%{$term}%")
+                ->when($userIds->isNotEmpty(), fn ($w) => $w
+                    ->orWhereIn('project_leader_id', $userIds)
+                    ->orWhereIn('project_sponsor_id', $userIds)
+                    ->orWhereHas('members', fn ($m) => $m->whereIn('user_id', $userIds)));
+        });
+    }
+
     private function resolveType(Request $request): string
     {
+        // Dibuka dari kartu Dashboard: jenis laporan mengikuti metriknya.
+        $metric = $request->get('metric');
+        if (MetricScopeService::exists($metric)) {
+            return MetricScopeService::kindOf($metric) === 'idea' ? 'ideas' : 'project';
+        }
+
         $type = (string) $request->get('type', 'ideas');
 
-        return array_key_exists($type, self::TYPES) ? $type : 'ideas';
+        if (array_key_exists($type, self::TYPES)) {
+            return $type;
+        }
+
+        // Tautan lama (project_shell, project_proposal, dst) tetap mendarat di
+        // laporan Project, bukan terlempar ke Ideas.
+        return str_starts_with($type, 'project') ? 'project' : 'ideas';
+    }
+
+    /** Tab status yang sah untuk jenis laporan ini ('all' bila tidak dikenali). */
+    private function resolveTab(Request $request, string $type): string
+    {
+        $tab = (string) $request->get('tab', 'all');
+
+        return array_key_exists($tab, $this->statusLabels($type)) ? $tab : 'all';
     }
 
     /* ---- Kolom per jenis laporan ------------------------------------- */
@@ -206,17 +273,54 @@ class ReportController extends Controller
             )],
         ];
 
-        // Fase eksekusi & penyelesaian: realisasi biaya ikut ditampilkan.
-        if (in_array($type, ['project_implementation', 'project_completion'], true)) {
-            $kolom[] = ['label' => 'Total Cost', 'value' => fn ($r) => (float) $r->budgets->sum(
-                fn ($b) => (float) ($b->actual_cost ?? 0)
-            )];
-        }
+        // Realisasi biaya selalu ikut: satu laporan Project mencakup semua fase.
+        $kolom[] = ['label' => 'Total Cost', 'value' => fn ($r) => (float) $r->budgets->sum(
+            fn ($b) => (float) ($b->actual_cost ?? 0)
+        )];
 
         $kolom[] = ['label' => 'Created',      'sort' => 'created_at', 'value' => fn ($r) => $r->created_at];
         $kolom[] = ['label' => 'Last Updated', 'sort' => 'updated_at', 'value' => fn ($r) => $r->updated_at];
 
         return $kolom;
+    }
+
+    /**
+     * Apakah daftar dikunci ke data milik user sendiri?
+     *
+     * Pemegang 'report.view' melihat seluruh organisasi (kecuali ia sendiri memilih
+     * mine=1 lewat kartu Dashboard "Act as Myself"). User tanpa izin itu SELALU
+     * dikunci — menghapus mine=1 dari URL tidak membuka data orang lain.
+     */
+    private function mineOnly(Request $request): bool
+    {
+        return ! $request->user()->can('report.view') || $request->boolean('mine');
+    }
+
+    /** Filter organisasi & periode dalam bentuk yang dipakai MetricScopeService. */
+    private function filters(Request $request): array
+    {
+        return [
+            'bu'   => $request->filled('bu') ? $request->get('bu') : null,
+            'unit' => $request->filled('unit') ? $request->get('unit') : null,
+            'from' => $request->filled('from') ? $request->date('from')->startOfDay() : null,
+            'to'   => $request->filled('to') ? $request->date('to')->endOfDay() : null,
+        ];
+    }
+
+    /** Tautan detail (read-only) untuk tombol mata di kolom Action. */
+    public static function detailUrl(string $type, $row): string
+    {
+        // from=report dipakai halaman detail untuk mengarahkan tombol Back
+        // kembali ke Report, bukan ke My Ideas / My Project.
+        if ($type === 'ideas') {
+            return route('ideas.show', ['idea' => $row->id, 'from' => 'report']);
+        }
+
+        return route('projects.show', [
+            'project' => $row->id,
+            'view'    => 1,
+            'from'    => 'report',
+        ]);
     }
 
     /** Label status untuk badge & tab. */

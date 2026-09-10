@@ -28,7 +28,10 @@
 
         {{-- Back + Title --}}
         <div>
-            <a href="{{ route('ideas.index') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to My Ideas</a>
+            {{-- Dibuka dari menu Report (?from=report) → kembalikan ke Report. --}}
+            @php $dariReport = request('from') === 'report'; @endphp
+            <a href="{{ $dariReport ? route('reports.index', ['type' => 'ideas']) : route('ideas.index') }}"
+               class="text-sm text-gray-500 hover:text-red-700">&larr; Back to {{ $dariReport ? 'Report' : 'My Ideas' }}</a>
             <h1 class="text-2xl font-bold text-gray-800 mt-1">Idea: {{ $idea->idea_name }}</h1>
         </div>
 

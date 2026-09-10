@@ -214,6 +214,7 @@
                                                             @empty
                                                                 <div class="text-gray-400">None</div>
                                                             @endforelse
+                                                            <div class=" "
                                                         </div>
                                                     </template>
                                                 </div>

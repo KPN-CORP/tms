@@ -8,6 +8,15 @@
 
         <div>
             <h1 class="text-2xl font-bold text-gray-800">{{ $pageTitle }}</h1>
+            {{-- Dibuka dari kartu Dashboard: sebutkan metriknya + jalan keluar,
+                 agar pengguna paham kenapa daftarnya tersaring. --}}
+            @if(($metric ?? null) && ($metricLabel ?? null))
+                <div class="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    <span>From Dashboard &middot; <span class="font-semibold">{{ $metricLabel }}</span></span>
+                    <a href="{{ url()->current() }}" class="font-semibold hover:underline">clear</a>
+                </div>
+            @endif
+
             <p class="text-gray-500">{{ $pageSubtitle }}</p>
         </div>
 

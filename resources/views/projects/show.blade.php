@@ -10,7 +10,7 @@
         $idea  = $project->idea;
         $usersById = $users->keyBy('id');
         $totalWeight = (float) $project->indicators->sum('weightage');
-        // $showActual dari controller: hanya true saat detail dibuka dari konteks
+        // $showActual dari controller: true begitu proposal disetujui (lihat konteks
         // Project Implementation (?phase=implementation) DAN project sedang berjalan.
         // Dari Project Proposal → tetap tampilan proposal (Actual disembunyikan).
 
@@ -52,7 +52,10 @@
 
         <div class="flex items-start justify-between">
             <div>
-                <a href="{{ route('projects.index') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to My Project</a>
+                {{-- Dibuka dari menu Report (?from=report) → kembalikan ke Report. --}}
+                @php $dariReport = request('from') === 'report'; @endphp
+                <a href="{{ $dariReport ? route('reports.index', ['type' => 'project']) : route('projects.index') }}"
+                   class="text-sm text-gray-500 hover:text-red-700">&larr; Back to {{ $dariReport ? 'Report' : 'My Project' }}</a>
                 <h1 class="text-2xl font-bold text-gray-800 mt-1">{{ $project->project_name }}</h1>
                 <p class="font-mono text-red-700">{{ $project->project_id }}</p>
             </div>
@@ -277,9 +280,29 @@
                             <tr>
                                 <td class="px-4 py-3">{{ $plan->activity }}</td>
                                 <td class="px-4 py-3 text-xs">{{ optional($plan->planning_start)->format('d/m/y') ?? '-' }} &ndash; {{ optional($plan->planning_end)->format('d/m/y') ?? '-' }}</td>
+                                @php
+                                    // Nilai yang masih menunggu approval untuk baris ini.
+                                    // WAJIB di luar @if($showActual): kolom Remarks memakainya juga
+                                    // dan kolom itu selalu tampil (mis. saat Sponsor me-review).
+                                    $tunda = ($pendingChanges[\App\Models\ImplementationPlan::class . '#' . $plan->id] ?? null);
+                                    $tf    = $tunda['fields'] ?? [];
+                                    $tglTunda = function ($v) {
+                                        return $v ? \Illuminate\Support\Carbon::parse($v)->format('d/m/y') : '-';
+                                    };
+                                @endphp
                                 @if($showActual)
                                     <td class="px-4 py-3 text-xs align-top">
                                         <div>{{ optional($plan->actual_start)->format('d/m/y') ?? '-' }} &ndash; {{ optional($plan->actual_end)->format('d/m/y') ?? '-' }}</div>
+                                        @if(array_key_exists('actual_start', $tf) || array_key_exists('actual_end', $tf))
+                                            <div class="mt-1 text-amber-700">
+                                                {{ $tglTunda($tf['actual_start'] ?? optional($plan->actual_start)->format('Y-m-d')) }}
+                                                &ndash;
+                                                {{ $tglTunda($tf['actual_end'] ?? optional($plan->actual_end)->format('Y-m-d')) }}
+                                                <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-semibold">
+                                                    {{ $tunda['status'] === 'pending' ? 'Waiting approval' : 'Not submitted' }}
+                                                </span>
+                                            </div>
+                                        @endif
                                         @if($plan->actual_days !== null)<div class="text-gray-400">{{ $plan->actual_days }} day(s)</div>@endif
                                     </td>
                                 @endif
@@ -289,6 +312,14 @@
                                 {{-- Remarks: kolom sendiri, dibatasi lebarnya agar tabel tidak melar. --}}
                                 <td class="px-4 py-3 text-xs align-top">
                                     <div class="max-w-[220px] whitespace-normal break-words text-gray-600">{{ $plan->remarks ?: '-' }}</div>
+                                    @if(array_key_exists('remarks', $tf))
+                                        <div class="max-w-[220px] whitespace-normal break-words text-amber-700 mt-1">
+                                            {{ $tf['remarks'] ?: '-' }}
+                                            <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-semibold">
+                                                {{ $tunda['status'] === 'pending' ? 'Waiting approval' : 'Not submitted' }}
+                                            </span>
+                                        </div>
+                                    @endif
                                 </td>
 
                                 {{-- Status: live (dari actual) HANYA di view Implementation.
@@ -957,51 +988,54 @@
                         </div>
                     </div>
 
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-sm">
-                            <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
-                                <tr>
-                                    <th class="px-4 py-2">Item</th>
-                                    <th class="px-4 py-2">Field</th>
-                                    <th class="px-4 py-2">Value</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($review['diff'] as $d)
-                                    @php
-                                        $fmt = function ($v) {
-                                            if (is_array($v)) return implode(', ', $v);
-                                            if (is_bool($v))  return $v ? 'Yes' : 'No';
-                                            return ($v === null || $v === '') ? '—' : $v;
-                                        };
-                                    @endphp
-                                    {{-- Satu field = dua baris. Garis pemisah hanya di ATAS pasangan,
-                                         supaya Before & After terbaca sebagai satu kesatuan. --}}
-                                    <tr class="border-t">
-                                        {{-- Item & Field mewakili KEDUA baris, jadi tidak ikut dipudarkan. --}}
-                                        <td class="px-4 py-2 text-gray-600 align-top" rowspan="2">{{ $d['label'] }}</td>
-                                        <td class="px-4 py-2 text-gray-600 align-top" rowspan="2">{{ $d['field'] }}</td>
-                                        {{-- BEFORE: dipudarkan agar nilai baru yang menonjol. --}}
-                                        <td class="px-4 pt-2 pb-0.5">
-                                            <span class="opacity-50 text-gray-500">
-                                                <span class="text-xs uppercase tracking-wide mr-2">Before</span>
-                                                <span class="line-through">{{ $fmt($d['before']) }}</span>
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    {{-- AFTER: warna normal. --}}
+                    @php
+                        $fmt = function ($v) {
+                            if (is_array($v)) return implode(', ', $v);
+                            if (is_bool($v))  return $v ? 'Yes' : 'No';
+                            return ($v === null || $v === '') ? '—' : $v;
+                        };
+                        // Dikelompokkan per BARIS data, bukan per field: satu tabel kecil
+                        // per item, nama field jadi kolom.
+                        $perItem = collect($review['diff'])->groupBy('row');
+                    @endphp
+
+                    @forelse($perItem as $fields)
+                        <div class="overflow-x-auto border-t">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
                                     <tr>
-                                        <td class="px-4 pt-0.5 pb-2 text-gray-900 font-semibold">
-                                            <span class="text-xs uppercase tracking-wide mr-2 text-gray-400 font-normal">After</span>
-                                            {{ $fmt($d['after']) }}
-                                        </td>
+                                        <th class="px-4 py-2">Item</th>
+                                        <th class="px-4 py-2 w-20"></th>
+                                        @foreach($fields as $f)
+                                            <th class="px-4 py-2">{{ $f['field'] }}</th>
+                                        @endforeach
                                     </tr>
-                                @empty
-                                    <tr><td colspan="3" class="px-4 py-3 text-gray-400">No field changes recorded.</td></tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody>
+                                    {{-- BEFORE: satu baris penuh, dipudarkan. Kolom Item mewakili
+                                         kedua baris sehingga warnanya dibiarkan normal. --}}
+                                    <tr>
+                                        <td class="px-4 py-2 text-gray-700 align-middle" rowspan="2">{{ $fields->first()['label'] }}</td>
+                                        <td class="px-4 pt-2 pb-0.5 text-xs uppercase tracking-wide text-gray-400">Before</td>
+                                        @foreach($fields as $f)
+                                            <td class="px-4 pt-2 pb-0.5">
+                                                <span class="opacity-50 text-gray-500 line-through">{{ $fmt($f['before']) }}</span>
+                                            </td>
+                                        @endforeach
+                                    </tr>
+                                    {{-- AFTER: baris nilai baru, warna normal & tebal. --}}
+                                    <tr>
+                                        <td class="px-4 pt-0.5 pb-2 text-xs uppercase tracking-wide text-gray-400">After</td>
+                                        @foreach($fields as $f)
+                                            <td class="px-4 pt-0.5 pb-2 text-gray-900 font-semibold">{{ $fmt($f['after']) }}</td>
+                                        @endforeach
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    @empty
+                        <p class="px-6 py-3 text-gray-400 border-t">No field changes recorded.</p>
+                    @endforelse
 
                     <div class="p-6 border-t space-y-3">
                         {{-- Bentuk & aturan note disamakan dgn panel keputusan lainnya. --}}

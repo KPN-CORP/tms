@@ -18,6 +18,31 @@ class Project extends Model
     /** Status "project sedang berjalan" (fase eksekusi/tracking). */
     public const EXECUTION_STATUSES = ['approved', 'ongoing', 'delayed'];
 
+    /**
+     * Status yang berarti proposal SUDAH disetujui — mulai dari approved sampai
+     * selesai. Dipakai menentukan tampilnya field Actual: selama masih di fase
+     * proposal, Actual belum relevan.
+     */
+    public const POST_PROPOSAL_STATUSES = [
+        'approved', 'ongoing', 'delayed', 'completion_review', 'completed',
+    ];
+
+    /**
+     * Apakah proposal project ini sudah melewati approval?
+     *
+     * Project yang dibatalkan tidak bisa dinilai dari statusnya saja — cancel bisa
+     * terjadi sebelum maupun sesudah approval — jadi riwayat statusnya ditelusuri.
+     */
+    public function proposalApproved(): bool
+    {
+        if (in_array($this->status, self::POST_PROPOSAL_STATUSES, true)) {
+            return true;
+        }
+
+        return $this->status === 'cancelled'
+            && $this->statusLogs()->whereIn('new_status', self::POST_PROPOSAL_STATUSES)->exists();
+    }
+
     /** Peta status → [label, kelas badge warna]. Dipakai index & detail. */
     /**
      * Warna badge per status — SEMUA berbeda satu sama lain agar status tidak

@@ -248,6 +248,37 @@ class ProjectChangeStagingService
         ]);
     }
 
+    /**
+     * Perubahan yang BELUM berlaku, dikelompokkan per baris data:
+     *
+     *   ["App\\Models\\ImplementationPlan#27" => [
+     *        'status' => 'draft',
+     *        'fields' => ['actual_start' => '2026-09-01', 'remarks' => 'yes'],
+     *   ]]
+     *
+     * Dipakai tabel detail untuk menampilkan nilai yang sedang menunggu approval,
+     * supaya isian user tidak terlihat "hilang" hanya karena belum disetujui.
+     */
+    public function pendingByRow(Project $project): array
+    {
+        $hasil = [];
+
+        $updates = ProjectUpdate::where('project_id', $project->id)
+            ->whereIn('status', ['draft', 'revision_required', 'pending'])
+            ->get();
+
+        foreach ($updates as $u) {
+            foreach ((array) $u->payload as $key => $fields) {
+                $hasil[$key] = [
+                    'status' => $u->status,
+                    'fields' => array_merge($hasil[$key]['fields'] ?? [], (array) $fields),
+                ];
+            }
+        }
+
+        return $hasil;
+    }
+
     /** Permintaan perubahan yang menunggu keputusan $user (untuk Task Box). */
     public function reviewQueueFor(User $user)
     {

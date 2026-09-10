@@ -7,6 +7,51 @@
     @php
         $user = Auth::user();
         $card = 'bg-white rounded-xl shadow p-4';
+
+        // Tujuan kartu tergantung hak akses:
+        //  - Pemegang 'report.view' → menu Report (bisa lintas organisasi).
+        //  - Selain itu             → My Ideas / My Project, karena datanya memang
+        //    hanya miliknya sendiri; tak perlu membawa tampilan Report ke sana.
+        // Untuk metrik project, halaman tujuan dipilih sesuai fase metriknya.
+        $bolehReport = auth()->user()->can('report.view');
+
+        $rutePerMetrik = [
+            'idea_draft'              => ['ideas.index', null],
+            'idea_cumulative_submit'  => ['ideas.index', null],
+            'idea_in_submitted'       => ['ideas.index', null],
+            'idea_approved'           => ['ideas.index', null],
+            'idea_projects_generated' => ['projects.index', null],
+            'project_in_submitted'    => ['projects.index', null],
+            'project_cumulative_appr' => ['projects.index', null],
+            'project_ongoing'         => ['projects.implementation', 'implementation'],
+            'project_delayed'         => ['projects.implementation', 'implementation'],
+            'project_completed'       => ['projects.completion', 'completion'],
+            'project_avg_improvement' => ['projects.completion', 'completion'],
+        ];
+
+        $drill = function ($metric) use ($filters, $as, $bolehReport, $rutePerMetrik) {
+            $umum = array_filter([
+                'metric' => $metric,
+                'bu'     => $filters['bu'] ?: null,
+                'unit'   => $filters['unit'] ?: null,
+            ]);
+
+            if ($bolehReport) {
+                return route('reports.index', $umum + array_filter([
+                    'from' => optional($filters['from'])->format('Y-m-d'),
+                    'to'   => optional($filters['to'])->format('Y-m-d'),
+                    'mine' => $as === 'myself' ? 1 : null,
+                ]));
+            }
+
+            // My Ideas / My Project sudah tersaring ke data user sendiri.
+            [$rute] = $rutePerMetrik[$metric] ?? ['ideas.index', null];
+
+            return route($rute, $umum);
+        };
+
+        // Kelas kartu yang bisa diklik: beri isyarat visual saat disorot.
+        $cardLink = $card . ' block transition hover:shadow-md hover:ring-1 hover:ring-red-200 focus:outline-none focus:ring-2 focus:ring-red-300';
         $num  = 'text-3xl font-bold text-gray-800';
         $lbl  = 'text-sm text-gray-500 leading-snug mt-1';
         $fld  = 'w-full h-[38px] border border-gray-300 rounded-lg px-3 text-sm focus:ring focus:ring-red-200';
@@ -110,11 +155,11 @@
         <div>
             <h3 class="text-base font-semibold text-gray-700 mb-2">Idea Monitoring</h3>
             <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <div class="{{ $card }}"><div class="{{ $num }}">{{ $idea['draft'] }}</div><div class="{{ $lbl }}">Total Idea Draft</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }}">{{ $idea['cumulative_submit'] }}</div><div class="{{ $lbl }}">Cumulative Total Submitted Ideas</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }} text-blue-700">{{ $idea['in_submitted'] }}</div><div class="{{ $lbl }}">Total Idea in Submitted Status</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }} text-green-700">{{ $idea['approved'] }}</div><div class="{{ $lbl }}">Total Idea Approved for Implementation</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }} text-red-700">{{ $idea['projects_generated'] }}</div><div class="{{ $lbl }}">Cumulative Total Project Generated from Approved Idea</div></div>
+                <a href="{{ $drill('idea_draft') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }}">{{ $idea['draft'] }}</div><div class="{{ $lbl }}">Total Idea Draft</div></a>
+                <a href="{{ $drill('idea_cumulative_submit') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }}">{{ $idea['cumulative_submit'] }}</div><div class="{{ $lbl }}">Cumulative Total Submitted Ideas</div></a>
+                <a href="{{ $drill('idea_in_submitted') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-blue-700">{{ $idea['in_submitted'] }}</div><div class="{{ $lbl }}">Total Idea in Submitted Status</div></a>
+                <a href="{{ $drill('idea_approved') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-green-700">{{ $idea['approved'] }}</div><div class="{{ $lbl }}">Total Idea Approved for Implementation</div></a>
+                <a href="{{ $drill('idea_projects_generated') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-red-700">{{ $idea['projects_generated'] }}</div><div class="{{ $lbl }}">Cumulative Total Project Generated from Approved Idea</div></a>
             </div>
         </div>
 
@@ -122,12 +167,12 @@
         <div>
             <h3 class="text-base font-semibold text-gray-700 mb-2">Project Monitoring</h3>
             <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
-                <div class="{{ $card }}"><div class="{{ $num }} text-blue-700">{{ $project['in_submitted'] }}</div><div class="{{ $lbl }}">Total Project in Submitted Status</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }} text-green-700">{{ $project['cumulative_appr'] }}</div><div class="{{ $lbl }}">Cumulative Total Approved Projects</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }}">{{ $project['ongoing'] }}</div><div class="{{ $lbl }}">Total Project in Ongoing Status</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }} text-amber-600">{{ $project['delayed'] }}</div><div class="{{ $lbl }}">Total Projects in Delayed Status</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }} text-green-700">{{ $project['completed'] }}</div><div class="{{ $lbl }}">Total Completed Projects</div></div>
-                <div class="{{ $card }}"><div class="{{ $num }}">{{ $project['avg_improvement'] }}%</div><div class="{{ $lbl }}">Average % Improvement</div></div>
+                <a href="{{ $drill('project_in_submitted') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-blue-700">{{ $project['in_submitted'] }}</div><div class="{{ $lbl }}">Total Project in Submitted Status</div></a>
+                <a href="{{ $drill('project_cumulative_appr') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-green-700">{{ $project['cumulative_appr'] }}</div><div class="{{ $lbl }}">Cumulative Total Approved Projects</div></a>
+                <a href="{{ $drill('project_ongoing') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }}">{{ $project['ongoing'] }}</div><div class="{{ $lbl }}">Total Project in Ongoing Status</div></a>
+                <a href="{{ $drill('project_delayed') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-amber-600">{{ $project['delayed'] }}</div><div class="{{ $lbl }}">Total Projects in Delayed Status</div></a>
+                <a href="{{ $drill('project_completed') }}" class="{{ $cardLink }}" title="Lihat daftarnya"><div class="{{ $num }} text-green-700">{{ $project['completed'] }}</div><div class="{{ $lbl }}">Total Completed Projects</div></a>
+                <a href="{{ $drill('project_avg_improvement') }}" class="{{ $cardLink }}" title="Lihat project yang dihitung"><div class="{{ $num }}">{{ $project['avg_improvement'] }}%</div><div class="{{ $lbl }}">Average % Improvement</div></a>
             </div>
         </div>
 

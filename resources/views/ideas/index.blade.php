@@ -9,6 +9,15 @@
         <div class="flex items-start justify-between">
             <div>
                 <h1 class="text-2xl font-bold text-gray-800">My Ideas</h1>
+            {{-- Dibuka dari kartu Dashboard: sebutkan metriknya + jalan keluar,
+                 agar pengguna paham kenapa daftarnya tersaring. --}}
+            @if(($metric ?? null) && ($metricLabel ?? null))
+                <div class="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    <span>From Dashboard &middot; <span class="font-semibold">{{ $metricLabel }}</span></span>
+                    <a href="{{ url()->current() }}" class="font-semibold hover:underline">clear</a>
+                </div>
+            @endif
+
                 <p class="text-gray-500">Track and manage your improvement ideas</p>
             </div>
             <div class="flex items-center gap-3">

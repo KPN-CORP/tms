@@ -6,7 +6,7 @@ use App\Models\Idea;
 use App\Models\ImplementationIndicator;
 use App\Models\Project;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Builder;
+use App\Services\Dashboard\MetricScopeService;
 use Illuminate\Http\Request;
 
 /**
@@ -66,95 +66,45 @@ class DashboardController extends Controller
         ]);
     }
 
-    /* ---- Scope ------------------------------------------------------- */
-
-    /** Ide: filter periode memakai tanggal ide dibuat. */
-    private function ideaScope(User $user, bool $mine, array $f): Builder
-    {
-        return Idea::query()
-            ->when($mine, fn ($q) => $q->where('user_id', $user->id))
-            ->when($f['bu'], fn ($q, $v) => $q->where('business_unit_name', $v))
-            ->when($f['unit'], fn ($q, $v) => $q->where('department_name', $v))
-            ->when($f['from'], fn ($q, $v) => $q->where('created_at', '>=', $v))
-            ->when($f['to'], fn ($q, $v) => $q->where('created_at', '<=', $v));
-    }
-
-    /** BU/Unit project mengikuti ide asalnya; periode memakai tanggal project dibuat. */
-    private function applyProjectFilters(Builder $q, array $f): Builder
-    {
-        return $q
-            ->when($f['bu'], fn ($qq, $v) => $qq->whereHas('idea', fn ($i) => $i->where('business_unit_name', $v)))
-            ->when($f['unit'], fn ($qq, $v) => $qq->whereHas('idea', fn ($i) => $i->where('department_name', $v)))
-            ->when($f['from'], fn ($qq, $v) => $qq->where('created_at', '>=', $v))
-            ->when($f['to'], fn ($qq, $v) => $qq->where('created_at', '<=', $v));
-    }
-
-    /**
-     * Project yang LAHIR DARI IDE user ini — dipakai kartu "Cumulative Total Project
-     * Generated from Approved Idea" agar konsisten dengan angka ide di sebelahnya.
-     */
-    private function projectsFromMyIdeasScope(User $user, bool $mine, array $f): Builder
-    {
-        return $this->applyProjectFilters(
-            Project::query()->when(
-                $mine,
-                fn ($q) => $q->whereHas('idea', fn ($i) => $i->where('user_id', $user->id))
-            ),
-            $f
-        );
-    }
-
-    /**
-     * Project milik sendiri = lahir dari ide user ini, ATAU user sebagai Project
-     * Leader / Sponsor-nya. Keanggotaan committee tidak dihitung — itu peran
-     * mereview, bukan "data yang dibuat sendiri".
-     */
-    private function projectScope(User $user, bool $mine, array $f): Builder
-    {
-        return $this->applyProjectFilters(
-            Project::query()->when($mine, fn ($q) => $q->where(function ($w) use ($user) {
-                $w->whereHas('idea', fn ($i) => $i->where('user_id', $user->id))
-                    ->orWhere('project_leader_id', $user->id)
-                    ->orWhere('project_sponsor_id', $user->id);
-            })),
-            $f
-        );
-    }
-
     /* ---- Metrik ------------------------------------------------------ */
 
-    /** 5 metrik Idea pada Dashboard Matrix. */
+    /**
+     * 5 metrik Idea pada Dashboard Matrix.
+     *
+     * Cacahnya diambil dari MetricScopeService — definisi yang sama persis dipakai
+     * Report saat kartu diklik, sehingga angka dan daftarnya tidak mungkin beda.
+     */
     private function ideaMetrics(User $user, bool $mine, array $f): array
     {
-        $nonDraft = ['submitted', 'review', 'approved', 'rejected', 'project_created'];
-        $ideas    = fn () => $this->ideaScope($user, $mine, $f);
+        $scope = app(MetricScopeService::class);
 
         return [
-            'draft'              => $ideas()->where('status', 'draft')->count(),
-            'cumulative_submit'  => $ideas()->whereIn('status', $nonDraft)->count(),
-            'in_submitted'       => $ideas()->where('status', 'submitted')->count(),
-            'approved'           => $ideas()->whereIn('status', ['approved', 'project_created'])->count(),
-            'projects_generated' => $this->projectsFromMyIdeasScope($user, $mine, $f)->count(),
+            'draft'              => $scope->query('idea_draft', $user, $mine, $f)->count(),
+            'cumulative_submit'  => $scope->query('idea_cumulative_submit', $user, $mine, $f)->count(),
+            'in_submitted'       => $scope->query('idea_in_submitted', $user, $mine, $f)->count(),
+            'approved'           => $scope->query('idea_approved', $user, $mine, $f)->count(),
+            'projects_generated' => $scope->query('idea_projects_generated', $user, $mine, $f)->count(),
         ];
     }
 
     /** 6 metrik Project pada Dashboard Matrix. */
     private function projectMetrics(User $user, bool $mine, array $f): array
     {
-        $approvedPlus = ['approved', 'ongoing', 'delayed', 'completion_review', 'completed'];
-        $projects     = fn () => $this->projectScope($user, $mine, $f);
+        $scope = app(MetricScopeService::class);
 
+        // Rata-rata improvement dihitung dari indikator milik project yang selesai —
+        // himpunan project-nya sama dengan kartu "Total Completed Projects".
         $avgImprovement = ImplementationIndicator::whereIn(
             'project_id',
-            $projects()->where('status', 'completed')->pluck('id')
+            $scope->query('project_completed', $user, $mine, $f)->pluck('id')
         )->avg('improvement');
 
         return [
-            'in_submitted'    => $projects()->where('status', 'submitted')->count(),
-            'cumulative_appr' => $projects()->whereIn('status', $approvedPlus)->count(),
-            'ongoing'         => $projects()->where('status', 'ongoing')->count(),
-            'delayed'         => $projects()->where('status', 'delayed')->count(),
-            'completed'       => $projects()->where('status', 'completed')->count(),
+            'in_submitted'    => $scope->query('project_in_submitted', $user, $mine, $f)->count(),
+            'cumulative_appr' => $scope->query('project_cumulative_appr', $user, $mine, $f)->count(),
+            'ongoing'         => $scope->query('project_ongoing', $user, $mine, $f)->count(),
+            'delayed'         => $scope->query('project_delayed', $user, $mine, $f)->count(),
+            'completed'       => $scope->query('project_completed', $user, $mine, $f)->count(),
             'avg_improvement' => $avgImprovement ? round((float) $avgImprovement, 2) : 0,
         ];
     }

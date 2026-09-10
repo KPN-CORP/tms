@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\Idea;
 use App\Models\IdeaAttachment;
 use App\Models\KpnBusinessUnit;
+use App\Services\Dashboard\MetricScopeService;
 use App\Models\Location;
 use App\Services\Idea\IdeaWorkflowService;
 use Illuminate\Http\Request;
@@ -45,6 +46,15 @@ class IdeaController extends Controller
         // menurunkan opsi dropdown agar hanya menampilkan nilai yang relevan.
         $base = Idea::where('user_id', $request->user()->id)
             ->visibleTo($request->user());
+
+        // Dibuka dari kartu Dashboard: batasi ke status milik metrik itu supaya
+        // jumlah barisnya sama persis dengan angka pada kartunya.
+        $metric = $request->get('metric');
+        if (MetricScopeService::exists($metric) && MetricScopeService::kindOf($metric) === 'idea') {
+            $base->whereIn('status', MetricScopeService::METRICS[$metric]['statuses'] ?? []);
+        } else {
+            $metric = null;
+        }
 
         // Filter BU/Unit by NAMA (dropdown dari hcis) + search/sort. Status pakai tab.
         $query = (clone $base)
@@ -83,6 +93,9 @@ class IdeaController extends Controller
             'buNames' => $buNames,
             'counts'  => $counts,
             'tab'     => $tab,
+            // Konteks kartu Dashboard (bila halaman ini dibuka dari sana).
+            'metric'      => $metric,
+            'metricLabel' => $metric ? MetricScopeService::labelOf($metric) : null,
         ] + $this->listSortState($request, self::IDEA_LIST_CONFIG));
     }
 
@@ -91,7 +104,13 @@ class IdeaController extends Controller
      */
     public function show(Request $request, Idea $idea)
     {
-        abort_unless($idea->user_id === $request->user()->id, 403);
+        // Pemilik ide, atau pemegang izin Report (menu Report memuat seluruh ide
+        // lintas organisasi, jadi tombol lihat detail di sana harus bisa dibuka).
+        // Halaman ini memang read-only, tidak ada aksi yang bisa dijalankan di sini.
+        abort_unless(
+            $idea->user_id === $request->user()->id || $request->user()->can('report.view'),
+            403
+        );
 
         $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'attachments', 'approvals.user']);
 
