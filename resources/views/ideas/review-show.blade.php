@@ -14,7 +14,10 @@
     <div class="p-6 space-y-6 mx-auto w-full max-w-7xl">
 
         <div>
-            <a href="{{ route('ideas.taskbox') }}" class="text-sm text-gray-500 hover:text-red-700">&larr; Back to Task Box</a>
+            {{-- Dibuka dari menu Report (?from=report) → kembalikan ke Report. --}}
+            @php $dariReport = request('from') === 'report'; @endphp
+            <a href="{{ $dariReport ? route('reports.index', ['type' => 'ideas']) : route('ideas.taskbox') }}"
+               class="text-sm text-gray-500 hover:text-red-700">&larr; Back to {{ $dariReport ? 'Report' : 'Task Box' }}</a>
             <h1 class="text-2xl font-bold text-gray-800 mt-1">Idea: {{ $idea->idea_name }}</h1>
         </div>
 
@@ -62,6 +65,12 @@
                     </span>
                     <div class="text-sm">
                         <span class="font-semibold">{{ optional($a->user)->name }}</span>
+                        @if($a->on_behalf_of_id)
+                            {{-- Keputusan diambil atas nama committee pemegang layer ini. --}}
+                            <span class="text-gray-500">on behalf of</span>
+                            <span class="font-semibold">{{ optional($a->onBehalfOf)->name ?? '#' . $a->on_behalf_of_id }}</span>
+                            <span class="text-gray-500">(Layer {{ $a->layer }})</span>
+                        @endif
                         <span class="text-gray-400">· <x-datetime :value="$a->created_at" /></span>
                         @if($a->note)<div class="text-gray-500">{{ $a->note }}</div>@endif
                     </div>
@@ -71,17 +80,28 @@
             @endforelse
         </div>
 
-        {{-- Aksi approve/reject (hanya reviewer layer aktif) --}}
-        @if($canReview)
-            <div class="bg-white rounded-xl shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">Your Decision (Layer {{ $idea->current_layer }})</h3>
+        {{-- Aksi approve/reject: reviewer layer aktif, ATAU Super Admin yang
+             bertindak atas nama committee layer tsb (izin override.role). --}}
+        @php $bertindakAtasNama = ! $canReview && ($atasNama ?? null); @endphp
+        @if($canReview || $bertindakAtasNama)
+            <div class="bg-white rounded-xl shadow p-6 {{ $bertindakAtasNama ? 'border border-amber-300' : '' }}">
+                @if($bertindakAtasNama)
+                    <div class="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                        You are deciding <span class="font-semibold">on behalf of {{ $atasNama->name }}</span>,
+                        the committee holding Layer {{ $idea->current_layer }}.
+                        The history will record your name alongside theirs.
+                    </div>
+                    <h3 class="text-lg font-semibold mb-4">Decision on behalf of {{ $atasNama->name }} (Layer {{ $idea->current_layer }})</h3>
+                @else
+                    <h3 class="text-lg font-semibold mb-4">Your Decision (Layer {{ $idea->current_layer }})</h3>
+                @endif
                 <div class="mb-3">
                     <label class="block text-sm font-semibold text-gray-600 mb-1">Note (optional)</label>
                     <textarea form="approveForm" id="idea-decision-note" name="note" rows="2" class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-red-200"></textarea>
                 </div>
                 <div class="flex gap-3">
                     <form id="approveForm" method="POST" action="{{ route('ideas.review.approve', $idea) }}">
-                        @csrf
+                        @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                         <button type="submit"
                                 data-confirm="Approve this idea for Layer {{ $idea->current_layer }}? It moves on to the next approval layer, or becomes fully approved if this is the final layer."
                                 data-confirm-title="Approve Idea?"
@@ -90,7 +110,7 @@
                     </form>
                     <form method="POST" action="{{ route('ideas.review.reject', $idea) }}"
                           onsubmit="this.note.value=document.getElementById('idea-decision-note').value">
-                        @csrf
+                        @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                         <input type="hidden" name="note">
                         <button type="submit"
                                 data-confirm="Reject this idea? The review stops here and it cannot continue to the remaining layers. This cannot be undone."

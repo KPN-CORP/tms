@@ -198,6 +198,18 @@
                                         </td>
                                     @endforeach
                                     <td class="px-4 py-3 align-top text-right">
+                                        {{-- Pensil: hanya untuk pemegang 'override.role', dan hanya pada
+                                             baris yang MASIH menunggu keputusan di sebuah layer. Membuka
+                                             halaman review tempat ia bisa memutus atas nama committee. --}}
+                                        @if($canOverride && ($overrideUrl = \App\Http\Controllers\ReportController::overrideUrl($type, $row, $idsPending)))
+                                            <a href="{{ $overrideUrl }}"
+                                               title="Act as the active committee layer" aria-label="Act as committee"
+                                               class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-amber-200 text-amber-600 hover:text-amber-800 hover:border-amber-400 hover:bg-amber-50 mr-1">
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                                </svg>
+                                            </a>
+                                        @endif
                                         <a href="{{ \App\Http\Controllers\ReportController::detailUrl($type, $row) }}"
                                            title="View detail" aria-label="View detail"
                                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-500 hover:text-red-700 hover:border-red-300 hover:bg-red-50">

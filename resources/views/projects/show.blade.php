@@ -124,10 +124,77 @@
                 @if($project->project_summary)
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Project Summary (Completion)</label><div class="{{ $box }} whitespace-pre-line">{{ $project->project_summary }}</div></div>
                 @endif
+                {{-- Sponsor tetap read-only di sini. Field Leader dibuka bagi yang
+                     berhak (mis. Project Sponsor) — bisa dikosongkan & dicari lewat
+                     AJAX org yang sama dengan field employee lain. --}}
+                @php $hakLead = $leadershipRights ?? ['sponsor' => false, 'leader' => false, 'instant' => false]; @endphp
+
                 <div class="grid grid-cols-2 gap-4">
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Sponsor</label><div class="{{ $box }}">{{ optional($project->sponsor)->name }}</div></div>
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Leader</label><div class="{{ $box }}">{{ optional($project->leader)->name }}</div></div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Leader</label>
+                        @if($hakLead['leader'])
+                            {{-- data-no-search + data-remote-value WAJIB: tanpa keduanya TomSelect
+                                 biasa terpasang lebih dulu dan pencarian AJAX tidak pernah jalan. --}}
+                            <select name="project_leader_id" form="detailLeaderForm"
+                                    data-no-search
+                                    data-remote-search="{{ route('org.users') }}" data-remote-value="id"
+                                    placeholder="Search name or employee ID..."
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                                <option value=""></option>
+                                @if($project->project_leader_id)
+                                    <option value="{{ $project->project_leader_id }}" selected>{{ optional($project->leader)->name }}</option>
+                                @endif
+                            </select>
+                        @else
+                            <div class="{{ $box }}">{{ optional($project->leader)->name }}</div>
+                        @endif
+                    </div>
                 </div>
+
+                {{-- Nilai Leader yang masih menunggu persetujuan. --}}
+                @php $tundaLead = ($pendingChanges[\App\Models\Project::class . '#' . $project->id] ?? null); @endphp
+                @if($tundaLead && array_key_exists('project_leader_id', $tundaLead['fields']))
+                    <p class="text-xs">
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+                            Leader &rarr;
+                            <span class="font-semibold">{{ optional(\App\Models\User::find($tundaLead['fields']['project_leader_id']))->name }}</span>
+                            <span class="text-amber-600">
+                                ({{ $tundaLead['status'] === 'pending' ? 'waiting approval' : 'not submitted' }})
+                            </span>
+                        </span>
+                    </p>
+                @endif
+
+                @if($hakLead['leader'])
+                    <form id="detailLeaderForm" method="POST" action="{{ route('projects.leadership.update', $project) }}"
+                          class="pt-3 border-t flex flex-wrap items-center justify-between gap-3">
+                        @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
+                        @method('PUT')
+
+                        <p class="text-xs text-gray-500">
+                            @if($hakLead['instant'])
+                                Changes to the Leader take effect immediately.
+                            @elseif($ideaApprover ?? null)
+                                Reviewed by <span class="font-semibold text-gray-700">{{ $ideaApprover->name }}</span>,
+                                the final-layer committee of the originating idea.
+                            @else
+                                The originating idea has no final-layer committee yet, so the request stays
+                                pending until an approver is determined.
+                            @endif
+                        </p>
+
+                        <button data-confirm="{{ $hakLead['instant']
+                                    ? 'This change takes effect immediately and will be recorded in the project history. Continue?'
+                                    : 'This change will be sent to the final-layer committee of the originating idea and only takes effect once approved. Continue?' }}"
+                                data-confirm-title="{{ $hakLead['instant'] ? 'Save Changes?' : 'Submit for Approval?' }}"
+                                data-confirm-ok="{{ $hakLead['instant'] ? 'Yes, Save' : 'Yes, Submit' }}"
+                                class="px-6 py-2 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800">
+                            {{ $hakLead['instant'] ? 'Submit' : 'Submit for Approval' }}
+                        </button>
+                    </form>
+                @endif
             </div>
         </div>
 
@@ -135,16 +202,17 @@
         <div id="section-team" class="bg-white rounded-xl shadow overflow-hidden scroll-mt-6" {!! $collapsible('team', 'addOpen: ' . (session('memberDialogOpen') ? 'true' : 'false')) !!}>
             <button type="button" @click="open = ! open" class="{{ $secBtn }}"><span>Team Members</span>{!! $chevron !!}</button>
             <div x-show="open">
+
                 <table class="w-full text-left text-sm">
-                    <thead class="bg-gray-50 text-gray-600 text-xs uppercase"><tr><th class="px-4 py-3">Name</th><th class="px-4 py-3">Role in Project</th>@if($canEdit)<th class="px-4 py-3 text-right">Action</th>@endif</tr></thead>
+                    <thead class="bg-gray-50 text-gray-600 text-xs uppercase"><tr><th class="px-4 py-3">Name</th><th class="px-4 py-3">Role in Project</th>@if($canEdit || ($canEditTeam ?? false))<th class="px-4 py-3 text-right">Action</th>@endif</tr></thead>
                     <tbody class="divide-y">
                         @forelse($project->members as $m)
                             <tr><td class="px-4 py-3">{{ optional($m->user)->name }}</td><td class="px-4 py-3">{{ $m->role }}</td>
-                                @if($canEdit)
+                                @if($canEdit || ($canEditTeam ?? false))
                                 <td class="px-4 py-3 text-right" x-data="{ editOpen: false }">
                                     <div class="flex items-center justify-end gap-3">
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
-                                        <form method="POST" action="{{ route('projects.members.destroy', [$project, $m]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                        <form method="POST" action="{{ route('projects.members.destroy', [$project, $m]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
                                     </div>
                                     {{-- Dialog: Edit Member --}}
                                     <div x-show="editOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="editOpen = false">
@@ -152,7 +220,7 @@
                                         <div class="{{ $modalCard }} text-left" x-transition.opacity x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Team Member</h3>
                                             <form method="POST" action="{{ route('projects.members.update', [$project, $m]) }}" class="space-y-3">
-                                                @csrf @method('PUT')
+                                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('PUT')
                                                     <x-record-version :model="$m" />
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">Nama</label>
                                                     <select name="user_id" required data-no-search data-remote-search="{{ route('org.users') }}" data-remote-value="id" class="{{ $inp }} w-full"><option value="{{ $m->user_id }}" selected>{{ optional($m->user)->name }}</option></select></div>
@@ -169,11 +237,11 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="{{ $canEdit ? 3 : 2 }}" class="px-4 py-6 text-center text-gray-400">No members yet.</td></tr>
+                            <tr><td colspan="{{ ($canEdit || ($canEditTeam ?? false)) ? 3 : 2 }}" class="px-4 py-6 text-center text-gray-400">No members yet.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
-                @if($canEdit)
+                @if($canEdit || ($canEditTeam ?? false))
                     <div class="p-4 border-t flex justify-end">
                         <button type="button" @click="addOpen = true" class="px-4 py-2 bg-red-700 text-white rounded-lg text-sm hover:bg-red-800">+ Add Member</button>
                     </div>
@@ -181,8 +249,10 @@
             </div>
 
             {{-- Dialog: Add Member — kebutuhan role kategori & tambah manual disatukan
-                 dalam SATU form: semua baris tersimpan sekali klik "Add Member". --}}
-            @if($canEdit)
+                 dalam SATU form: semua baris tersimpan sekali klik "Add Member".
+                 Gate-nya HARUS sama dengan tombol pemanggilnya; kalau tidak, tombol
+                 tampil untuk admin tetapi dialognya tidak pernah ikut dirender. --}}
+            @if($canEdit || ($canEditTeam ?? false))
                 @php
                     $requiredRoles = optional($project->category) ? $project->category->requiredRoles() : [];
                     $roleSlots = collect($requiredRoles)->map(function ($rr) use ($project) {
@@ -224,7 +294,7 @@
 
                         <form method="POST" action="{{ route('projects.members.store', $project) }}" class="space-y-2"
                               @submit="err = window.tmsMemberSubmit($event) ? '' : 'Select at least one name before saving.'">
-                            @csrf
+                            @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                             <div class="hidden sm:grid grid-cols-12 gap-3 px-1 text-xs font-semibold text-gray-500 uppercase">
                                 <div class="col-span-3">Role in Project</div>
                                 <div class="col-span-1"></div>
@@ -378,7 +448,7 @@
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
                                         {{-- Delete hanya untuk Leader; anggota tim cukup Edit. --}}
                                         @if($canDeleteRow)
-                                            <form method="POST" action="{{ route('projects.implementation.destroy', [$project, $plan]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                            <form method="POST" action="{{ route('projects.implementation.destroy', [$project, $plan]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
                                         @endif
                                     </div>
 
@@ -401,7 +471,7 @@
                                                       e: '{{ optional($plan->actual_end)->format('Y-m-d') }}',
                                                       get days(){ if(!this.s || !this.e) return null; const a = new Date(this.s), b = new Date(this.e); if (b < a) return null; return Math.floor((b - a) / 86400000) + 1; }
                                                   }">
-                                                @csrf @method('PUT')
+                                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('PUT')
                                                 <x-record-version :model="$plan" />
 
                                                 <div><label class="block text-xs font-semibold text-gray-600 mb-1">Activity</label>
@@ -468,7 +538,7 @@
                             @if($canEditRow)
                                 @foreach($plan->attachments as $att)
                                     <form id="del-plan-att-{{ $att->id }}" method="POST" class="hidden"
-                                          action="{{ route('projects.implementation.attachments.destroy', [$project, $plan, $att]) }}">@csrf @method('DELETE')</form>
+                                          action="{{ route('projects.implementation.attachments.destroy', [$project, $plan, $att]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')</form>
                                 @endforeach
                             @endif
                         @empty
@@ -493,7 +563,7 @@
                          x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
                         <h3 class="text-lg font-semibold text-gray-800 mb-4">Add Activity</h3>
                         <form method="POST" action="{{ route('projects.implementation.store', $project) }}" enctype="multipart/form-data" class="space-y-3">
-                            @csrf
+                            @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                             <template x-for="(row, i) in rows" :key="row._id">
                                 <div class="border rounded-lg p-3 grid grid-cols-2 gap-2 relative">
                                     <button type="button" x-show="rows.length > 1" @click="rows.splice(i, 1)" class="absolute top-1.5 right-2 text-red-600 text-sm">&times;</button>
@@ -564,7 +634,7 @@
                                     <div class="flex items-center justify-end gap-3">
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
                                         @if($canDeleteRow)
-                                            <form method="POST" action="{{ route('projects.indicators.destroy', [$project, $ind]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                            <form method="POST" action="{{ route('projects.indicators.destroy', [$project, $ind]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
                                         @endif
                                     </div>
                                     {{-- Dialog: Edit Indicator --}}
@@ -578,7 +648,7 @@
                                                 <div class="mb-4"></div>
                                             @endif
                                             <form method="POST" action="{{ route('projects.indicators.update', [$project, $ind]) }}" class="grid grid-cols-2 gap-2">
-                                                @csrf @method('PUT')
+                                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('PUT')
                                                     <x-record-version :model="$ind" />
                                                 <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Name</label><input name="indicator" value="{{ $ind->indicator }}" required @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></div>
                                                 <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Indicator Description</label><textarea name="description" rows="2" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif">{{ $ind->description }}</textarea></div>
@@ -632,7 +702,7 @@
                          x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
                         <h3 class="text-lg font-semibold text-gray-800 mb-4">Add Success Indicator</h3>
                         <form method="POST" action="{{ route('projects.indicators.store', $project) }}" class="space-y-3">
-                            @csrf
+                            @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                             <template x-for="(row, i) in rows" :key="row._id">
                                 <div class="border rounded-lg p-3 grid grid-cols-2 gap-2 relative">
                                     <button type="button" x-show="rows.length > 1" @click="rows.splice(i, 1)" class="absolute top-1.5 right-2 text-red-600 text-sm">&times;</button>
@@ -739,7 +809,7 @@
                                     <div class="flex items-center justify-end gap-3">
                                         <button type="button" @click="editOpen = true" class="text-red-700 text-xs hover:underline">Edit</button>
                                         @if($canDeleteRow)
-                                            <form method="POST" action="{{ route('projects.budgets.destroy', [$project, $b]) }}">@csrf @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                            <form method="POST" action="{{ route('projects.budgets.destroy', [$project, $b]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')<button class="text-red-600 text-xs hover:underline" data-confirm="Delete this item?" data-confirm-title="Delete" data-confirm-ok="Yes, Delete">Delete</button></form>
                                         @endif
                                     </div>
                                     {{-- Dialog: Edit Budget --}}
@@ -749,7 +819,7 @@
                                              x-data="{ q: {{ (float) $b->qty }}, p: {{ (float) $b->unit_price }} }">
                                             <h3 class="text-lg font-semibold text-gray-800 mb-4">Edit Budget</h3>
                                             <form method="POST" action="{{ route('projects.budgets.update', [$project, $b]) }}" enctype="multipart/form-data" class="grid grid-cols-2 gap-2">
-                                                @csrf @method('PUT')
+                                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('PUT')
                                                     <x-record-version :model="$b" />
                                                 <div class="col-span-2"><label class="block text-xs font-semibold text-gray-600 mb-1">Item Name</label><input name="item" value="{{ $b->item }}" maxlength="500" required @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></div>
                                                 <label class="text-xs text-gray-500">Qty<input type="number" step="any" min="0" name="qty" x-model="q" value="{{ $b->qty }}" @readonly($proposalReadOnly) class="{{ $inp }} w-full @if($proposalReadOnly) bg-gray-50 text-gray-600 @endif"></label>
@@ -805,7 +875,7 @@
                             @if($canEditRow)
                                 @foreach($b->attachments as $att)
                                     <form id="del-budget-att-{{ $att->id }}" method="POST" class="hidden"
-                                          action="{{ route('projects.budgets.attachments.destroy', [$project, $b, $att]) }}">@csrf @method('DELETE')</form>
+                                          action="{{ route('projects.budgets.attachments.destroy', [$project, $b, $att]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')</form>
                                 @endforeach
                             @endif
                         @empty
@@ -854,7 +924,7 @@
                          x-init="$nextTick(() => window.tmsInit && window.tmsInit($el))">
                         <h3 class="text-lg font-semibold text-gray-800 mb-4">Add Budget</h3>
                         <form method="POST" action="{{ route('projects.budgets.store', $project) }}" class="space-y-3">
-                            @csrf
+                            @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                             <template x-for="(row, i) in rows" :key="row._id">
                                 <div class="border rounded-lg p-3 grid grid-cols-2 gap-2 relative">
                                     <button type="button" x-show="rows.length > 1" @click="rows.splice(i, 1)" class="absolute top-1.5 right-2 text-red-600 text-sm">&times;</button>
@@ -897,8 +967,8 @@
                             <span class="flex items-center gap-3 shrink-0 ml-3">
                                 <a href="{{ route('projects.attachments.download', [$project, $att]) }}" class="text-xs text-red-700 hover:underline">Download</a>
                                 <span class="text-gray-400">{{ $att->file_size ? number_format($att->file_size / 1024, 0) . ' KB' : '' }}</span>
-                                @if(auth()->id() === $att->uploaded_by || $isLeader || auth()->user()->hasRole('Super Admin'))
-                                    <form method="POST" action="{{ route('projects.attachments.destroy', [$project, $att]) }}">@csrf @method('DELETE')<button class="text-xs text-red-600 hover:underline" data-confirm="Delete this attachment?" data-confirm-title="Delete Attachment" data-confirm-ok="Yes, Delete">Delete</button></form>
+                                @if(auth()->id() === $att->uploaded_by || $isLeader || \App\Support\ReportOverride::aktif())
+                                    <form method="POST" action="{{ route('projects.attachments.destroy', [$project, $att]) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!} @method('DELETE')<button class="text-xs text-red-600 hover:underline" data-confirm="Delete this attachment?" data-confirm-title="Delete Attachment" data-confirm-ok="Yes, Delete">Delete</button></form>
                                 @endif
                             </span>
                         </div>
@@ -910,7 +980,7 @@
                 {{-- Upload banyak file sekaligus (pilih/tarik), bisa batalkan sebelum submit --}}
                 @if($canUploadAttachment)
                     <form method="POST" action="{{ route('projects.attachments.store', $project) }}" enctype="multipart/form-data">
-                        @csrf
+                        @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                         <div x-data="{
                                 files: [], drag: false,
                                 add(e){ this.push(e.target.files); },
@@ -984,6 +1054,13 @@
                                         <span class="font-semibold">Previous note:</span> {{ $upd->review_note }}
                                     </p>
                                 @endif
+                                @if($review['atasNama'] ?? null)
+                                    {{-- Keputusan akan tercatat atas nama penilai aslinya. --}}
+                                    <p class="text-sm text-amber-800 mt-1">
+                                        You are deciding <span class="font-semibold">on behalf of {{ $review['atasNama']->name }}</span>.
+                                        The history will record your name alongside theirs.
+                                    </p>
+                                @endif
                             </div>
                         </div>
                     </div>
@@ -1053,7 +1130,7 @@
                             <div class="flex flex-wrap gap-3">
                                 <form method="POST" action="{{ route('projects.updates.approve', [$project, $upd]) }}"
                                       @submit="$el.note.value = note">
-                                    @csrf<input type="hidden" name="note">
+                                    @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<input type="hidden" name="note">
                                     <button data-confirm="Approve this change request for Layer {{ $upd->current_layer }}? Once every layer approves, the changes are applied to the project."
                                             data-confirm-title="Approve Change Request?"
                                             data-confirm-ok="Yes, Approve"
@@ -1062,7 +1139,7 @@
                                 {{-- Revision Required tersedia di SETIAP layer approval --}}
                                 <form method="POST" action="{{ route('projects.updates.revision', [$project, $upd]) }}"
                                       @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); }">
-                                    @csrf<input type="hidden" name="note">
+                                    @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<input type="hidden" name="note">
                                     <button @click="if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
                                             data-confirm="Send this change request back to the Project Leader for revision? Your note will be shown to them."
                                             data-confirm-title="Request Revision?"
@@ -1071,7 +1148,7 @@
                                 </form>
                                 <form method="POST" action="{{ route('projects.updates.reject', [$project, $upd]) }}"
                                       @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); }">
-                                    @csrf<input type="hidden" name="note">
+                                    @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<input type="hidden" name="note">
                                     <button @click="if (! note.trim()) { err = true; $refs.crNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
                                             data-confirm="Reject this change request? The requested changes are discarded and will not be applied to the project. This cannot be undone."
                                             data-confirm-title="Reject Change Request?"
@@ -1095,6 +1172,12 @@
                             <span class="text-xs rounded-full px-2 py-1 shrink-0 {{ ['approve' => 'bg-green-100 text-green-700', 'revision' => 'bg-amber-100 text-amber-800'][$a->decision] ?? 'bg-red-100 text-red-700' }}">Layer {{ $a->layer }} · {{ $a->decision === 'revision' ? 'Revision Required' : ucfirst($a->decision) }}</span>
                             <div>
                                 <span class="font-semibold">{{ optional($a->user)->name }}</span>
+                                @if($a->on_behalf_of_id)
+                                    {{-- Keputusan diambil atas nama committee pemegang layer ini. --}}
+                                    <span class="text-gray-500">on behalf of</span>
+                                    <span class="font-semibold">{{ optional($a->onBehalfOf)->name ?? '#' . $a->on_behalf_of_id }}</span>
+                                    <span class="text-gray-500">(Layer {{ $a->layer }})</span>
+                                @endif
                                 <span class="text-gray-400">· <x-datetime :value="$a->created_at" /></span>
                                 @if($a->note)<div class="text-gray-600 mt-0.5">{{ $a->note }}</div>@endif
                             </div>
@@ -1123,7 +1206,13 @@
         @endif
 
         {{-- ================= Aksi bawah: Draft / Submit / keputusan + Cancel Project ================= --}}
-        @php $showActions = ($isLeader && $canEdit) || ($isSponsor && $project->status === 'submitted') || $isReviewer; @endphp
+        @php
+            // Bertindak atas nama committee layer aktif (Super Admin, izin override.role).
+            $bertindakAtasNama = ! $isReviewer && ($atasNama ?? null);
+            $showActions = ($isLeader && $canEdit)
+                || ($isSponsor && $project->status === 'submitted')
+                || $isReviewer || $bertindakAtasNama;
+        @endphp
         @if($showActions || $canCancel || $canSubmitChanges)
             {{-- Kartu putih hanya dipasang bila ada blok isi (form Draft/Submit proposal
                  atau panel keputusan). Untuk baris tombol saja, latar dibiarkan polos. --}}
@@ -1147,26 +1236,36 @@
                             </p>
                         </div>
                         <div class="flex gap-3">
-                            <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf<button
+                            <form id="approveForm" method="POST" action="{{ route('projects.sponsor.approve', $project) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<button
                                     data-confirm="Approve this proposal as Project Sponsor? It continues to the committee review layers."
                                     data-confirm-title="Approve Proposal?"
                                     data-confirm-ok="Yes, Approve"
                                     class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Approve</button></form>
                             <form method="POST" action="{{ route('projects.sponsor.revision', $project) }}"
                                   @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.sponsorNote?.focus(); $event.preventDefault(); }">
-                                @csrf<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.sponsorNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.sponsorNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
                                     data-confirm="Send this proposal back to the Project Leader for revision? Your note will be shown to them."
                                     data-confirm-title="Request Revision?"
                                     data-confirm-ok="Yes, Request Revision"
                                     class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
                         </div>
                     </div>
-                @elseif($isReviewer)
+                @elseif($isReviewer || $bertindakAtasNama)
                     {{-- Bentuk panel disamakan dgn Sponsor Approval: tanpa label "Note",
                          dan catatan WAJIB untuk Revision Required maupun Reject (Approve
                          boleh kosong). Server tetap memvalidasi ulang aturan yang sama. --}}
                     <div x-data="{ note: '', err: false }">
-                        <h3 class="text-lg font-semibold mb-3">Committee {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }} Approval (Layer {{ $project->current_layer }})</h3>
+                        @if($bertindakAtasNama)
+                            <div class="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                                You are deciding <span class="font-semibold">on behalf of {{ $atasNama->name }}</span>,
+                                the committee holding Layer {{ $project->current_layer }}.
+                                The history will record your name alongside theirs.
+                            </div>
+                        @endif
+                        <h3 class="text-lg font-semibold mb-3">
+                            Committee {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }} Approval (Layer {{ $project->current_layer }})
+                            @if($bertindakAtasNama)<span class="text-sm font-normal text-amber-700">&mdash; on behalf of {{ $atasNama->name }}</span>@endif
+                        </h3>
                         <div class="mb-3">
                             <textarea form="pApprove" id="committee-decision-note" name="note" rows="2"
                                       x-ref="committeeNote" x-model="note" @input="err = false"
@@ -1178,7 +1277,7 @@
                             </p>
                         </div>
                         <div class="flex flex-wrap gap-3">
-                            <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf<button
+                            <form id="pApprove" method="POST" action="{{ route('projects.review.approve', $project) }}">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<button
                                     data-confirm="Approve this {{ $project->status === 'completion_review' ? 'completion' : 'proposal' }} for Layer {{ $project->current_layer }}? It moves on to the next approval layer, or becomes fully approved if this is the final layer."
                                     data-confirm-title="Approve {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }}?"
                                     data-confirm-ok="Yes, Approve"
@@ -1187,14 +1286,14 @@
                                  kembali ke Project Leader (status Revision Required), bukan ditolak. --}}
                             @if($project->status === 'committee_review')
                                 <form method="POST" action="{{ route('projects.review.revision', $project) }}"
-                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                      @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
                                     data-confirm="Send this proposal back to the Project Leader for revision? Your note will be shown to them."
                                     data-confirm-title="Request Revision?"
                                     data-confirm-ok="Yes, Request Revision"
                                     class="px-6 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700">Revision Required</button></form>
                             @endif
                             <form method="POST" action="{{ route('projects.review.reject', $project) }}"
-                                  @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
+                                  @submit="$el.note.value = note; if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); }">@csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<input type="hidden" name="note"><button @click="if (! note.trim()) { err = true; $refs.committeeNote?.focus(); $event.preventDefault(); $event.stopPropagation(); }"
                                     data-confirm="Reject this {{ $project->status === 'completion_review' ? 'completion' : 'proposal' }}? The review stops here and it cannot continue to the remaining layers. This cannot be undone."
                                     data-confirm-title="Reject {{ $project->status === 'completion_review' ? 'Completion' : 'Proposal' }}?"
                                     data-confirm-ok="Yes, Reject"
@@ -1219,10 +1318,10 @@
                         <div class="flex flex-wrap items-center gap-3">
                         @if($aksiLeaderProposal)
                             <form method="POST" action="{{ route('projects.draft', $project) }}">
-                                @csrf<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Draft</button>
+                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Draft</button>
                             </form>
                             <form method="POST" action="{{ route('projects.submit', $project) }}">
-                                @csrf<button
+                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<button
                                     data-confirm="This proposal will be sent to the Sponsor for approval and cannot be edited while awaiting a decision. Continue?"
                                     data-confirm-title="Submit Proposal?"
                                     data-confirm-ok="Yes, Submit Proposal"
@@ -1232,10 +1331,10 @@
 
                         @if($canSubmitChanges)
                             <form method="POST" action="{{ route('projects.draft', $project) }}">
-                                @csrf<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Save as Draft</button>
+                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}<button class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Save as Draft</button>
                             </form>
                             <form method="POST" action="{{ route('projects.changes.submit', $project) }}">
-                                @csrf
+                                @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                                 <button @class([
                                             'px-6 py-2 rounded-lg font-semibold',
                                             'bg-red-700 text-white hover:bg-red-800' => $pendingDrafts->isNotEmpty(),
@@ -1265,7 +1364,7 @@
                     <div x-show="cancelOpen" x-cloak class="{{ $modalWrap }}" @keydown.escape.window="cancelOpen = false">
                         <div class="fixed inset-0 bg-black/40" @click="cancelOpen = false"></div>
                         <form method="POST" action="{{ route('projects.cancel', $project) }}" class="relative bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6" x-transition.opacity>
-                            @csrf
+                            @csrf{!! \App\Support\ReportOverride::aktif() ? '<input type="hidden" name="from" value="report">' : '' !!}
                             <div class="flex items-start gap-3">
                                 <div class="shrink-0 w-10 h-10 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xl">!</div>
                                 <div class="min-w-0">

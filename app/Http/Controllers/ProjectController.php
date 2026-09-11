@@ -24,6 +24,7 @@ use App\Services\Idea\IdeaWorkflowService;
 use App\Services\Project\ProjectApprovalWorkflowService;
 use App\Services\Project\ProjectChangeStagingService;
 use App\Services\Dashboard\MetricScopeService;
+use App\Support\ReportOverride;
 use App\Services\Project\ProjectUpdateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -194,7 +195,8 @@ class ProjectController extends Controller
         $user  = $request->user();
         $draft = Project::onlyShellDrafts()->findOrFail($shell);
 
-        if (! $user->hasRole('Super Admin')) {
+        // Di luar Report, Super Admin tunduk aturan yang sama dgn user lain.
+        if (! ReportOverride::aktif($request)) {
             $idea = Idea::where('idea_id', $draft->idea_id)->firstOrFail();
             $this->authorizeShellCreator($user, $idea);
         }
@@ -420,7 +422,7 @@ class ProjectController extends Controller
                 'ps.is_shell_draft as shell_is_draft',
             ]);
 
-        if (! $user->hasRole('Super Admin')) {
+        if (! ReportOverride::aktif($request)) {
             $base->whereIn('ideas.idea_id', $this->lastLayerCommitteeIdeaIds($user));
         }
 
@@ -483,7 +485,7 @@ class ProjectController extends Controller
         // Admin — yang melihat semua ide approved, termasuk yang bukan miliknya.
         // Baris yang tidak boleh menampilkan dialog penjelasan, bukan tombol mati.
         $workflow    = app(IdeaWorkflowService::class);
-        $isAdminView = $user->hasRole('Super Admin');
+        $isAdminView = ReportOverride::aktif($request);
         $rows->getCollection()->transform(function (Idea $row) use ($workflow, $user, $isAdminView) {
             $row->can_create_shell = ! $isAdminView || $workflow->isLastLayerCommittee($row, $user);
 
@@ -535,6 +537,10 @@ class ProjectController extends Controller
             'activities' => $this->shellActivities($project),
             'canCancel'  => $this->canCancel($project, $user)
                 && ! in_array($project->status, ['completed', 'cancelled'], true),
+            // Hak ubah Sponsor/Leader langsung dari halaman ini (committee layer
+            // terakhir ide memakai menu Project Shell, bukan Project Detail).
+            'leadershipRights' => $this->leadershipRights($project, $user),
+            'ideaApprover'     => app(ProjectChangeStagingService::class)->ideaCommitteeApprover($project),
         ]);
     }
 
@@ -670,7 +676,7 @@ class ProjectController extends Controller
     /** Boleh melihat Project Shell ini? (committee layer terakhir / Super Admin / leader / sponsor) */
     private function canSeeShell(Project $project, User $user): bool
     {
-        if ($user->hasRole('Super Admin')
+        if (ReportOverride::aktif()
             || $project->project_leader_id === $user->id
             || $project->project_sponsor_id === $user->id) {
             return true;
@@ -685,11 +691,12 @@ class ProjectController extends Controller
      */
     public function show(Request $request, Project $project)
     {
-        // Terkait langsung dengan project, ATAU pemegang izin Report. Yang datang
-        // lewat Report dipaksa mode lihat-saja di bawah, sehingga tidak bisa mengubah
-        // apa pun meski halaman detailnya terbuka.
+        // Terkait langsung dengan project, ATAU datang LEWAT MENU REPORT. Memiliki
+        // izin report.view saja tidak cukup: di luar Report, Super Admin diperlakukan
+        // seperti employee biasa. Yang datang lewat Report dipaksa mode lihat-saja di
+        // bawah, kecuali ia memang datang untuk bertindak (act=1).
         $lewatReport = ! Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
-            && $request->user()->can('report.view');
+            && ReportOverride::aktif($request);
 
         abort_unless(
             $lewatReport || Project::relatedTo($request->user()->id)->whereKey($project->id)->exists(),
@@ -701,14 +708,16 @@ class ProjectController extends Controller
             'idea.businessUnit', 'idea.department', 'idea.user',
             'sponsor', 'leader', 'members.user', 'budgets',
             'implementationPlans', 'indicators', 'statusLogs.changedBy', 'attachments.uploader',
-            'updates.requester', 'updates.reviewer', 'approvals.user',
+            'updates.requester', 'updates.reviewer', 'approvals.user', 'approvals.onBehalfOf',
         ]);
 
         $user = $request->user();
 
         // Permintaan perubahan pada project ini yang menunggu keputusan user.
         // Dihitung lebih awal karena ikut menentukan tampilnya kolom Actual.
-        $changeReviews = app(ProjectChangeStagingService::class)->reviewableOn($project, $user);
+        // Termasuk permintaan yang diputus mewakili penilai lain (override.role),
+        // sehingga tombol pensil di Report benar-benar membuka panel keputusannya.
+        $changeReviews = app(ProjectChangeStagingService::class)->decidableOn($project, $user);
 
         // Field "Actual" ditentukan oleh FASE PROJECT, bukan oleh pintu masuk:
         // selama proposal belum disetujui Actual disembunyikan, dan begitu proposal
@@ -746,11 +755,17 @@ class ProjectController extends Controller
             // ?view=1 (tombol mata di daftar) memaksa halaman jadi lihat-saja,
             // walaupun user sebenarnya berwenang mengubah.
             'canEdit'            => ! $request->boolean('view') && $project->canLeaderEditProposal($user),
-            // Pengunjung dari Report (tanpa keterkaitan langsung) selalu read-only.
-            'viewOnly'           => $request->boolean('view') || $lewatReport,
+            // Pengunjung dari Report umumnya read-only. Kecuali admin yang memang
+            // datang untuk bertindak (act=1 + izin override.role) — ia perlu menyunting
+            // Sponsor/Leader & Team Members serta memutus approval.
+            'viewOnly'           => $request->boolean('view')
+                || ($lewatReport && ! ($request->boolean('act') && $user->can('override.role'))),
             'isLeader'           => $project->project_leader_id === $user->id,
             'isSponsor'          => $project->project_sponsor_id === $user->id,
             'isReviewer'         => app(ProjectApprovalWorkflowService::class)->isCurrentReviewer($project, $user),
+            // Super Admin (izin override.role) boleh memutus menggantikan committee
+            // layer aktif. NULL bila ia memang reviewer-nya sendiri / tak berhak.
+            'atasNama'           => $this->atasNamaProject($request, $project),
             // Actual tidak lagi punya baseline terpisah: pengisiannya menjadi change
             // request per section, jadi tidak ada status yang mengunci pengeditan.
             'canSubmitCompletion' => $project->project_leader_id === $user->id && $project->isInExecution(),
@@ -760,7 +775,7 @@ class ProjectController extends Controller
             'updateTypes'        => ProjectUpdate::CHANGE_TYPES,
             'users'              => User::whereIn('id', $picIds)->get(),
             'teamMembers'        => $teamMembers,
-            'canUploadAttachment' => $project->isTeamMember($user) || $user->hasRole('Super Admin'),
+            'canUploadAttachment' => $project->isTeamMember($user) || ReportOverride::aktif($request),
             // Dialog Edit per baris: dibuka utk Leader (fase proposal) maupun anggota
             // tim (fase implementation). $proposalReadOnly menandai field asal proposal
             // yang tidak boleh diubah oleh anggota tim non-Leader.
@@ -773,13 +788,27 @@ class ProjectController extends Controller
             // Permintaan perubahan yang menunggu keputusan user ini, lengkap dgn
             // perbandingan before/after tiap field.
             'changeReviews'    => $changeReviews
-                ->map(fn ($u) => [
-                    'update' => $u,
-                    'label'  => ProjectChangeStagingService::TYPE_LABEL[$u->change_type] ?? $u->change_type,
-                    'diff'   => app(ProjectChangeStagingService::class)->diff($u),
-                ]),
-            'canSubmitChanges' => $project->project_leader_id === $user->id && $project->isInExecution(),
+                ->map(function ($u) use ($user) {
+                    $svc = app(ProjectChangeStagingService::class);
+
+                    return [
+                        'update' => $u,
+                        'label'  => ProjectChangeStagingService::TYPE_LABEL[$u->change_type] ?? $u->change_type,
+                        'diff'   => $svc->diff($u),
+                        // Nama penilai yang diwakili; null bila ia penilainya sendiri.
+                        'atasNama' => $svc->isReviewer($u, $user) ? null : $svc->approverOf($u),
+                    ];
+                }),
+            // Admin (override.role) juga boleh mengirimkan draft perubahan miliknya.
+            'canSubmitChanges' => ($project->project_leader_id === $user->id || ReportOverride::aktif($request))
+                && $project->isInExecution(),
             'canDeleteRow'     => $project->canLeaderEditProposal($user),
+            // Boleh menyunting Team Members & Sponsor/Leader (Leader atau admin).
+            'canEditTeam'      => $this->bolehUbahTim($project, $user),
+            // Hak ubah Sponsor/Leader + apakah langsung berlaku (lihat leadershipRights).
+            'leadershipRights' => $this->leadershipRights($project, $user),
+            // Nama penyetuju perubahan Sponsor/Leader; null = permintaan menggantung.
+            'ideaApprover'     => app(ProjectChangeStagingService::class)->ideaCommitteeApprover($project),
             'proposalReadOnly' => ! $this->leaderMayEditProposalFields($project, $user),
         ];
 
@@ -790,9 +819,14 @@ class ProjectController extends Controller
             foreach ([
                 'canEdit',
                 'canSubmitCompletion', 'canRequestUpdate', 'canCancel', 'canUploadAttachment',
-                'canEditRow', 'canDeleteRow', 'canSubmitChanges',
+                'canEditRow', 'canDeleteRow', 'canSubmitChanges', 'canEditTeam',
+                'leadershipRights',
             ] as $flag) {
-                $data[$flag] = false;
+                // Array hak diganti dengan hak kosong, bukan false, agar view tetap
+                // bisa membacanya sebagai array.
+                $data[$flag] = $flag === 'leadershipRights'
+                    ? ['sponsor' => false, 'leader' => false, 'instant' => false]
+                    : false;
             }
             $data['reviewableUpdateIds'] = collect();
         }
@@ -832,6 +866,129 @@ class ProjectController extends Controller
         $wf->start($project, 'committee_review', $request->user(), $note);
 
         return back()->with('success', 'Proposal approved by the Sponsor.');
+    }
+
+    /**
+     * Committee layer aktif yang akan DIGANTIKAN oleh user ini.
+     *
+     * NULL bila user memang reviewer-nya sendiri, tidak punya izin 'override.role',
+     * atau layer aktif tak punya penanggung jawab.
+     */
+    private function atasNamaProject(Request $request, Project $project): ?User
+    {
+        $user = $request->user();
+        $wf   = app(ProjectApprovalWorkflowService::class);
+
+        if ($wf->isCurrentReviewer($project, $user) || ! ReportOverride::aktif($request)) {
+            return null;
+        }
+
+        $approver = $wf->currentApprover($project);
+
+        return ($approver && $approver->id !== $user->id) ? $approver : null;
+    }
+
+    /** Gate bersama tiga aksi review: reviewer sendiri, atau bertindak atas nama. */
+    private function authorizeReview(Request $request, Project $project, ProjectApprovalWorkflowService $wf): ?User
+    {
+        if ($wf->isCurrentReviewer($project, $request->user())) {
+            return null;
+        }
+
+        $atasNama = $this->atasNamaProject($request, $project);
+        abort_unless($atasNama !== null, 403,
+            'Only the committee of the active layer may decide on this project.');
+
+        return $atasNama;
+    }
+
+    /**
+     * Ubah Project Sponsor dan/atau Project Leader.
+     *
+     * Tidak pernah menulis langsung: selalu menjadi change request
+     * "Project Sponsor & Leader Change" yang disetujui committee layer TERAKHIR
+     * dari ide asal project. Bila ide belum punya committee layer terakhir,
+     * permintaannya MENGGANTUNG (approver_role 'unassigned') sampai penyetujunya
+     * ditentukan — tidak diterapkan diam-diam.
+     */
+    public function updateLeadership(Request $request, Project $project, ProjectChangeStagingService $svc)
+    {
+        $hak = $this->leadershipRights($project, $request->user());
+
+        abort_unless($hak['sponsor'] || $hak['leader'], 403,
+            'You are not allowed to change the Project Sponsor or Leader.');
+
+        $data = $request->validate([
+            'project_sponsor_id' => ['nullable', 'integer', 'exists:kpncorp.users,id'],
+            'project_leader_id'  => ['nullable', 'integer', 'exists:kpncorp.users,id'],
+        ]);
+
+        // Field yang TIDAK boleh ia ubah diabaikan, bukan sekadar disembunyikan di
+        // layar — request manual pun tidak bisa menyelipkannya.
+        $bolehField = array_filter([
+            'project_sponsor_id' => $hak['sponsor'],
+            'project_leader_id'  => $hak['leader'],
+        ]);
+
+        $baru    = [];
+        $sebelum = [];
+        foreach (array_keys($bolehField) as $field) {
+            $nilai = $data[$field] ?? null;
+            if ($nilai !== null && (int) $nilai !== (int) $project->{$field}) {
+                $baru[$field]    = (int) $nilai;
+                $sebelum[$field] = $project->{$field};
+            }
+        }
+
+        if (! $baru) {
+            return $this->backToSection($project, 'section-team', 'No change to the Sponsor or Leader.');
+        }
+
+        // Langsung berlaku bila: pelakunya committee layer terakhir ide (ia memang
+        // penyetujunya), atau project belum berjalan sehingga belum ada kesepakatan
+        // yang perlu dilindungi. Selain itu → change request.
+        if ($hak['instant']) {
+            $ringkas = collect($baru)
+                ->map(fn ($v, $k) => ($k === 'project_sponsor_id' ? 'Project Sponsor' : 'Project Leader')
+                    . ': ' . (optional(User::find($sebelum[$k] ?? null))->name ?? '(empty)')
+                    . ' -> ' . (optional(User::find($v))->name ?? $v))
+                ->implode('; ');
+
+            $project->update($baru);
+            $this->transition($project, $project->status, $request->user(),
+                "Sponsor/Leader changed: {$ringkas}. By {$request->user()->name}.");
+
+            return $this->kembaliDariLeadership($request, $project, 'Sponsor/Leader updated.');
+        }
+
+        // Langsung DIKIRIM, bukan sekadar disimpan sebagai draft: tombolnya memang
+        // bertuliskan "Submit for Approval", dan Project Sponsor tidak punya tombol
+        // "Update Project" — kalau ditinggal sebagai draft, permintaannya mengendap
+        // tanpa pernah sampai ke penyetuju.
+        $svc->stage($project, $request->user(), Project::class, $project->getKey(), $baru, $sebelum);
+        $svc->submitDrafts($project, $request->user(), null, 'leadership_change');
+
+        $penyetuju = optional($svc->ideaCommitteeApprover($project))->name;
+
+        return $this->kembaliDariLeadership($request, $project, $penyetuju
+            ? "Sponsor/Leader change submitted for approval by {$penyetuju}."
+            : 'Sponsor/Leader change submitted. It stays pending until an approver is determined.');
+    }
+
+    /**
+     * Kembali ke halaman asal setelah mengubah Sponsor/Leader.
+     * Form pada Project Shell Progress mengirim from=shell agar tidak terlempar
+     * ke Project Detail yang bukan pintu masuknya.
+     */
+    private function kembaliDariLeadership(Request $request, Project $project, string $pesan)
+    {
+        if ($request->input('from') === 'shell') {
+            return redirect()
+                ->route('projects.shell.progress', $project)
+                ->with('success', $pesan);
+        }
+
+        return $this->backToSection($project, 'section-team', $pesan);
     }
 
     /* ---- Committee review (Proposal & Completion) ------------------- */
@@ -890,37 +1047,42 @@ class ProjectController extends Controller
 
     public function reviewApprove(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
     {
-        abort_unless($wf->isCurrentReviewer($project, $request->user()), 403);
+        $atasNama = $this->authorizeReview($request, $project, $wf);
 
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
-        $wf->approve($project, $request->user(), $note);
+        $wf->actingAs($atasNama, fn () => $wf->approve($project, $request->user(), $note));
 
-        return redirect()->route('projects.review')->with('success', "Keputusan tersimpan untuk {$project->project_id}.");
+        return redirect()->route('projects.review')->with('success', $atasNama
+            ? "{$project->project_id} approved on behalf of {$atasNama->name}."
+            : "Keputusan tersimpan untuk {$project->project_id}.");
     }
 
     public function reviewRevision(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
     {
-        abort_unless($wf->isCurrentReviewer($project, $request->user()), 403);
+        $atasNama = $this->authorizeReview($request, $project, $wf);
         abort_unless($project->status === 'committee_review', 403,
             'Revision Required only applies to a proposal that is under committee review.');
 
         // Catatan wajib: Leader perlu tahu apa yang harus diperbaiki.
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
-        $wf->requestRevision($project, $request->user(), $note);
+        $wf->actingAs($atasNama, fn () => $wf->requestRevision($project, $request->user(), $note));
 
-        return redirect()->route('projects.review')
-            ->with('success', "Revision required: {$project->project_id} returned to the Project Leader.");
+        return redirect()->route('projects.review')->with('success', $atasNama
+            ? "Revision required on behalf of {$atasNama->name}: {$project->project_id} returned to the Project Leader."
+            : "Revision required: {$project->project_id} returned to the Project Leader.");
     }
 
     public function reviewReject(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
     {
-        abort_unless($wf->isCurrentReviewer($project, $request->user()), 403);
+        $atasNama = $this->authorizeReview($request, $project, $wf);
 
         // Catatan wajib: penolakan bersifat final, pengaju berhak tahu alasannya.
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
-        $wf->reject($project, $request->user(), $note);
+        $wf->actingAs($atasNama, fn () => $wf->reject($project, $request->user(), $note));
 
-        return redirect()->route('projects.review')->with('success', "Ditolak: {$project->project_id}.");
+        return redirect()->route('projects.review')->with('success', $atasNama
+            ? "Rejected on behalf of {$atasNama->name}: {$project->project_id}."
+            : "Ditolak: {$project->project_id}.");
     }
 
     /* ---- Completion request (Project Leader) ------------------------ */
@@ -998,6 +1160,28 @@ class ProjectController extends Controller
         return array_key_exists($update->change_type, ProjectChangeStagingService::TYPE_LABEL);
     }
 
+    /**
+     * Gate keputusan change request. Mengembalikan committee yang DIWAKILI bila
+     * user memutus lewat izin 'override.role', atau null bila ia memang penilainya.
+     */
+    private function atasNamaUpdate(Request $request, ProjectUpdate $update, ProjectChangeStagingService $svc): ?User
+    {
+        $user = $request->user();
+
+        if ($svc->isReviewer($update, $user)) {
+            return null;
+        }
+
+        abort_unless(ReportOverride::aktif($request), 403,
+            'Only the assigned approver may decide on this change request.');
+
+        // Permintaan yang menggantung belum punya penyetuju — tak ada yang bisa diwakili.
+        abort_unless($update->approver_role !== 'unassigned', 403,
+            'This request has no approver yet; it stays pending until one is determined.');
+
+        return $svc->approverOf($update);
+    }
+
     public function approveUpdate(Request $request, Project $project, ProjectUpdate $update, ProjectUpdateService $svc)
     {
         abort_unless($update->project_id === $project->id, 404);
@@ -1005,10 +1189,10 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
 
         if ($this->isStagedChange($update)) {
-            $staging = app(ProjectChangeStagingService::class);
-            abort_unless($staging->isReviewer($update, $request->user()), 403);
+            $staging  = app(ProjectChangeStagingService::class);
+            $atasNama = $this->atasNamaUpdate($request, $update, $staging);
 
-            $hasil = $staging->approve($update, $request->user(), $note);
+            $hasil = $staging->actingAs($atasNama, fn () => $staging->approve($update, $request->user(), $note));
             $label = ProjectChangeStagingService::TYPE_LABEL[$update->change_type];
 
             return back()->with('success', $hasil === 'applied'
@@ -1028,12 +1212,12 @@ class ProjectController extends Controller
         abort_unless($update->project_id === $project->id, 404);
         abort_unless($this->isStagedChange($update), 404);
 
-        $staging = app(ProjectChangeStagingService::class);
-        abort_unless($staging->isReviewer($update, $request->user()), 403);
+        $staging  = app(ProjectChangeStagingService::class);
+        $atasNama = $this->atasNamaUpdate($request, $update, $staging);
 
         // Catatan wajib: Leader perlu tahu apa yang harus diperbaiki.
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
-        $staging->requestRevision($update, $request->user(), $note);
+        $staging->actingAs($atasNama, fn () => $staging->requestRevision($update, $request->user(), $note));
 
         $label = ProjectChangeStagingService::TYPE_LABEL[$update->change_type];
 
@@ -1050,9 +1234,9 @@ class ProjectController extends Controller
             : ($request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null);
 
         if ($this->isStagedChange($update)) {
-            $staging = app(ProjectChangeStagingService::class);
-            abort_unless($staging->isReviewer($update, $request->user()), 403);
-            $staging->reject($update, $request->user(), $note);
+            $staging  = app(ProjectChangeStagingService::class);
+            $atasNama = $this->atasNamaUpdate($request, $update, $staging);
+            $staging->actingAs($atasNama, fn () => $staging->reject($update, $request->user(), $note));
 
             return back()->with('success', ProjectChangeStagingService::TYPE_LABEL[$update->change_type] . ' rejected.');
         }
@@ -1102,7 +1286,7 @@ class ProjectController extends Controller
         // layer terakhir dan Super Admin yang membatalkan dari My Ideas > Project Shell.
         if ($project->project_leader_id === $user->id
             || $project->project_sponsor_id === $user->id
-            || $user->hasRole('Super Admin')) {
+            || ReportOverride::aktif()) {
             return true;
         }
 
@@ -1116,7 +1300,8 @@ class ProjectController extends Controller
      */
     public function submitChanges(Request $request, Project $project, ProjectChangeStagingService $svc)
     {
-        abort_unless($project->project_leader_id === $request->user()->id && $project->isInExecution(), 403,
+        abort_unless(($project->project_leader_id === $request->user()->id
+            || ReportOverride::aktif($request)) && $project->isInExecution(), 403,
             'Only the Project Leader of a running project may submit changes.');
 
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
@@ -1406,7 +1591,7 @@ class ProjectController extends Controller
         abort_unless($attachment->implementation_plan_id === $plan->id, 404);
         abort_unless(
             Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
-                || $request->user()->hasRole('Super Admin'),
+                || ReportOverride::aktif($request),
             403
         );
 
@@ -1436,7 +1621,7 @@ class ProjectController extends Controller
         abort_unless($attachment->project_budget_id === $budget->id, 404);
         abort_unless(
             Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
-                || $request->user()->hasRole('Super Admin'),
+                || ReportOverride::aktif($request),
             403
         );
 
@@ -1488,7 +1673,7 @@ class ProjectController extends Controller
         abort_unless($plan->project_id === $project->id, 404);
         abort_unless(
             Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
-                || $request->user()->hasRole('Super Admin'),
+                || ReportOverride::aktif($request),
             403
         );
         abort_unless($plan->attachment_path, 404, 'No attachment.');
@@ -1911,7 +2096,9 @@ class ProjectController extends Controller
 
     public function storeMember(Request $request, Project $project)
     {
-        $this->authorizeLeader($request, $project);
+        // Leader (fase proposal/berjalan) ATAU admin pemegang override.role.
+        abort_unless($this->bolehUbahTim($project, $request->user()), 403,
+            'Only the Project Leader or an administrator may add team members.');
 
         // Multi-add: rows[] berisi {user_id, role}. users ada di hcis (kpncorp).
         // Slot role wajib boleh diisi bertahap → baris tanpa nama dilewati
@@ -1966,13 +2153,40 @@ class ProjectController extends Controller
             ->with('memberDialogOpen', true);
     }
 
+    /**
+     * Boleh menyunting Team Members & Sponsor/Leader?
+     *
+     * Project Leader (fase proposal maupun berjalan) ATAU admin pemegang izin
+     * 'override.role'. Hasil suntingan admin tetap melewati change request —
+     * ia tidak menulis langsung ke data.
+     */
+    private function bolehUbahTim(Project $project, User $user): bool
+    {
+        return $this->leaderMayEditProposalFields($project, $user)
+            || ReportOverride::aktif()
+            || $this->isLastLayerIdeaCommittee($project, $user);
+    }
+
+    /** Committee layer TERAKHIR dari ide asal project ini? */
+    private function isLastLayerIdeaCommittee(Project $project, User $user): bool
+    {
+        return $project->idea
+            && app(IdeaWorkflowService::class)->isLastLayerCommittee($project->idea, $user);
+    }
+
+    /** Matriks hak ubah Sponsor/Leader — definisinya ada di Project::leadershipRights(). */
+    private function leadershipRights(Project $project, User $user): array
+    {
+        return $project->leadershipRights($user);
+    }
+
     public function updateMember(Request $request, Project $project, ProjectMember $member)
     {
         // Leader boleh mengubah anggota saat proposal MAUPUN saat project berjalan;
         // pada fase berjalan hasilnya masuk change request "Team Change", bukan
         // langsung berlaku. authorizeLeader() menolak fase berjalan, jadi tidak dipakai.
-        abort_unless($this->leaderMayEditProposalFields($project, $request->user()), 403,
-            'Only the Project Leader may change team members.');
+        abort_unless($this->bolehUbahTim($project, $request->user()), 403,
+            'Only the Project Leader or an administrator may change team members.');
         abort_unless($member->project_id === $project->id, 404);
 
         $data = $request->validate([
@@ -1990,7 +2204,8 @@ class ProjectController extends Controller
 
     public function destroyMember(Request $request, Project $project, ProjectMember $member)
     {
-        $this->authorizeLeader($request, $project);
+        abort_unless($this->bolehUbahTim($project, $request->user()), 403,
+            'Only the Project Leader or an administrator may remove team members.');
         abort_unless($member->project_id === $project->id, 404);
         $member->delete();
 
@@ -2013,7 +2228,7 @@ class ProjectController extends Controller
     public function storeAttachment(Request $request, Project $project)
     {
         $user = $request->user();
-        abort_unless($project->isTeamMember($user) || $user->hasRole('Super Admin'), 403,
+        abort_unless($project->isTeamMember($user) || ReportOverride::aktif($request), 403,
             'Only project team members may upload attachments.');
 
         // Multi-file (seperti Create Idea): terima attachments[] atau fallback file tunggal.
@@ -2038,7 +2253,7 @@ class ProjectController extends Controller
         abort_unless($attachment->project_id === $project->id, 404);
         abort_unless(
             Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
-                || $request->user()->hasRole('Super Admin'),
+                || ReportOverride::aktif($request),
             403
         );
 
@@ -2051,7 +2266,7 @@ class ProjectController extends Controller
         abort_unless($attachment->project_id === $project->id, 404);
         abort_unless(
             Project::relatedTo($request->user()->id)->whereKey($project->id)->exists()
-                || $request->user()->hasRole('Super Admin'),
+                || ReportOverride::aktif($request),
             403
         );
 
@@ -2065,7 +2280,7 @@ class ProjectController extends Controller
         abort_unless(
             $attachment->uploaded_by === $user->id
                 || $project->project_leader_id === $user->id
-                || $user->hasRole('Super Admin'),
+                || ReportOverride::aktif($request),
             403,
             'Only the uploader or the Project Leader may delete attachments.'
         );

@@ -14,7 +14,13 @@ class ProjectApproval extends Model
         return ucfirst((string) $this->decision) . ' — Layer ' . $this->layer . ' (project #' . $this->project_id . ')';
     }
 
-    protected $fillable = ['project_id', 'layer', 'user_id', 'decision', 'note'];
+    protected $fillable = ['project_id', 'layer', 'user_id', 'on_behalf_of_id', 'decision', 'note'];
+
+    /** Committee yang seharusnya memutus, bila keputusan diambil atas namanya. */
+    public function onBehalfOf()
+    {
+        return $this->belongsTo(User::class, 'on_behalf_of_id');
+    }
 
     public function user()
     {

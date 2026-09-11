@@ -188,6 +188,7 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/projects/{project}/budgets/{budget}', [ProjectController::class, 'destroyBudget'])->name('projects.budgets.destroy');
     Route::put('/projects/{project}/budgets/{budget}/actual', [ProjectController::class, 'updateBudgetActual'])->name('projects.budgets.actual');
     Route::post('/projects/{project}/members', [ProjectController::class, 'storeMember'])->name('projects.members.store');
+    Route::put('/projects/{project}/leadership', [ProjectController::class, 'updateLeadership'])->name('projects.leadership.update');
     Route::put('/projects/{project}/members/{member}', [ProjectController::class, 'updateMember'])->name('projects.members.update');
     Route::delete('/projects/{project}/members/{member}', [ProjectController::class, 'destroyMember'])->name('projects.members.destroy');
     Route::post('/projects/{project}/draft', [ProjectController::class, 'saveDraft'])->name('projects.draft');

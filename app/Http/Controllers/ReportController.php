@@ -76,6 +76,12 @@ class ReportController extends Controller
             'metricLabel' => $metric ? MetricScopeService::labelOf($metric) : null,
             // Ditampilkan sebagai badge agar jelas daftar ini bukan lingkup organisasi.
             'mineOnly'    => $this->mineOnly($request),
+            // Tombol pensil (bertindak atas nama committee) hanya utk pemegang izin ini.
+            'canOverride' => $request->user()->can('override.role'),
+            // Dihitung sekali, bukan per baris, agar tabel tidak menembak query berulang.
+            'idsPending'  => $type === 'ideas'
+                ? collect()
+                : app(\App\Services\Project\ProjectChangeStagingService::class)->projectIdsWithPending(),
         ] + $this->listSortState($request, $config));
     }
 
@@ -320,6 +326,29 @@ class ReportController extends Controller
             'project' => $row->id,
             'view'    => 1,
             'from'    => 'report',
+        ]);
+    }
+
+    /**
+     * Tautan "bertindak sebagai committee layer aktif" (tombol pensil).
+     * Mengembalikan null bila baris ini tidak sedang menunggu keputusan siapa pun —
+     * mis. ide yang sudah approved/rejected — sehingga tombolnya tidak muncul.
+     */
+    public static function overrideUrl(string $type, $row, $idsPending = null): ?string
+    {
+        if ($type === 'ideas') {
+            return in_array($row->status, ['submitted', 'review'], true)
+                ? route('ideas.review.show', ['idea' => $row->id, 'from' => 'report'])
+                : null;
+        }
+
+        // Project SELALU bisa dibuka admin: selain memutus approval, ia juga boleh
+        // mengganti Project Sponsor/Leader dan menyunting Team Members kapan pun.
+        // 'act=1' menandai ia datang untuk BERTINDAK, bukan sekadar melihat.
+        return route('projects.show', [
+            'project' => $row->id,
+            'from'    => 'report',
+            'act'     => 1,
         ]);
     }
 

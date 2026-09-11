@@ -14,11 +14,17 @@ class IdeaApproval extends Model
         return ucfirst((string) $this->decision) . ' — Layer ' . $this->layer . ' (idea #' . $this->idea_id . ')';
     }
 
-    protected $fillable = ['idea_id', 'layer', 'user_id', 'decision', 'note'];
+    protected $fillable = ['idea_id', 'layer', 'user_id', 'on_behalf_of_id', 'decision', 'note'];
 
     public function idea()
     {
         return $this->belongsTo(Idea::class);
+    }
+
+    /** Committee yang seharusnya memutus, bila keputusan diambil atas namanya. */
+    public function onBehalfOf()
+    {
+        return $this->belongsTo(User::class, 'on_behalf_of_id');
     }
 
     public function user()

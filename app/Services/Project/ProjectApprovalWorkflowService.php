@@ -425,12 +425,53 @@ class ProjectApprovalWorkflowService
     private function record(Project $project, User $user, string $decision, ?string $note, ?int $layer = null): void
     {
         ProjectApproval::create([
-            'project_id' => $project->id,
-            'layer'      => $layer ?? $project->current_layer,
-            'user_id'    => $user->id,
-            'decision'   => $decision,
-            'note'       => $note,
+            'project_id'      => $project->id,
+            'layer'           => $layer ?? $project->current_layer,
+            'user_id'         => $user->id,
+            // Diisi bila keputusan diambil Super Admin atas nama committee layer aktif.
+            'on_behalf_of_id' => optional($this->atasNama)->id,
+            'decision'        => $decision,
+            'note'            => $note,
         ]);
+    }
+
+    /**
+     * Committee yang sedang digantikan pada rangkaian aksi ini. Disetel sesaat
+     * oleh actingAs() lalu dikosongkan lagi, sehingga tidak bocor ke aksi lain.
+     */
+    private ?User $atasNama = null;
+
+    /** Committee pemegang layer aktif project ini (null bila tak terisi). */
+    public function currentApprover(Project $project): ?User
+    {
+        $flow = self::FLOWS[$project->status] ?? null;
+        if (! $flow || ! $project->businessUnitId()) {
+            return null;
+        }
+
+        if (CommitteeAssignment::usesSponsorLayer($flow['type'])
+            && (int) $project->current_layer === self::SPONSOR_LAYER) {
+            return $project->project_sponsor_id ? User::find($project->project_sponsor_id) : null;
+        }
+
+        $id = (clone $this->committeeQuery($project, $flow['type']))
+            ->where('layer', $project->current_layer)
+            ->value('user_id');
+
+        return $id ? User::find($id) : null;
+    }
+
+    /** Jalankan satu aksi sebagai wakil dari $atasNama. */
+    public function actingAs(?User $atasNama, callable $aksi): void
+    {
+        $sebelum = $this->atasNama;
+        $this->atasNama = $atasNama;
+
+        try {
+            $aksi();
+        } finally {
+            $this->atasNama = $sebelum;
+        }
     }
 
     private function transition(Project $project, string $new, User $user, ?string $remarks): void
@@ -442,6 +483,13 @@ class ProjectApprovalWorkflowService
 
     private function log(Project $project, string $old, string $new, User $user, ?string $remarks): void
     {
+        // Bila keputusan diambil mewakili orang lain (actingAs), nama keduanya ikut
+        // ditulis — riwayat tidak boleh menyamarkan siapa yang menekan tombol.
+        if ($this->atasNama && $this->atasNama->id !== $user->id) {
+            $remarks = trim(($remarks ? $remarks . ' ' : '')
+                . "By {$user->name} on behalf of {$this->atasNama->name}.");
+        }
+
         $project->statusLogs()->create([
             'old_status' => $old,
             'new_status' => $new,

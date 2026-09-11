@@ -150,6 +150,22 @@ class IdeaWorkflowService
     }
 
     /** Apakah $user committee di layer terakhir chain efektif ide ini. */
+    /** Layer committee tertinggi untuk ide ini (null bila tak ada committee). */
+    public function maxLayerFor(Idea $idea): ?int
+    {
+        $max = $this->maxLayer($idea);
+
+        return $max ? (int) $max : null;
+    }
+
+    /** user_id committee pada layer tertentu (null bila kosong). */
+    public function committeeUserIdAt(Idea $idea, int $layer): ?int
+    {
+        $id = (clone $this->committeeQuery($idea))->where('layer', $layer)->value('user_id');
+
+        return $id ? (int) $id : null;
+    }
+
     public function isLastLayerCommittee(Idea $idea, User $user): bool
     {
         $max = $this->maxLayer($idea);
@@ -158,6 +174,23 @@ class IdeaWorkflowService
             ->where('layer', $max)
             ->where('user_id', $user->id)
             ->exists();
+    }
+
+    /**
+     * Committee yang MEMEGANG layer aktif ide ini (null bila layernya tak terisi).
+     * Dipakai fitur "bertindak atas nama": Super Admin memutus menggantikan orang ini.
+     */
+    public function currentApprover(Idea $idea): ?User
+    {
+        if (! in_array($idea->status, ['submitted', 'review'], true)) {
+            return null;
+        }
+
+        $id = (clone $this->committeeQuery($idea))
+            ->where('layer', $idea->current_layer)
+            ->value('user_id');
+
+        return $id ? User::find($id) : null;
     }
 
     /** Apakah user adalah committee yang menangani layer ide saat ini. */
@@ -178,14 +211,17 @@ class IdeaWorkflowService
         }
     }
 
-    public function approve(Idea $idea, User $user, ?string $note = null): void
+    public function approve(Idea $idea, User $user, ?string $note = null, ?User $atasNama = null): void
     {
         IdeaApproval::create([
-            'idea_id'  => $idea->id,
-            'layer'    => $idea->current_layer,
-            'user_id'  => $user->id,
-            'decision' => 'approve',
-            'note'     => $note,
+            'idea_id'         => $idea->id,
+            'layer'           => $idea->current_layer,
+            // user_id SELALU pelaku sebenarnya; committee yang digantikan disimpan
+            // terpisah agar jejak audit tidak menyamarkan siapa yang menekan tombol.
+            'user_id'         => $user->id,
+            'on_behalf_of_id' => $atasNama?->id,
+            'decision'        => 'approve',
+            'note'            => $note,
         ]);
 
         $next = $idea->current_layer + 1;
@@ -251,14 +287,15 @@ class IdeaWorkflowService
         }
     }
 
-    public function reject(Idea $idea, User $user, ?string $note = null): void
+    public function reject(Idea $idea, User $user, ?string $note = null, ?User $atasNama = null): void
     {
         IdeaApproval::create([
-            'idea_id'  => $idea->id,
-            'layer'    => $idea->current_layer,
-            'user_id'  => $user->id,
-            'decision' => 'reject',
-            'note'     => $note,
+            'idea_id'         => $idea->id,
+            'layer'           => $idea->current_layer,
+            'user_id'         => $user->id,
+            'on_behalf_of_id' => $atasNama?->id,
+            'decision'        => 'reject',
+            'note'            => $note,
         ]);
 
         $idea->update(['status' => 'rejected']);

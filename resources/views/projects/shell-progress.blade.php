@@ -96,8 +96,50 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Category</label><div class="{{ $box }}">{{ $project->project_category }}</div></div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Status</label><div class="{{ $box }}">{{ $stLabel }}</div></div>
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Leader</label><div class="{{ $box }}">{{ optional($project->leader)->name ?? '-' }}</div></div>
-                    <div><label class="block text-sm font-semibold text-gray-600 mb-1">Sponsor</label><div class="{{ $box }}">{{ optional($project->sponsor)->name ?? '-' }}</div></div>
+                    {{-- Leader & Sponsor bisa langsung disunting di sini oleh yang berhak
+                         (committee layer terakhir ide). Field lain tetap read-only.
+                         Semua field berada dalam SATU form dengan tombol Submit di bawah. --}}
+                    @php
+                        $hakLead = $leadershipRights ?? ['sponsor' => false, 'leader' => false, 'instant' => false];
+                    @endphp
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Leader</label>
+                        @if($hakLead['leader'])
+                            {{-- data-no-search + data-remote-value WAJIB: tanpa keduanya TomSelect
+                                 biasa terpasang lebih dulu dan pencarian AJAX tidak pernah jalan. --}}
+                            <select name="project_leader_id" form="leadershipForm"
+                                    data-no-search
+                                    data-remote-search="{{ route('org.users') }}" data-remote-value="id"
+                                    placeholder="Search name or employee ID..."
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                                <option value=""></option>
+                                @if($project->project_leader_id)
+                                    <option value="{{ $project->project_leader_id }}" selected>{{ optional($project->leader)->name }}</option>
+                                @endif
+                            </select>
+                        @else
+                            <div class="{{ $box }}">{{ optional($project->leader)->name ?? '-' }}</div>
+                        @endif
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Sponsor</label>
+                        @if($hakLead['sponsor'])
+                            <select name="project_sponsor_id" form="leadershipForm"
+                                    data-no-search
+                                    data-remote-search="{{ route('org.users') }}" data-remote-value="id"
+                                    placeholder="Search name or employee ID..."
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                                <option value=""></option>
+                                @if($project->project_sponsor_id)
+                                    <option value="{{ $project->project_sponsor_id }}" selected>{{ optional($project->sponsor)->name }}</option>
+                                @endif
+                            </select>
+                        @else
+                            <div class="{{ $box }}">{{ optional($project->sponsor)->name ?? '-' }}</div>
+                        @endif
+                    </div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Origin Idea</label><div class="{{ $box }} font-mono">{{ optional($project->idea)->idea_id ?? '-' }}</div></div>
                     <div><label class="block text-sm font-semibold text-gray-600 mb-1">Shell Created</label><div class="{{ $box }}"><x-datetime :value="$project->created_at" /></div></div>
                 </div>
@@ -110,6 +152,38 @@
 
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Project Scope</label><div class="{{ $box }} whitespace-pre-line">{{ $project->project_scope }}</div></div>
                 <div><label class="block text-sm font-semibold text-gray-600 mb-1">Expected Outcome</label><div class="{{ $box }} whitespace-pre-line">{{ $project->expected_outcome }}</div></div>
+
+                {{-- Form pembungkus field Leader/Sponsor di atas (dihubungkan lewat
+                     atribut form="leadershipForm"), dengan tombolnya di paling bawah. --}}
+                @if($hakLead['leader'] || $hakLead['sponsor'])
+                    <form id="leadershipForm" method="POST" action="{{ route('projects.leadership.update', $project) }}"
+                          class="pt-2 border-t flex flex-wrap items-center justify-between gap-3">
+                        @csrf
+                        @method('PUT')
+                        <input type="hidden" name="from" value="shell">
+
+                        <p class="text-xs text-gray-500">
+                            @if($hakLead['instant'])
+                                Changes to Leader or Sponsor take effect immediately.
+                            @elseif($ideaApprover ?? null)
+                                Reviewed by <span class="font-semibold text-gray-700">{{ $ideaApprover->name }}</span>,
+                                the final-layer committee of the originating idea.
+                            @else
+                                The originating idea has no final-layer committee yet, so the request stays
+                                pending until an approver is determined.
+                            @endif
+                        </p>
+
+                        <button data-confirm="{{ $hakLead['instant']
+                                    ? 'This change takes effect immediately and will be recorded in the project history. Continue?'
+                                    : 'This change will be sent for approval and only takes effect once approved. Continue?' }}"
+                                data-confirm-title="{{ $hakLead['instant'] ? 'Save Changes?' : 'Submit for Approval?' }}"
+                                data-confirm-ok="{{ $hakLead['instant'] ? 'Yes, Save' : 'Yes, Submit' }}"
+                                class="px-6 py-2 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800">
+                            {{ $hakLead['instant'] ? 'Submit' : 'Submit for Approval' }}
+                        </button>
+                    </form>
+                @endif
             </div>
         </div>
 

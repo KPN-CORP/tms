@@ -141,6 +141,12 @@
                         </span>
                         <div class="text-sm">
                             <span class="font-semibold">{{ optional($a->user)->name }}</span>
+                            @if($a->on_behalf_of_id)
+                                {{-- Keputusan diambil atas nama committee pemegang layer ini. --}}
+                                <span class="text-gray-500">on behalf of</span>
+                                <span class="font-semibold">{{ optional($a->onBehalfOf)->name ?? '#' . $a->on_behalf_of_id }}</span>
+                                <span class="text-gray-500">(Layer {{ $a->layer }})</span>
+                            @endif
                             <span class="text-gray-400">· <x-datetime :value="$a->created_at" /></span>
                             @if($a->note)<div class="text-gray-600 mt-0.5">{{ $a->note }}</div>@endif
                         </div>

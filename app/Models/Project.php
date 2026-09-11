@@ -325,11 +325,57 @@ class Project extends Model
      */
     public function isEditableInPhase(User $user, ?string $phase = null): bool
     {
+        // Selain Leader, pemegang hak ubah Sponsor/Leader juga perlu membuka halaman
+        // dalam mode sunting — mis. Project Sponsor yang hendak mengganti Leader.
+        // Tanpa ini ia hanya mendapat ikon mata (read-only) dari daftar My Project.
+        $hak = $this->leadershipRights($user);
+
         return match ($phase) {
             'implementation' => $this->isTeamMember($user) && $this->isInExecution(),
             'completion'     => false,
-            default          => $this->canLeaderEditProposal($user),
+            default          => $this->canLeaderEditProposal($user) || $hak['sponsor'] || $hak['leader'],
         };
+    }
+
+    /**
+     * Siapa boleh mengubah apa pada Sponsor/Leader, dan apakah langsung berlaku.
+     * SATU sumber kebenaran — dipakai controller (gate & tampilan form) maupun
+     * isEditableInPhase() (menentukan ikon pensil di daftar).
+     *
+     *   Committee layer terakhir ide : keduanya, LANGSUNG berlaku (ia penyetujunya).
+     *   Admin (override.role)        : keduanya; saat project berjalan lewat approval.
+     *   Project Sponsor              : hanya Project Leader, lewat approval.
+     *   Project Leader               : keduanya, mengikuti fase seperti field proposal.
+     *
+     * @return array{sponsor:bool, leader:bool, instant:bool}
+     */
+    public function leadershipRights(User $user): array
+    {
+        $lastLayer = $this->idea
+            && app(\App\Services\Idea\IdeaWorkflowService::class)->isLastLayerCommittee($this->idea, $user);
+
+        if ($lastLayer) {
+            return ['sponsor' => true, 'leader' => true, 'instant' => true];
+        }
+
+        // Peran pada PROJECT INI diperiksa lebih dulu daripada izin global. Seorang
+        // admin yang kebetulan menjadi Sponsor project ini tetap tunduk pada aturan
+        // Sponsor: hanya boleh mengganti Leader, dan lewat approval — bukan langsung.
+        if ($this->project_sponsor_id === $user->id) {
+            return ['sponsor' => false, 'leader' => true, 'instant' => false];
+        }
+
+        // Kewenangan admin hanya berlaku dalam konteks Report.
+        if (\App\Support\ReportOverride::aktif()) {
+            return ['sponsor' => true, 'leader' => true, 'instant' => ! $this->isInExecution()];
+        }
+
+        if ($this->canLeaderEditProposal($user)
+            || ($this->project_leader_id === $user->id && $this->isInExecution())) {
+            return ['sponsor' => true, 'leader' => true, 'instant' => ! $this->isInExecution()];
+        }
+
+        return ['sponsor' => false, 'leader' => false, 'instant' => false];
     }
 
     public function isTeamMember(User $user): bool

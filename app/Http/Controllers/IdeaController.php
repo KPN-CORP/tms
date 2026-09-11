@@ -11,7 +11,9 @@ use App\Models\Department;
 use App\Models\Idea;
 use App\Models\IdeaAttachment;
 use App\Models\KpnBusinessUnit;
+use App\Models\User;
 use App\Services\Dashboard\MetricScopeService;
+use App\Support\ReportOverride;
 use App\Models\Location;
 use App\Services\Idea\IdeaWorkflowService;
 use Illuminate\Http\Request;
@@ -108,11 +110,11 @@ class IdeaController extends Controller
         // lintas organisasi, jadi tombol lihat detail di sana harus bisa dibuka).
         // Halaman ini memang read-only, tidak ada aksi yang bisa dijalankan di sini.
         abort_unless(
-            $idea->user_id === $request->user()->id || $request->user()->can('report.view'),
+            $idea->user_id === $request->user()->id || ReportOverride::aktif($request),
             403
         );
 
-        $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'attachments', 'approvals.user']);
+        $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'attachments', 'approvals.user', 'approvals.onBehalfOf']);
 
         return view('ideas.show', compact('idea'));
     }
@@ -213,7 +215,7 @@ class IdeaController extends Controller
     public function taskBox(Request $request, IdeaWorkflowService $wf)
     {
         $user    = $request->user();
-        $isSuper = $user->hasRole('Super Admin');
+        $isSuper = ReportOverride::aktif($request);
         $isAdminView = $user->hasAnyRole(['Admin', 'Super Admin']); // tooltip: admin lihat semua layer
 
         // --- Universe (koleksi) sesuai flow ---
@@ -310,7 +312,7 @@ class IdeaController extends Controller
         $isCommitteeOfBu = CommitteeAssignment::where('business_unit_id', $idea->business_unit_id)
             ->where('user_id', $user->id)
             ->exists();
-        abort_unless($isCommitteeOfBu || $user->hasRole('Super Admin'), 403);
+        abort_unless($isCommitteeOfBu || ReportOverride::aktif($request), 403);
 
         // FR-078: begitu dibuka reviewer layer aktif -> On Review.
         if ($wf->isCurrentReviewer($idea, $user)) {
@@ -318,34 +320,66 @@ class IdeaController extends Controller
             $idea->refresh();
         }
 
-        $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'approvals.user']);
+        $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'approvals.user', 'approvals.onBehalfOf']);
+
+        // Super Admin (izin override.role) boleh memutus menggantikan committee
+        // layer aktif; view memakai ini untuk memunculkan panel keputusannya.
+        $atasNama = (! $wf->isCurrentReviewer($idea, $user) && ReportOverride::aktif($request))
+            ? $wf->currentApprover($idea)
+            : null;
 
         return view('ideas.review-show', [
             'idea'      => $idea,
+            'atasNama'  => $atasNama,
             'canReview' => $wf->isCurrentReviewer($idea, $user),
         ]);
     }
 
+    /**
+     * Committee yang digantikan bila keputusan diambil lewat izin 'override.role'.
+     *
+     * Mengembalikan null saat user memang reviewer layer aktif (keputusan biasa),
+     * dan menolak 403 bila ia bukan reviewer maupun pemegang izin override.
+     */
+    private function atasNamaIde(Request $request, Idea $idea, IdeaWorkflowService $wf): ?User
+    {
+        $user = $request->user();
+
+        if ($wf->isCurrentReviewer($idea, $user)) {
+            return null;   // memutus untuk dirinya sendiri
+        }
+
+        abort_unless(ReportOverride::aktif($request), 403,
+            'Only the committee of the active layer may decide on this idea.');
+
+        $approver = $wf->currentApprover($idea);
+        abort_unless($approver !== null, 403, 'The active layer has no assigned committee.');
+
+        return $approver;
+    }
+
     public function approve(Request $request, Idea $idea, IdeaWorkflowService $wf)
     {
-        abort_unless($wf->isCurrentReviewer($idea, $request->user()), 403);
+        $atasNama = $this->atasNamaIde($request, $idea, $wf);
 
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
-        $wf->approve($idea, $request->user(), $note);
+        $wf->approve($idea, $request->user(), $note, $atasNama);
 
-        return redirect()->route('ideas.taskbox')
-            ->with('success', "Idea {$idea->idea_id} approved for your layer.");
+        return redirect()->route('ideas.taskbox')->with('success', $atasNama
+            ? "Idea {$idea->idea_id} approved on behalf of {$atasNama->name}."
+            : "Idea {$idea->idea_id} approved for your layer.");
     }
 
     public function reject(Request $request, Idea $idea, IdeaWorkflowService $wf)
     {
-        abort_unless($wf->isCurrentReviewer($idea, $request->user()), 403);
+        $atasNama = $this->atasNamaIde($request, $idea, $wf);
 
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
-        $wf->reject($idea, $request->user(), $note);
+        $wf->reject($idea, $request->user(), $note, $atasNama);
 
-        return redirect()->route('ideas.taskbox')
-            ->with('success', "Idea {$idea->idea_id} rejected.");
+        return redirect()->route('ideas.taskbox')->with('success', $atasNama
+            ? "Idea {$idea->idea_id} rejected on behalf of {$atasNama->name}."
+            : "Idea {$idea->idea_id} rejected.");
     }
 
     /* ---- Attachments (T-17) ------------------------------------------ */
@@ -359,7 +393,7 @@ class IdeaController extends Controller
         $isOwner   = $idea->user_id === $user->id;
         $isCommittee = CommitteeAssignment::where('business_unit_id', $idea->business_unit_id)
             ->where('user_id', $user->id)->exists();
-        abort_unless($isOwner || $isCommittee || $user->hasRole('Super Admin'), 403);
+        abort_unless($isOwner || $isCommittee || ReportOverride::aktif($request), 403);
 
         return $this->downloadAttachmentFile($attachment->file_path, $attachment->file_name);
     }
@@ -373,7 +407,7 @@ class IdeaController extends Controller
         $isOwner     = $idea->user_id === $user->id;
         $isCommittee = CommitteeAssignment::where('business_unit_id', $idea->business_unit_id)
             ->where('user_id', $user->id)->exists();
-        abort_unless($isOwner || $isCommittee || $user->hasRole('Super Admin'), 403);
+        abort_unless($isOwner || $isCommittee || ReportOverride::aktif($request), 403);
 
         return $this->viewAttachmentFile($attachment->file_path, $attachment->file_name);
     }

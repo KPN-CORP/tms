@@ -1,16 +1,15 @@
 @php
     $user = Auth::user();
 
-    // Anggota committee idea (assignment) = boleh Review Ideas & buat Project Shell,
-    // tanpa perlu permission terpisah. Super Admin selalu boleh.
-    $isIdeaCommittee = $user->hasRole('Super Admin')
-        || \App\Models\CommitteeAssignment::where('approval_type', 'idea')
+    // Anggota committee idea (assignment) = boleh Review Ideas & buat Project Shell.
+    // Super Admin TIDAK otomatis termasuk: di luar menu Report ia employee biasa dan
+    // hanya melihat yang benar-benar melibatkan dirinya.
+    $isIdeaCommittee = \App\Models\CommitteeAssignment::where('approval_type', 'idea')
             ->where('user_id', $user->id)->exists();
 
     // Manage Project tampil bila user: Project Leader / Sponsor / anggota tim,
-    // atau pengaju ide yang idenya sudah dijadikan project. (Super Admin selalu boleh.)
-    $canManageProject = $user->hasRole('Super Admin')
-        || \App\Models\Project::where(function ($q) use ($user) {
+    // atau pengaju ide yang idenya sudah dijadikan project.
+    $canManageProject = \App\Models\Project::where(function ($q) use ($user) {
             $q->where('project_leader_id', $user->id)
                 ->orWhere('project_sponsor_id', $user->id)
                 ->orWhereHas('members', fn ($m) => $m->where('user_id', $user->id))
@@ -44,9 +43,7 @@
     // Menu Task Box tampil bila user terdaftar sebagai committee review project
     // (proposal/completion/change) di layer mana pun, ATAU sedang punya tugas —
     // yang terakhir membuka Task Box untuk Project Sponsor yang bukan committee.
-    // (Super Admin selalu boleh.)
-    $isProjectCommittee = $user->hasRole('Super Admin')
-        || $projectTaskCount > 0
+    $isProjectCommittee = $projectTaskCount > 0
         || \App\Models\CommitteeAssignment::whereIn('approval_type', [
                 'project_proposal', 'project_completion',
                 'team_change', 'plan_indicator_change', 'budget_change',

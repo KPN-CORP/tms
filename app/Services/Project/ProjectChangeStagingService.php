@@ -31,11 +31,18 @@ use Illuminate\Support\Facades\DB;
  */
 class ProjectChangeStagingService
 {
+    /**
+     * Penanda layer untuk leadership_change. Bukan layer committee_assignments —
+     * penyetujunya committee layer terakhir ide, jadi nilainya sekadar penanda.
+     */
+    private const LAYER_IDE_TERAKHIR = 1;
+
     /** Section halaman -> approval_type pada committee_assignments. */
     public const SECTION_TYPE = [
         'team'           => 'team_change',
         'plan_indicator' => 'plan_indicator_change',
         'budget'         => 'budget_change',
+        'leadership'     => 'leadership_change',
     ];
 
     /** Label manusiawi untuk pesan & tampilan. */
@@ -43,6 +50,7 @@ class ProjectChangeStagingService
         'team_change'           => 'Team Change',
         'plan_indicator_change' => 'Plan & Indicator Change',
         'budget_change'         => 'Budget Change',
+        'leadership_change'     => 'Project Sponsor & Leader Change',
     ];
 
     /** Model yang boleh di-stage, dipetakan ke section-nya. */
@@ -51,6 +59,8 @@ class ProjectChangeStagingService
         ImplementationPlan::class     => 'plan_indicator',
         ImplementationIndicator::class => 'plan_indicator',
         ProjectBudget::class          => 'budget',
+        // Sponsor & Leader adalah kolom pada baris project itu sendiri.
+        Project::class                => 'leadership',
     ];
 
     public function sectionOf(string $modelClass): ?string
@@ -130,11 +140,15 @@ class ProjectChangeStagingService
      * Kirim semua draft menjadi permintaan approval — SATU permintaan per jenis.
      * Mengembalikan daftar jenis yang berhasil dikirim.
      */
-    public function submitDrafts(Project $project, User $user, ?string $note = null): array
+    public function submitDrafts(Project $project, User $user, ?string $note = null, ?string $hanyaType = null): array
     {
         $terkirim = [];
 
-        foreach ($this->drafts($project) as $draft) {
+        $daftar = $hanyaType
+            ? $this->drafts($project)->where('change_type', $hanyaType)
+            : $this->drafts($project);
+
+        foreach ($daftar as $draft) {
             // Hasil revisi diperiksa ulang dari layer pertama agar layer yang sudah
             // menyetujui sebelumnya tidak terlewat menilai perubahan barunya.
             [$role, $layer] = $this->routing($project, $draft->change_type);
@@ -146,6 +160,14 @@ class ProjectChangeStagingService
                 'description'     => $note ?: (self::TYPE_LABEL[$draft->change_type] ?? $draft->change_type),
                 'snapshot_before' => app(ProjectUpdateService::class)->snapshot($project),
             ]);
+
+            // Riwayat: siapa mengajukan, atas nama siapa, dan APA yang diubah.
+            $this->catat($project, $user, sprintf(
+                '%s submitted: %s. Waiting for %s.',
+                self::TYPE_LABEL[$draft->change_type] ?? $draft->change_type,
+                $this->ringkasPerubahan($draft),
+                $this->sebutPenyetuju($project, $draft)
+            ));
 
             $terkirim[] = self::TYPE_LABEL[$draft->change_type] ?? $draft->change_type;
         }
@@ -161,8 +183,41 @@ class ProjectChangeStagingService
      */
     public function routing(Project $project, string $type): array
     {
+        // Penggantian Sponsor/Leader tidak lewat committee_assignments: yang berhak
+        // memutus adalah committee layer TERAKHIR dari ide asal project ini.
+        if ($type === 'leadership_change') {
+            return $this->ideaCommitteeApprover($project)
+                ? ['idea_committee', self::LAYER_IDE_TERAKHIR]
+                // Belum ada committee layer terakhir -> permintaan MENGGANTUNG,
+                // tersimpan tanpa penyetuju sampai orangnya ditentukan.
+                : ['unassigned', self::LAYER_IDE_TERAKHIR];
+        }
+
         // Layer 1 SELALU Project Sponsor. Committee (bila ada) menyusul dari Layer 2.
         return ['sponsor', CommitteeAssignment::SPONSOR_LAYER];
+    }
+
+    /**
+     * Committee layer TERAKHIR dari ide asal project — penyetuju perubahan
+     * Sponsor/Leader. NULL bila ide tak punya committee sama sekali.
+     */
+    public function ideaCommitteeApprover(Project $project): ?User
+    {
+        $idea = $project->idea;
+        if (! $idea) {
+            return null;
+        }
+
+        $wf  = app(\App\Services\Idea\IdeaWorkflowService::class);
+        $max = $wf->maxLayerFor($idea);
+
+        if (! $max) {
+            return null;
+        }
+
+        $id = $wf->committeeUserIdAt($idea, $max);
+
+        return $id ? User::find($id) : null;
     }
 
     /** Layer committee berikutnya setelah $layer (mengabaikan Layer 1 milik Sponsor). */
@@ -187,6 +242,18 @@ class ProjectChangeStagingService
 
         $project = $update->project;
 
+        // Menggantung: belum ada penyetuju sama sekali, jadi tak seorang pun bisa memutus.
+        if ($update->approver_role === 'unassigned') {
+            return false;
+        }
+
+        // Perubahan Sponsor/Leader: committee layer terakhir ide asal project.
+        if ($update->approver_role === 'idea_committee') {
+            $approver = $this->ideaCommitteeApprover($project);
+
+            return $approver !== null && $approver->id === $user->id;
+        }
+
         // Layer 1 = Project Sponsor; layer berikutnya = committee sesuai konfigurasi.
         if ((int) $update->current_layer === CommitteeAssignment::SPONSOR_LAYER) {
             return $project->project_sponsor_id === $user->id;
@@ -207,9 +274,11 @@ class ProjectChangeStagingService
     {
         $project = $update->project;
 
-        // Setelah Sponsor (Layer 1) maupun setelah sebuah layer committee, cari
-        // layer committee berikutnya. Bila tidak ada lagi, payload diterapkan.
-        $next = $this->nextCommitteeLayer($project, $update->change_type, (int) $update->current_layer);
+        // Perubahan Sponsor/Leader hanya satu lapis (committee layer terakhir ide),
+        // jadi persetujuannya langsung menerapkan payload.
+        $next = $update->change_type === 'leadership_change'
+            ? null
+            : $this->nextCommitteeLayer($project, $update->change_type, (int) $update->current_layer);
 
         if ($next !== null) {
             $update->update([
@@ -219,10 +288,23 @@ class ProjectChangeStagingService
                 'review_note'   => $note,
             ]);
 
+            $this->catat($project, $user, sprintf(
+                '%s approved at layer %d, continuing to layer %d.',
+                self::TYPE_LABEL[$update->change_type] ?? $update->change_type,
+                (int) $update->current_layer,
+                $next
+            ), $note);
+
             return 'forwarded';
         }
 
         $this->applyPayload($update);
+
+        $this->catat($project, $user, sprintf(
+            '%s approved and applied: %s.',
+            self::TYPE_LABEL[$update->change_type] ?? $update->change_type,
+            $this->ringkasPerubahan($update)
+        ), $note);
 
         $update->update([
             'status'         => 'applied',
@@ -246,6 +328,12 @@ class ProjectChangeStagingService
             'reviewed_by' => $user->id,
             'review_note' => $note,
         ]);
+
+        $this->catat($update->project, $user, sprintf(
+            '%s returned for revision at layer %d.',
+            self::TYPE_LABEL[$update->change_type] ?? $update->change_type,
+            (int) $update->current_layer
+        ), $note);
     }
 
     /**
@@ -279,6 +367,30 @@ class ProjectChangeStagingService
         return $hasil;
     }
 
+    /** Penyetuju yang sedang memegang permintaan ini (null bila menggantung). */
+    public function approverOf(ProjectUpdate $update): ?User
+    {
+        $project = $update->project;
+
+        if ($update->approver_role === 'unassigned') {
+            return null;
+        }
+
+        if ($update->approver_role === 'idea_committee') {
+            return $this->ideaCommitteeApprover($project);
+        }
+
+        if ((int) $update->current_layer === CommitteeAssignment::SPONSOR_LAYER) {
+            return $project->project_sponsor_id ? User::find($project->project_sponsor_id) : null;
+        }
+
+        $id = app(ProjectApprovalWorkflowService::class)
+            ->committeeLayersFor($project, $update->change_type)
+            ->firstWhere('layer', $update->current_layer)?->user_id;
+
+        return $id ? User::find($id) : null;
+    }
+
     /** Permintaan perubahan yang menunggu keputusan $user (untuk Task Box). */
     public function reviewQueueFor(User $user)
     {
@@ -302,6 +414,39 @@ class ProjectChangeStagingService
     }
 
     /**
+     * Permintaan yang boleh diputus $user — sebagai penilainya sendiri, ATAU
+     * mewakili penilai lain lewat izin 'override.role'.
+     *
+     * Permintaan yang MENGGANTUNG (belum punya penyetuju) tidak ikut: tak ada
+     * seorang pun yang bisa diwakili, jadi tak seorang pun boleh memutusnya.
+     */
+    public function decidableOn(Project $project, User $user)
+    {
+        $semua = ProjectUpdate::where('project_id', $project->id)
+            ->where('status', 'pending')
+            ->whereIn('change_type', array_keys(self::TYPE_LABEL))
+            ->get();
+
+        return $semua->filter(function ($u) use ($user) {
+            if ($this->isReviewer($u, $user)) {
+                return true;
+            }
+
+            return \App\Support\ReportOverride::aktif() && $this->approverOf($u) !== null;
+        })->values();
+    }
+
+    /** Id project yang punya permintaan perubahan menunggu keputusan (untuk Report). */
+    public function projectIdsWithPending(): \Illuminate\Support\Collection
+    {
+        return ProjectUpdate::where('status', 'pending')
+            ->whereIn('change_type', array_keys(self::TYPE_LABEL))
+            ->pluck('project_id')
+            ->unique()
+            ->values();
+    }
+
+    /**
      * Perbandingan before/after per baris & per field, siap ditampilkan.
      *
      * @return array<int, array{label:string, row:string, field:string, before:mixed, after:mixed}>
@@ -315,17 +460,21 @@ class ProjectChangeStagingService
             [$class, $id] = array_pad(explode('#', $key), 2, null);
 
             $row   = class_exists($class) ? $class::find($id) : null;
-            $label = $row && method_exists($row, 'activityLabel')
-                ? $row->activityLabel()
-                : class_basename((string) $class) . ' #' . $id;
+            $label = $class === Project::class
+                ? 'Project'
+                : ($row && method_exists($row, 'activityLabel')
+                    ? $row->activityLabel()
+                    : class_basename((string) $class) . ' #' . $id);
 
             foreach ((array) $changes as $field => $after) {
                 $baris[] = [
                     'label'  => $label,
                     'row'    => $key,
                     'field'  => $this->fieldLabel($field),
-                    'before' => $sebelum[$key][$field] ?? null,
-                    'after'  => $after,
+                    // Field ber-id user ditampilkan sebagai NAMA agar riwayat terbaca
+                    // orang, bukan angka.
+                    'before' => $this->nilaiTampil($field, $sebelum[$key][$field] ?? null),
+                    'after'  => $this->nilaiTampil($field, $after),
                 ];
             }
         }
@@ -336,18 +485,139 @@ class ProjectChangeStagingService
     /** Nama field jadi label yang enak dibaca: planning_start -> "Planning Start". */
     private function fieldLabel(string $field): string
     {
-        return ucwords(str_replace('_', ' ', $field));
+        // Beberapa field punya nama baku yang lebih jelas daripada hasil konversi.
+        $khusus = [
+            'project_sponsor_id' => 'Project Sponsor',
+            'project_leader_id'  => 'Project Leader',
+            'pic_user_ids'       => 'PIC',
+            'user_id'            => 'Member',
+        ];
+
+        return $khusus[$field] ?? ucwords(str_replace('_', ' ', $field));
+    }
+
+    /** Terjemahkan nilai field ber-id user menjadi nama orangnya. */
+    private function nilaiTampil(string $field, $value)
+    {
+        if ($value === null || $value === '' || ! str_contains($field, 'user_id') && ! str_ends_with($field, '_id')) {
+            return $value;
+        }
+
+        if (is_array($value)) {
+            return collect($value)
+                ->map(fn ($id) => optional(User::find($id))->name ?? ('#' . $id))
+                ->implode(', ');
+        }
+
+        return optional(User::find($value))->name ?? ('#' . $value);
     }
 
     /** Tolak: payload dibuang, data tetap seperti semula. */
     public function reject(ProjectUpdate $update, User $user, ?string $note = null): void
     {
+        $ringkas = $this->ringkasPerubahan($update);
+
         $update->update([
             'status'      => 'rejected',
             'reviewed_by' => $user->id,
             'review_note' => $note,
             'payload'     => null,
         ]);
+
+        $this->catat($update->project, $user, sprintf(
+            '%s rejected at layer %d: %s.',
+            self::TYPE_LABEL[$update->change_type] ?? $update->change_type,
+            (int) $update->current_layer,
+            $ringkas
+        ), $note);
+    }
+
+    /**
+     * Tulis satu baris riwayat pada project.
+     *
+     * Selalu menyebut PELAKU, dan bila ia bertindak mewakili orang lain, nama yang
+     * diwakili ikut ditulis — sehingga riwayat tidak pernah menyamarkan siapa yang
+     * benar-benar menekan tombol.
+     */
+    private function catat(Project $project, User $user, string $pesan, ?string $note = null): void
+    {
+        $pelaku = $user->name;
+
+        if ($this->atasNama && $this->atasNama->id !== $user->id) {
+            $pelaku .= ' on behalf of ' . $this->atasNama->name;
+        }
+
+        $project->statusLogs()->create([
+            'old_status' => $project->status,
+            'new_status' => $project->status,
+            'changed_by' => $user->id,
+            'remarks'    => trim("{$pesan} By {$pelaku}." . ($note ? " Note: {$note}" : '')),
+        ]);
+    }
+
+    /** Ringkasan "apa yang diubah": "Project Sponsor: A -> B; Activity: x -> y". */
+    private function ringkasPerubahan(ProjectUpdate $update): string
+    {
+        $bagian = [];
+
+        foreach ($this->diff($update) as $d) {
+            // Hindari penyebutan ganda: label baris "Project" + field "Project Sponsor"
+            // akan terbaca "Project Project Sponsor".
+            $awalan = str_starts_with($d['field'], $d['label']) ? '' : $d['label'] . ' ';
+
+            $bagian[] = sprintf('%s%s: %s -> %s',
+                $awalan, $d['field'],
+                $this->nilaiTeks($d['before']), $this->nilaiTeks($d['after']));
+        }
+
+        return $bagian ? implode('; ', array_slice($bagian, 0, 10)) : 'no field changes';
+    }
+
+    /** Nama penyetuju untuk kalimat riwayat. */
+    private function sebutPenyetuju(Project $project, ProjectUpdate $update): string
+    {
+        if ($update->approver_role === 'unassigned') {
+            return 'an approver to be determined (the idea has no final-layer committee yet)';
+        }
+
+        if ($update->approver_role === 'idea_committee') {
+            return optional($this->ideaCommitteeApprover($project))->name
+                ?? 'the final-layer committee of the idea';
+        }
+
+        return $update->approver_role === 'sponsor'
+            ? (optional($project->sponsor)->name ?? 'the Project Sponsor')
+            : 'the committee of layer ' . (int) $update->current_layer;
+    }
+
+    /** Nilai untuk kalimat riwayat; id user diterjemahkan jadi nama. */
+    private function nilaiTeks($value): string
+    {
+        if ($value === null || $value === '') {
+            return '(empty)';
+        }
+
+        if (is_array($value)) {
+            return implode(', ', $value) ?: '(empty)';
+        }
+
+        return (string) $value;
+    }
+
+    /** Committee yang sedang diwakili pada rangkaian aksi ini (lihat actingAs). */
+    private ?User $atasNama = null;
+
+    /** Jalankan satu aksi sebagai wakil dari $atasNama. */
+    public function actingAs(?User $atasNama, callable $aksi)
+    {
+        $sebelum = $this->atasNama;
+        $this->atasNama = $atasNama;
+
+        try {
+            return $aksi();
+        } finally {
+            $this->atasNama = $sebelum;
+        }
     }
 
     /** Terapkan payload ke baris aslinya. */
@@ -359,6 +629,15 @@ class ProjectChangeStagingService
 
                 if (! class_exists($class) || ! $this->sectionOf($class)) {
                     continue;   // abaikan payload asing
+                }
+
+                // Project::class -> barisnya adalah project itu sendiri (bukan anak).
+                if ($class === Project::class) {
+                    if ((int) $id === (int) $update->project_id) {
+                        Project::whereKey($id)->update($changes);
+                    }
+
+                    continue;
                 }
 
                 $row = $class::find($id);

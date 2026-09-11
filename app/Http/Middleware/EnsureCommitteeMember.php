@@ -22,7 +22,8 @@ class EnsureCommitteeMember
         $user = $request->user();
         abort_unless($user, 403);
 
-        if ($user->hasRole('Super Admin')) {
+        // Super Admin lolos hanya dalam konteks Report; selebihnya ia employee biasa.
+        if (\App\Support\ReportOverride::aktif($request)) {
             return $next($request);
         }
 
