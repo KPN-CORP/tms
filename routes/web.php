@@ -101,6 +101,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/committee-assignments', [CommitteeAssignmentController::class, 'index'])->name('committee.index');
         Route::get('/committee-assignments/form', [CommitteeAssignmentController::class, 'form'])->name('committee.form');
         Route::post('/committee-assignments', [CommitteeAssignmentController::class, 'store'])->name('committee.store');
+        // Import template Excel: hanya MENGISI form (tidak menyimpan) — lihat CommitteeLayerImport.
+        Route::post('/committee-assignments/import', [CommitteeAssignmentController::class, 'import'])->name('committee.import');
+        Route::get('/committee-assignments/template', [CommitteeAssignmentController::class, 'template'])->name('committee.template');
         Route::delete('/committee-assignments', [CommitteeAssignmentController::class, 'destroy'])->name('committee.destroy');
     });
 

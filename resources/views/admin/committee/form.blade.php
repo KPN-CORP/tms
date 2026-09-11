@@ -75,8 +75,8 @@
             $initialVisible = max(3, (int) $maxAssigned);
         @endphp
         @if($type && $selectedBuId && $rangeReady)
-        <form method="POST" action="{{ route('admin.committee.store') }}" class="bg-white rounded-xl shadow p-6 space-y-4"
-              x-data="{ visible: {{ $initialVisible }} }">
+        <div x-data="{ visible: {{ $initialVisible }}, importOpen: false, importBusy: false, importError: '', importFilled: [], importNotes: [] }">
+        <form method="POST" action="{{ route('admin.committee.store') }}" class="bg-white rounded-xl shadow p-6 space-y-4">
             @csrf
             <input type="hidden" name="approval_type" value="{{ $type }}">
             <input type="hidden" name="business_unit_id" value="{{ $selectedBuId }}">
@@ -92,6 +92,23 @@
             @if($isProposal)
                 <p class="text-xs text-gray-500 -mt-2">Layer 1 is automatically the project's <b>Project Sponsor</b>. Configure the committee from Layer 2.</p>
             @endif
+
+            {{-- Hasil import: apa yang terisi, dan baris mana yang dilewati. Ditampilkan
+                 sebelum Save supaya salah isi file ketahuan sebelum tersimpan. --}}
+            <div x-show="importFilled.length || importNotes.length" x-cloak class="space-y-2">
+                <div x-show="importFilled.length" class="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
+                    <div class="font-semibold mb-1">Imported from Excel — press <b>Save</b> to apply.</div>
+                    <ul class="list-disc list-inside space-y-0.5">
+                        <template x-for="t in importFilled"><li x-text="t"></li></template>
+                    </ul>
+                </div>
+                <div x-show="importNotes.length" class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                    <div class="font-semibold mb-1">Skipped rows</div>
+                    <ul class="list-disc list-inside space-y-0.5">
+                        <template x-for="t in importNotes"><li x-text="t"></li></template>
+                    </ul>
+                </div>
+            </div>
 
             @for($layer = 1; $layer <= $maxLayers; $layer++)
                 <div class="flex items-center gap-4" @if($layer > 3) x-show="{{ $layer }} <= visible" x-cloak @endif>
@@ -120,11 +137,62 @@
             </div>
 
             <div class="flex justify-end gap-3 pt-2">
+                <button type="button" @click="importOpen = true"
+                        class="inline-flex items-center gap-2 px-6 py-2 border border-gray-300 rounded-lg font-semibold text-gray-700 hover:bg-gray-100">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+                    </svg>
+                    Import Excel
+                </button>
                 <a href="{{ route('admin.committee.index') }}" class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Cancel</a>
                 <button type="submit"
                         class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800">Save</button>
             </div>
         </form>
+
+        {{-- Dialog import. Di LUAR <form> di atas: <form> bersarang tidak valid dan
+             membuat tombol Save ikut terpicu. --}}
+        <div x-show="importOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center"
+             @keydown.escape.window="importOpen = false">
+            <div class="fixed inset-0 bg-black/40" @click="importOpen = false"></div>
+            <div class="relative bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 p-6" x-transition.opacity>
+                <h3 class="text-lg font-semibold text-gray-800">Import Excel</h3>
+                <p class="text-sm text-gray-600 mt-1">
+                    Columns <b>employee_id</b>, <b>approver_id</b>, and <b>layer</b>.
+                    Each row fills one Layer field below with the employee whose ID is in <b>approver_id</b>.
+                </p>
+                <p class="text-xs text-gray-500 mt-2">
+                    Business Unit and Unit come from the form above, so the <b>employee_id</b> column is not used.
+                    Nothing is stored until you press <b>Save</b>.
+                </p>
+
+                <a href="{{ route('admin.committee.template') }}"
+                   class="inline-flex items-center gap-1 text-sm text-red-700 hover:underline mt-3">
+                    Download template (.xlsx)
+                </a>
+
+                <input type="file" x-ref="importFile" accept=".xlsx,.csv"
+                       data-approval-type="{{ $type }}" data-url="{{ route('admin.committee.import') }}"
+                       @change="importError = ''"
+                       class="mt-4 block w-full text-sm text-gray-700 border rounded-lg px-3 py-2
+                              file:mr-3 file:py-1.5 file:px-4 file:rounded-lg file:border-0
+                              file:bg-gray-100 file:text-gray-700 file:font-semibold hover:file:bg-gray-200">
+
+                <p x-show="importError" x-cloak x-text="importError"
+                   class="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"></p>
+
+                <div class="flex justify-end gap-3 pt-5">
+                    <button type="button" @click="importOpen = false"
+                            class="px-6 py-2 border rounded-lg font-semibold text-gray-700 hover:bg-gray-100">Cancel</button>
+                    <button type="button" :disabled="importBusy"
+                            @click="window.tmsCommitteeImport($refs.importFile, $data)"
+                            class="px-6 py-2 bg-red-700 text-white rounded-lg font-semibold hover:bg-red-800 disabled:opacity-60">
+                        <span x-text="importBusy ? 'Reading...' : 'Import'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        </div>
         @else
             <div class="bg-white rounded-xl shadow p-6 text-sm text-gray-400">
                 Select <span class="font-semibold text-gray-600">Approval Type</span>, <span class="font-semibold text-gray-600">Business Unit</span>@if($usesRange), and enter <span class="font-semibold text-gray-600">Budget Min &amp; Max</span> (Max ≥ Min)@endif first to configure the committee per layer.
@@ -132,5 +200,75 @@
         @endif
 
     </div>
+
+    {{-- Import Excel: kirim file, lalu ISI dropdown layer dari jawabannya.
+         Tidak menyimpan apa pun — tombol Save tetap yang menentukan. --}}
+    <script>
+        window.tmsCommitteeImport = function (input, state) {
+            state.importError = '';
+
+            var file = input.files && input.files[0];
+            if (! file) { state.importError = 'Choose a file first.'; return; }
+
+            var body = new FormData();
+            var meta = document.querySelector('meta[name="csrf-token"]');
+            body.append('_token', meta ? meta.content : '');
+            body.append('approval_type', input.dataset.approvalType);
+            body.append('file', file);
+
+            state.importBusy = true;
+
+            fetch(input.dataset.url, {
+                method: 'POST',
+                body: body,
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+            .then(function (res) {
+                state.importBusy = false;
+
+                if (! res.ok) {
+                    // Pesan validasi Laravel datang sebagai {errors: {field: [pesan]}}.
+                    var err = res.data.errors ? Object.values(res.data.errors)[0][0] : null;
+                    state.importError = res.data.message || err || 'The file could not be read.';
+                    return;
+                }
+
+                var terisi = [];
+                (res.data.rows || []).forEach(function (row) {
+                    var el = document.getElementById('layer-select-' + row.layer);
+                    if (! el) { return; }
+
+                    var ts = el.tomselect;
+                    if (ts) {
+                        // Opsi belum ada di dropdown (hasil AJAX), jadi ditambahkan dulu.
+                        ts.addOption({ value: row.email, text: row.label });
+                        ts.setValue(row.email, false);
+                    } else {
+                        var opt = document.createElement('option');
+                        opt.value = row.email;
+                        opt.textContent = row.label;
+                        opt.selected = true;
+                        el.appendChild(opt);
+                    }
+
+                    // Layer di atas 3 tersembunyi sampai "Add Layer" ditekan — buka sendiri
+                    // supaya hasil import tidak tampak hilang.
+                    if (row.layer > state.visible) { state.visible = row.layer; }
+
+                    terisi.push('Layer ' + row.layer + ' — ' + row.label);
+                });
+
+                state.importFilled = terisi;
+                state.importNotes  = res.data.notes || [];
+                state.importOpen   = false;
+                input.value = '';
+            })
+            .catch(function () {
+                state.importBusy = false;
+                state.importError = 'The file could not be sent. Please try again.';
+            });
+        };
+    </script>
 
 </x-app-layout>

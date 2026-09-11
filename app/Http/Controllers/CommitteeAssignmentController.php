@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\CommitteeAssignment;
 use App\Services\Committee\ApprovalCoverageReport;
+use App\Services\Committee\CommitteeLayerImport;
+use App\Support\SimpleXlsx;
 use App\Models\KpnBusinessUnit;
 use App\Models\KpnEmployee;
 use App\Models\User;
@@ -115,6 +117,50 @@ class CommitteeAssignmentController extends Controller
             'selectedMin'       => $selectedMin,
             'selectedMax'       => $selectedMax,
             'rangeReady'        => $rangeReady,
+        ]);
+    }
+
+    /**
+     * Baca file template (employee_id, approver_id, layer) dan kembalikan
+     * pasangan layer→approver sebagai JSON untuk MENGISI form — belum disimpan.
+     * Penyimpanan tetap lewat tombol Save supaya isi file bisa diperiksa dulu.
+     */
+    public function import(Request $request, CommitteeLayerImport $importer)
+    {
+        $data = $request->validate([
+            'approval_type' => ['required', Rule::in(array_keys(CommitteeAssignment::TYPES))],
+            'file'          => ['required', 'file', 'max:2048', 'mimes:xlsx,csv,txt'],
+        ], [
+            'file.mimes' => 'The file must be .xlsx or .csv. Old .xls files are not supported — save them as .xlsx first.',
+            'file.max'   => 'The file must not be larger than 2 MB.',
+        ]);
+
+        try {
+            $hasil = $importer->parse(
+                $data['file']->getRealPath(),
+                strtolower($data['file']->getClientOriginalExtension()),
+                $data['approval_type'],
+                self::MAX_LAYERS,
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json($hasil);
+    }
+
+    /** Template kosong berisi contoh satu chain, agar format kolomnya jelas. */
+    public function template()
+    {
+        $isi = SimpleXlsx::write([
+            ['employee_id', 'approver_id', 'layer'],
+            ['', '', '1'],
+            ['', '', '2'],
+        ]);
+
+        return response($isi, 200, [
+            'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="committee-template.xlsx"',
         ]);
     }
 
