@@ -8,9 +8,11 @@ use App\Models\KpnBusinessUnit;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\Dashboard\MetricScopeService;
+use App\Support\Navigation\InertiaRoutes;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -60,29 +62,95 @@ class ReportController extends Controller
 
         $perPage = $this->listPerPage($request, 25);
 
-        return view('reports.index', [
-            'type'      => $type,
-            'types'     => self::TYPES,
-            'rows'      => $query->paginate($perPage)->withQueryString(),
-            'perPage'   => $perPage,
-            'columns'   => $this->columns($type),
-            'counts'    => $counts,
-            'tab'       => $tab,
-            'statusMap' => $this->statusLabels($type),
-            'buNames'   => KpnBusinessUnit::names(),
-            'isIdea'    => $type === 'ideas',
+        $columns = $this->columns($type);
+        $statusMap = $this->statusLabels($type);
+        $sortState = $this->listSortState($request, $config);
+        $canOverride = $request->user()->can('override.role');
+
+        // Dihitung sekali, bukan per baris, agar tabel tidak menembak query berulang.
+        $idsPending = $type === 'ideas'
+            ? collect()
+            : app(\App\Services\Project\ProjectChangeStagingService::class)->projectIdsWithPending();
+
+        return Inertia::render('Reports/Index', [
+            'type' => $type,
+            'types' => collect(self::TYPES)
+                ->map(fn (string $label, string $key) => ['value' => $key, 'label' => $label])
+                ->values(),
+
+            // Definisi kolom tetap satu-satunya di PHP (dipakai juga oleh
+            // download CSV); 'kind' memberi tahu Vue cara merendernya.
+            'columns' => collect($columns)->map(fn (array $c) => [
+                'label' => $c['label'],
+                'kind' => $c['kind'],
+                'sort' => $c['sort'] ?? null,
+            ])->values(),
+
+            'rows' => $query->paginate($perPage)->withQueryString()->through(
+                function ($row) use ($columns, $statusMap, $type, $idsPending, $canOverride) {
+                    $cells = [];
+
+                    foreach ($columns as $column) {
+                        $value = ($column['value'])($row);
+
+                        $cells[] = match ($column['kind']) {
+                            'status' => ['value' => $value, 'label' => $statusMap[$value] ?? $value],
+                            'datetime' => ['value' => $value?->toIso8601ZuluString()],
+                            'money' => ['value' => (float) $value],
+                            default => ['value' => $value],
+                        };
+                    }
+
+                    return [
+                        'key' => $type === 'ideas' ? $row->idea_id : $row->project_id,
+                        'cells' => $cells,
+                        'urls' => [
+                            'detail' => self::detailUrl($type, $row),
+                            // Pensil hanya untuk pemegang 'override.role', dan hanya
+                            // pada baris yang masih menunggu keputusan di satu layer.
+                            'override' => $canOverride
+                                ? self::overrideUrl($type, $row, $idsPending)
+                                : null,
+                        ],
+                    ];
+                }
+            ),
+
+            'filters' => [
+                'q' => $request->get('q'),
+                'bu' => $request->get('bu'),
+                'unit' => $request->get('unit'),
+                'tab' => $tab,
+                'per_page' => $perPage,
+                'sort' => $sortState['sort'],
+                'dir' => $sortState['dir'],
+            ],
+
+            // Tab dibangun dari status yang benar-benar ada pada hasil saat ini,
+            // supaya tab kosong tidak memenuhi layar untuk laporan yang sempit.
+            'tabs' => collect(['all' => 'All'] + collect($statusMap)->filter(fn ($l, $k) => $counts->has($k))->all())
+                ->map(fn (string $label, string $key) => [
+                    'key' => $key,
+                    'label' => $label,
+                    'count' => $key === 'all' ? (int) $counts->sum() : (int) $counts->get($key, 0),
+                ])->values(),
+
+            'businessUnits' => KpnBusinessUnit::names()->values(),
+            'isIdea' => $type === 'ideas',
+
             // Judul & tombol hapus filter saat halaman dibuka dari kartu Dashboard.
-            'metric'      => $metric,
+            'metric' => $metric,
             'metricLabel' => $metric ? MetricScopeService::labelOf($metric) : null,
+
             // Ditampilkan sebagai badge agar jelas daftar ini bukan lingkup organisasi.
-            'mineOnly'    => $this->mineOnly($request),
-            // Tombol pensil (bertindak atas nama committee) hanya utk pemegang izin ini.
-            'canOverride' => $request->user()->can('override.role'),
-            // Dihitung sekali, bukan per baris, agar tabel tidak menembak query berulang.
-            'idsPending'  => $type === 'ideas'
-                ? collect()
-                : app(\App\Services\Project\ProjectChangeStagingService::class)->projectIdsWithPending(),
-        ] + $this->listSortState($request, $config));
+            'mineOnly' => $this->mineOnly($request),
+
+            'downloadUrl' => route('reports.download', $request->query()),
+
+            // Konteks Report membuka halaman Idea/Project dalam mode override;
+            // keduanya sudah Inertia, jadi tautannya kunjungan SPA biasa.
+            'detailIsExternal' => ! InertiaRoutes::has($type === 'ideas' ? 'ideas.show' : 'projects.show'),
+        ]);
     }
 
     /** Unduh hasil (filter & search yang sama) sebagai CSV. */
@@ -128,12 +196,17 @@ class ReportController extends Controller
         $config = $type === 'ideas'
             ? [
                 'searchable'   => [],
+                // Hanya kolom lokal tabel `ideas`. Nama pengaju tinggal di
+                // database hcis, jadi "Submitted By" tidak bisa ikut ORDER BY.
                 'sortable'     => [
-                    'idea_id'    => 'idea_id',
-                    'idea_name'  => 'idea_name',
-                    'status'     => 'status',
-                    'created_at' => 'created_at',
-                    'updated_at' => 'updated_at',
+                    'idea_id'            => 'idea_id',
+                    'idea_name'          => 'idea_name',
+                    'business_unit_name' => 'business_unit_name',
+                    'department_name'    => 'department_name',
+                    'status'             => 'status',
+                    'current_layer'      => 'current_layer',
+                    'created_at'         => 'created_at',
+                    'updated_at'         => 'updated_at',
                 ],
                 'default_sort' => 'created_at',
                 'default_dir'  => 'desc',
@@ -252,40 +325,40 @@ class ReportController extends Controller
     {
         if ($type === 'ideas') {
             return [
-                ['label' => 'Idea ID',       'sort' => 'idea_id',    'value' => fn ($r) => $r->idea_id],
-                ['label' => 'Idea Name',     'sort' => 'idea_name',  'value' => fn ($r) => $r->idea_name],
-                ['label' => 'Business Unit', 'value' => fn ($r) => $r->business_unit_name],
-                ['label' => 'Unit',          'value' => fn ($r) => $r->department_name],
-                ['label' => 'Submitted By',  'value' => fn ($r) => optional($r->user)->name],
-                ['label' => 'Status',        'sort' => 'status',     'value' => fn ($r) => $r->status],
-                ['label' => 'Layer',         'value' => fn ($r) => $r->current_layer],
-                ['label' => 'Created',       'sort' => 'created_at', 'value' => fn ($r) => $r->created_at],
-                ['label' => 'Last Updated',  'sort' => 'updated_at', 'value' => fn ($r) => $r->updated_at],
+                ['label' => 'Idea ID',       'kind' => 'id',       'sort' => 'idea_id',    'value' => fn ($r) => $r->idea_id],
+                ['label' => 'Idea Name',     'kind' => 'name',     'sort' => 'idea_name',  'value' => fn ($r) => $r->idea_name],
+                ['label' => 'Business Unit', 'kind' => 'text',     'sort' => 'business_unit_name', 'value' => fn ($r) => $r->business_unit_name],
+                ['label' => 'Unit',          'kind' => 'text',     'sort' => 'department_name',    'value' => fn ($r) => $r->department_name],
+                ['label' => 'Submitted By',  'kind' => 'text',     'value' => fn ($r) => optional($r->user)->name],
+                ['label' => 'Status',        'kind' => 'status',   'sort' => 'status',     'value' => fn ($r) => $r->status],
+                ['label' => 'Layer',         'kind' => 'text',     'sort' => 'current_layer', 'value' => fn ($r) => $r->current_layer],
+                ['label' => 'Created',       'kind' => 'datetime', 'sort' => 'created_at', 'value' => fn ($r) => $r->created_at],
+                ['label' => 'Last Updated',  'kind' => 'datetime', 'sort' => 'updated_at', 'value' => fn ($r) => $r->updated_at],
             ];
         }
 
         $kolom = [
-            ['label' => 'Project ID',    'sort' => 'project_id',   'value' => fn ($r) => $r->project_id],
-            ['label' => 'Project Name',  'sort' => 'project_name', 'value' => fn ($r) => $r->project_name],
-            ['label' => 'Business Unit', 'value' => fn ($r) => optional($r->idea)->business_unit_name],
-            ['label' => 'Unit',          'value' => fn ($r) => optional($r->idea)->department_name],
-            ['label' => 'Leader',        'value' => fn ($r) => optional($r->leader)->name],
-            ['label' => 'Sponsor',       'value' => fn ($r) => optional($r->sponsor)->name],
-            ['label' => 'Status',        'sort' => 'status',       'value' => fn ($r) => $r->status],
+            ['label' => 'Project ID',    'kind' => 'id',       'sort' => 'project_id',   'value' => fn ($r) => $r->project_id],
+            ['label' => 'Project Name',  'kind' => 'name',     'sort' => 'project_name', 'value' => fn ($r) => $r->project_name],
+            ['label' => 'Business Unit', 'kind' => 'text',     'value' => fn ($r) => optional($r->idea)->business_unit_name],
+            ['label' => 'Unit',          'kind' => 'text',     'value' => fn ($r) => optional($r->idea)->department_name],
+            ['label' => 'Leader',        'kind' => 'text',     'value' => fn ($r) => optional($r->leader)->name],
+            ['label' => 'Sponsor',       'kind' => 'text',     'value' => fn ($r) => optional($r->sponsor)->name],
+            ['label' => 'Status',        'kind' => 'status',   'sort' => 'status',       'value' => fn ($r) => $r->status],
             // Dihitung dari relasi budgets yang sudah di-eager-load, bukan
             // budgetTotal() yang menembak query per baris (N+1 pada daftar panjang).
-            ['label' => 'Total Budget',  'value' => fn ($r) => (float) $r->budgets->sum(
+            ['label' => 'Total Budget',  'kind' => 'money',    'value' => fn ($r) => (float) $r->budgets->sum(
                 fn ($b) => (float) $b->qty * (float) $b->unit_price
             )],
         ];
 
         // Realisasi biaya selalu ikut: satu laporan Project mencakup semua fase.
-        $kolom[] = ['label' => 'Total Cost', 'value' => fn ($r) => (float) $r->budgets->sum(
+        $kolom[] = ['label' => 'Total Cost', 'kind' => 'money', 'value' => fn ($r) => (float) $r->budgets->sum(
             fn ($b) => (float) ($b->actual_cost ?? 0)
         )];
 
-        $kolom[] = ['label' => 'Created',      'sort' => 'created_at', 'value' => fn ($r) => $r->created_at];
-        $kolom[] = ['label' => 'Last Updated', 'sort' => 'updated_at', 'value' => fn ($r) => $r->updated_at];
+        $kolom[] = ['label' => 'Created',      'kind' => 'datetime', 'sort' => 'created_at', 'value' => fn ($r) => $r->created_at];
+        $kolom[] = ['label' => 'Last Updated', 'kind' => 'datetime', 'sort' => 'updated_at', 'value' => fn ($r) => $r->updated_at];
 
         return $kolom;
     }

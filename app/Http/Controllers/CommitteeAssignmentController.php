@@ -14,6 +14,7 @@ use App\Services\OrgResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
 
 class CommitteeAssignmentController extends Controller
 {
@@ -26,13 +27,71 @@ class CommitteeAssignmentController extends Controller
             ? $request->query('approval_type')
             : null;
 
-        return view('admin.committee.index', [
-            'types'      => CommitteeAssignment::TYPES,
-            'type'       => $type, // untuk default tab
-            'configured' => $this->configuredSets(),
-            // Peringatan layer approval yang belum di-assign — dihitung dari data,
-            // jadi hilang sendiri begitu assignment-nya dibuat.
-            'coverage'   => $coverage->build(),
+        $report = $coverage->build();
+
+        $assignUrl = fn (array $row) => route('admin.committee.form', array_filter([
+            'approval_type' => $row['type'] ?? null,
+            'business_unit_id' => $row['bu_id'] ?? null,
+        ]));
+
+        return Inertia::render('Admin/Committee/Index', [
+            'types' => collect(CommitteeAssignment::TYPES)
+                ->map(fn (string $label, string $key) => [
+                    'value' => $key,
+                    'label' => $label,
+                    'usesBudgetRange' => CommitteeAssignment::usesBudgetRange($key),
+                ])->values(),
+
+            // Tab yang terbuka saat halaman dibuka dari tautan "Assign".
+            'activeType' => $type ?: array_key_first(CommitteeAssignment::TYPES),
+
+            'sets' => $this->configuredSets()->map(function (array $set) {
+                // budget_min bisa 0 (falsy), jadi min/max tidak boleh ikut array_filter.
+                $editParams = array_filter([
+                    'approval_type' => $set['approval_type'],
+                    'business_unit_id' => $set['business_unit_id'],
+                    'department' => $set['dept_name_raw'],
+                ]);
+
+                if ($set['budget_min'] !== null) {
+                    $editParams['budget_min'] = $set['budget_min'];
+                }
+
+                if ($set['budget_max'] !== null) {
+                    $editParams['budget_max'] = $set['budget_max'];
+                }
+
+                return [
+                    'approval_type' => $set['approval_type'],
+                    'type_label' => $set['type_label'],
+                    'business_unit_id' => $set['business_unit_id'],
+                    'bu_name' => $set['bu_name'],
+                    'department_id' => $set['department_id'],
+                    'dept_name' => $set['dept_name'],
+                    'budget_min' => $set['budget_min'],
+                    'budget_max' => $set['budget_max'],
+                    'budget_label' => $set['budget_label'],
+                    'layers' => $set['layers']->values(),
+                    'edit_url' => route('admin.committee.form', $editParams),
+                ];
+            })->values(),
+
+            // Peringatan layer approval yang belum di-assign — dihitung dari data
+            // setiap halaman dibuka, jadi hilang sendiri begitu assignment-nya ada.
+            'coverage' => [
+                'total' => $report['total'],
+                'blocked' => $report['blocked']->map(fn (array $r) => $r + [
+                    'oldest_human' => $r['oldest'] ? \Carbon\Carbon::parse($r['oldest'])->diffForHumans() : null,
+                    'assign_url' => $assignUrl($r),
+                ])->values(),
+                'gaps' => $report['gaps']->map(fn (array $r) => $r + ['assign_url' => $assignUrl($r)])->values(),
+                'risks' => $report['risks']->map(fn (array $r) => $r + ['assign_url' => $assignUrl($r)])->values(),
+            ],
+
+            'urls' => [
+                'create' => route('admin.committee.form'),
+                'destroy' => route('admin.committee.destroy'),
+            ],
         ]);
     }
 
@@ -103,20 +162,62 @@ class CommitteeAssignmentController extends Controller
             return ['email' => $email, 'label' => optional($empByEmail[$email] ?? null)->label() ?: $email];
         });
 
-        return view('admin.committee.form', [
-            'businessUnits'     => $businessUnits,
-            'types'             => CommitteeAssignment::TYPES,
-            'type'              => $type,
-            'selectedBuId'      => $selectedBuId,
-            'unitNames'         => $unitNames,
-            'selectedUnitName'  => $selectedUnitName,
-            'assignedByLayer'   => $assignedByLayer,
-            'employeeSearchUrl' => route('org.employees'),
-            'maxLayers'         => self::MAX_LAYERS,
-            'usesRange'         => $usesRange,
-            'selectedMin'       => $selectedMin,
-            'selectedMax'       => $selectedMax,
-            'rangeReady'        => $rangeReady,
+        // Layer di atas 3 disembunyikan sampai "Add Layer" ditekan, tapi layer
+        // yang sudah terisi harus tetap terlihat.
+        $maxAssigned = collect($assignedByLayer)->filter()->keys()->max() ?? 0;
+
+        return Inertia::render('Admin/Committee/Form', [
+            'types' => collect(CommitteeAssignment::TYPES)
+                ->map(fn (string $label, string $key) => ['value' => $key, 'label' => $label])
+                ->values(),
+
+            'businessUnits' => $businessUnits
+                ->map(fn ($bu) => ['value' => $bu->id, 'label' => $bu->name])
+                ->values(),
+
+            'unitNames' => $unitNames->map(fn ($name) => ['value' => $name, 'label' => $name])->values(),
+
+            'selection' => [
+                'approval_type' => $type,
+                'business_unit_id' => $selectedBuId,
+                'department' => $selectedUnitName,
+                'budget_min' => $selectedMin,
+                'budget_max' => $selectedMax,
+            ],
+
+            'context' => [
+                'type_label' => $type ? CommitteeAssignment::TYPES[$type] : null,
+                'bu_name' => $selectedBu?->name,
+                'unit_label' => $selectedUnitName ?: __('messages.labels.all_units_bu_wide'),
+                'budget_label' => $usesRange
+                    ? CommitteeAssignment::budgetRangeLabel($selectedMin, $selectedMax)
+                    : null,
+            ],
+
+            // Layer 1 selalu Project Sponsor pada tipe ber-sponsor; committee
+            // dikonfigurasi mulai Layer 2.
+            'sponsorLayer' => $type ? CommitteeAssignment::usesSponsorLayer($type) : false,
+
+            'assignedByLayer' => $assignedByLayer->filter()->all(),
+            'initialVisible' => max(3, (int) $maxAssigned),
+
+            // Kombinasi yang sudah punya baris committee = sedang diubah,
+            // bukan dibuat. Judul halaman ikut ini supaya tidak lagi
+            // menampilkan "Add / Edit" sekaligus.
+            'isEdit' => $assignments->isNotEmpty(),
+
+            'usesRange' => $usesRange,
+            'rangeReady' => $rangeReady,
+            'maxLayers' => self::MAX_LAYERS,
+
+            'urls' => [
+                'form' => route('admin.committee.form'),
+                'store' => route('admin.committee.store'),
+                'import' => route('admin.committee.import'),
+                'template' => route('admin.committee.template'),
+                'index' => route('admin.committee.index'),
+                'employeeSearch' => route('org.employees'),
+            ],
         ]);
     }
 
@@ -131,8 +232,8 @@ class CommitteeAssignmentController extends Controller
             'approval_type' => ['required', Rule::in(array_keys(CommitteeAssignment::TYPES))],
             'file'          => ['required', 'file', 'max:2048', 'mimes:xlsx,csv,txt'],
         ], [
-            'file.mimes' => 'The file must be .xlsx or .csv. Old .xls files are not supported — save them as .xlsx first.',
-            'file.max'   => 'The file must not be larger than 2 MB.',
+            'file.mimes' => __('messages.validation.import_mimes'),
+            'file.max'   => __('messages.validation.import_max'),
         ]);
 
         try {
@@ -187,7 +288,9 @@ class CommitteeAssignmentController extends Controller
                     'business_unit_id' => $first->business_unit_id,
                     'bu_name'          => optional($first->businessUnit)->name,
                     'department_id'    => $first->department_id,
-                    'dept_name'        => $first->department_id ? optional($first->department)->name : 'All Units',
+                    'dept_name'        => $first->department_id
+                        ? optional($first->department)->name
+                        : __('messages.labels.all_units'),
                     'dept_name_raw'    => optional($first->department)->name,
                     'budget_min'       => $first->budget_min !== null ? (int) $first->budget_min : null,
                     'budget_max'       => $first->budget_max !== null ? (int) $first->budget_max : null,
@@ -313,7 +416,7 @@ class CommitteeAssignmentController extends Controller
         // Kembali ke halaman daftar pada tab approval type yang baru disimpan.
         return redirect()
             ->route('admin.committee.index', ['approval_type' => $data['approval_type']])
-            ->with('success', 'Committee assignment saved.');
+            ->with('success', __('flash.committee.saved'));
     }
 
     /** Hapus seluruh layer untuk satu set (type + BU + department). */
@@ -348,6 +451,6 @@ class CommitteeAssignmentController extends Controller
         // Tetap di tab approval type yang sama pada halaman daftar.
         return redirect()
             ->route('admin.committee.index', ['approval_type' => $data['approval_type']])
-            ->with('success', 'Committee assignment deleted.');
+            ->with('success', __('flash.committee.deleted'));
     }
 }

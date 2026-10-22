@@ -7,6 +7,7 @@ use App\Models\CommitteeAssignment;
 use App\Models\Guideline;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 
 /**
  * Guideline — pustaka dokumen panduan (§9.7).
@@ -34,10 +35,35 @@ class GuidelineController extends Controller
                 fn (Guideline $g) => $g->viewableBy($isCommittee) || $g->downloadableBy($isCommittee)
             )->values());
 
-        return view('guidelines.index', [
-            'guidelines'  => $guidelines,
-            'canManage'   => $canManage,
-            'isCommittee' => $isCommittee,
+        return Inertia::render('Guidelines/Index', [
+            'guidelines' => $guidelines->map(fn (Guideline $g) => [
+                'id' => $g->id,
+                'title' => $g->title,
+                'description' => $g->description,
+                'file_name' => $g->file_name,
+                'is_active' => (bool) $g->is_active,
+                'uploader' => $g->uploader?->name,
+                'created_at' => $g->created_at?->toIso8601ZuluString(),
+                'access' => [
+                    'employee_can_view' => (bool) $g->employee_can_view,
+                    'employee_can_download' => (bool) $g->employee_can_download,
+                    'committee_can_view' => (bool) $g->committee_can_view,
+                    'committee_can_download' => (bool) $g->committee_can_download,
+                ],
+                // Pengelola selalu boleh; selain itu mengikuti izin per guideline.
+                'can_view' => $canManage || $g->viewableBy($isCommittee),
+                'can_download' => $canManage || $g->downloadableBy($isCommittee),
+                'urls' => [
+                    'view' => route('guidelines.view', $g),
+                    'download' => route('guidelines.download', $g),
+                    'toggle' => route('guidelines.toggle', $g),
+                    'access' => route('guidelines.access', $g),
+                    'destroy' => route('guidelines.destroy', $g),
+                ],
+            ])->values(),
+
+            'canManage' => $canManage,
+            'urls' => ['store' => route('guidelines.store')],
         ]);
     }
 
@@ -73,7 +99,7 @@ class GuidelineController extends Controller
             'committee_can_download' => $request->boolean('committee_can_download'),
         ]);
 
-        return back()->with('success', "Guideline \"{$data['title']}\" uploaded.");
+        return back()->with('success', __('flash.guidelines.uploaded', ['title' => $data['title']]));
     }
 
     public function download(Guideline $guideline)
@@ -117,14 +143,15 @@ class GuidelineController extends Controller
             'committee_can_download' => $request->boolean('committee_can_download'),
         ]);
 
-        return back()->with('success', "Hak akses \"{$guideline->title}\" diperbarui.");
+        return back()->with('success', __('flash.guidelines.access_updated', ['title' => $guideline->title]));
     }
 
     public function toggle(Guideline $guideline)
     {
         $guideline->update(['is_active' => ! $guideline->is_active]);
 
-        return back()->with('success', $guideline->is_active ? 'Guideline activated.' : 'Guideline deactivated.');
+        return back()->with('success',
+            __($guideline->is_active ? 'flash.guidelines.activated' : 'flash.guidelines.deactivated'));
     }
 
     public function destroy(Guideline $guideline)
@@ -133,6 +160,6 @@ class GuidelineController extends Controller
         $title = $guideline->title;
         $guideline->delete();
 
-        return back()->with('success', "Guideline \"{$title}\" deleted.");
+        return back()->with('success', __('flash.guidelines.deleted', ['title' => $title]));
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CommitteeAssignment;
 use App\Models\SlaSetting;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 
 /**
@@ -16,12 +17,49 @@ class SlaSettingController extends Controller
 {
     public function index(Request $request)
     {
-        return view('admin.sla.index', [
-            'settings'      => SlaSetting::orderBy('approval_type')->orderByRaw('status is null')->orderBy('status')->get(),
-            'labels'        => CommitteeAssignment::TYPES,
-            'typeOptions'   => CommitteeAssignment::TYPES,
-            'statusOptions' => SlaSetting::STATUS_OPTIONS,
-            'editing'       => SlaSetting::find($request->integer('edit')),
+        $editing = SlaSetting::find($request->integer('edit'));
+        $labels = CommitteeAssignment::TYPES;
+
+        return Inertia::render('Admin/Sla/Index', [
+            'settings' => SlaSetting::orderBy('approval_type')
+                ->orderByRaw('status is null')
+                ->orderBy('status')
+                ->get()
+                ->map(fn (SlaSetting $s) => [
+                    'id' => $s->id,
+                    'approval_type' => $s->approval_type,
+                    'approval_label' => $labels[$s->approval_type] ?? $s->approval_type,
+                    'status' => $s->status,
+                    'status_label' => SlaSetting::STATUS_OPTIONS[$s->status] ?? $s->status,
+                    'days' => $s->days,
+                    'is_active' => (bool) $s->is_active,
+                    'urls' => [
+                        'edit' => route('admin.sla.index', ['edit' => $s->id]),
+                        'toggle' => route('admin.sla.toggle', $s),
+                        'destroy' => route('admin.sla.destroy', $s),
+                    ],
+                ])->values(),
+
+            'typeOptions' => collect($labels)
+                ->map(fn (string $label, string $key) => ['value' => $key, 'label' => $label])
+                ->values(),
+
+            'statusOptions' => collect(SlaSetting::STATUS_OPTIONS)
+                ->map(fn (string $label, string $key) => ['value' => $key, 'label' => $label])
+                ->values(),
+
+            'editing' => $editing ? [
+                'id' => $editing->id,
+                'approval_type' => $editing->approval_type,
+                'status' => $editing->status,
+                'days' => $editing->days,
+            ] : null,
+
+            'urls' => [
+                'index' => route('admin.sla.index'),
+                'store' => route('admin.sla.store'),
+                'update' => $editing ? route('admin.sla.update', $editing) : null,
+            ],
         ]);
     }
 
@@ -30,7 +68,7 @@ class SlaSettingController extends Controller
         $data = $this->validated($request);
         SlaSetting::create($data + ['is_active' => true]);
 
-        return redirect()->route('admin.sla.index')->with('success', 'SLA added.');
+        return redirect()->route('admin.sla.index')->with('success', __('flash.sla.added'));
     }
 
     public function update(Request $request, SlaSetting $sla)
@@ -38,14 +76,14 @@ class SlaSettingController extends Controller
         $data = $this->validated($request, $sla);
         $sla->update($data);
 
-        return redirect()->route('admin.sla.index')->with('success', 'SLA updated.');
+        return redirect()->route('admin.sla.index')->with('success', __('flash.sla.updated'));
     }
 
     public function toggle(SlaSetting $sla)
     {
         $sla->update(['is_active' => ! $sla->is_active]);
 
-        return back()->with('success', $sla->is_active ? 'SLA restored.' : 'SLA archived.');
+        return back()->with('success', __($sla->is_active ? 'flash.sla.restored' : 'flash.sla.archived'));
     }
 
     public function destroy(SlaSetting $sla)
@@ -53,7 +91,7 @@ class SlaSettingController extends Controller
         $label = ($sla->typeLabel()) . ($sla->status ? ' — ' . $sla->statusLabel() : '');
         $sla->delete();
 
-        return redirect()->route('admin.sla.index')->with('success', "SLA \"{$label}\" deleted.");
+        return redirect()->route('admin.sla.index')->with('success', __('flash.sla.deleted', ['label' => $label]));
     }
 
     private function validated(Request $request, ?SlaSetting $sla = null): array

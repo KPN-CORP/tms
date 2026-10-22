@@ -7,6 +7,7 @@ use App\Models\SlaSetting;
 use App\Services\Notification\EmailRecipientResolver;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
 
 /**
  * Admin Setting > SLA > Email Notifications.
@@ -22,12 +23,53 @@ class EmailNotificationController extends Controller
 
     public function index(Request $request)
     {
-        return view('admin.email-notification.index', [
-            'schedule' => $request->filled('edit')
-                ? EmailNotificationSchedule::findOrFail($request->integer('edit'))
-                : null,
-            'slaOptions' => $this->slaOptions(),
-            'days'       => EmailNotificationSchedule::DAYS,
+        $schedule = $request->filled('edit')
+            ? EmailNotificationSchedule::findOrFail($request->integer('edit'))
+            : null;
+
+        return Inertia::render('Admin/EmailNotification/Index', [
+            'values' => [
+                'sla_setting_id' => $schedule?->sla_setting_id,
+                'title' => $schedule->title ?? '',
+                'business_units' => $schedule->business_units ?? [],
+                'units' => $schedule->units ?? [],
+                'companies' => $schedule->companies ?? [],
+                'locations' => $schedule->locations ?? [],
+                'job_levels' => $schedule->job_levels ?? [],
+                'start_date' => $schedule?->start_date?->format('Y-m-d') ?? '',
+                'end_date' => $schedule?->end_date?->format('Y-m-d') ?? '',
+                'attach_detail' => (bool) ($schedule->attach_detail ?? false),
+                'repeat_days' => $schedule->repeat_days ?? [],
+                'message' => $schedule->message ?? '',
+            ],
+
+            'slaOptions' => $this->slaOptions()
+                ->map(fn (string $label, $id) => ['value' => $id, 'label' => $label])
+                ->values(),
+
+            'days' => collect(EmailNotificationSchedule::DAYS)
+                ->map(fn (string $text, string $key) => ['value' => $key, 'label' => $text])
+                ->values(),
+
+            // Dialog hasil pengiriman muncul sekali sesudah redirect, bukan saat
+            // klik — supaya hanya tampil bila penyimpanan memang berhasil.
+            'sentCount' => $request->session()->get('sent_count'),
+
+            'urls' => [
+                'store' => $schedule
+                    ? route('admin.email-notifications.update', $schedule)
+                    : route('admin.email-notifications.store'),
+                'recipients' => route('admin.email-notifications.recipients'),
+                'close' => route('admin.sla.index'),
+                'businessUnits' => route('org.business-units'),
+                'units' => route('org.unit-names'),
+                'companies' => route('org.companies'),
+                'locations' => route('org.locations'),
+                'jobLevels' => route('org.job-levels'),
+                'slaSettings' => route('admin.sla.index'),
+            ],
+
+            'isEdit' => $schedule !== null,
         ]);
     }
 

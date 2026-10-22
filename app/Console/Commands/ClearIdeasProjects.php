@@ -29,9 +29,9 @@ class ClearIdeasProjects extends Command
     /** Urutan aman: anak dulu, induk terakhir. */
     private array $tables = [
         'idea_approvals', 'idea_attachments', 'ideas',
-        'project_approvals', 'project_attachments', 'project_budgets', 'project_histories',
+        'project_approvals', 'project_attachments', 'project_budget_attachments', 'project_budgets',
         'project_members', 'project_status_logs', 'project_updates',
-        'implementation_indicators', 'implementation_plans', 'projects',
+        'implementation_indicators', 'implementation_plan_attachments', 'implementation_plans', 'projects',
     ];
 
     public function handle(): int
@@ -63,6 +63,9 @@ class ClearIdeasProjects extends Command
             $filePaths = collect()
                 ->merge($db->table('idea_attachments')->pluck('file_path'))
                 ->merge($db->table('project_attachments')->pluck('file_path'))
+                ->merge($db->table('implementation_plan_attachments')->pluck('file_path'))
+                ->merge($db->table('project_budget_attachments')->pluck('file_path'))
+                ->merge($db->table('implementation_plans')->pluck('attachment_path'))
                 ->filter()
                 ->values()
                 ->all();

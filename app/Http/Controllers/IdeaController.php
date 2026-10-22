@@ -19,6 +19,7 @@ use App\Services\Idea\IdeaWorkflowService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Inertia\Inertia;
 
 class IdeaController extends Controller
 {
@@ -29,13 +30,26 @@ class IdeaController extends Controller
     private const IDEA_LIST_CONFIG = [
         'searchable'   => ['idea_id', 'idea_name', 'problem'],
         'sortable'     => [
-            'idea_id'     => 'idea_id',
-            'idea_name'   => 'idea_name',
-            'status'      => 'status',
-            'modified_at' => 'modified_at',
+            'idea_id'            => 'idea_id',
+            'idea_name'          => 'idea_name',
+            // Snapshot nama BU/Unit pada ide — kolom lokal, jadi bisa di-sort.
+            'business_unit_name' => 'business_unit_name',
+            'department_name'    => 'department_name',
+            'status'             => 'status',
+            'modified_at'        => 'modified_at',
         ],
         'default_sort' => 'modified_at',
         'default_dir'  => 'desc',
+    ];
+
+    /** Tab status pada My Ideas; 'all' berarti tanpa filter status. */
+    private const INDEX_TABS = [
+        'all' => 'All',
+        'draft' => 'Draft',
+        'submitted' => 'Submitted',
+        'review' => 'On Review',
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
     ];
 
     /**
@@ -73,8 +87,9 @@ class IdeaController extends Controller
             ->pluck('c', 'status');
 
         // Tab aktif → filter status (selain 'all').
-        $tabs = ['all', 'draft', 'submitted', 'review', 'approved', 'rejected'];
-        $tab  = in_array($request->get('tab'), $tabs, true) ? $request->get('tab') : 'all';
+        $tab = array_key_exists((string) $request->get('tab'), self::INDEX_TABS)
+            ? $request->get('tab')
+            : 'all';
         if ($tab !== 'all') {
             $query->where('status', $tab);
         }
@@ -86,19 +101,56 @@ class IdeaController extends Controller
         }
 
         // Dropdown filter Business Unit dari hcis (master_bisnisunits.nama_bisnis).
-        // Unit di-cascade via AJAX (org.unit-names → departments.department_name).
+        // Unit di-cascade saat dibutuhkan (org.unit-names → departments.department_name).
         $buNames = KpnBusinessUnit::names();
 
-        return view('ideas.index', [
-            'ideas'   => $query->paginate($perPage)->withQueryString(),
-            'perPage' => $perPage,
-            'buNames' => $buNames,
-            'counts'  => $counts,
-            'tab'     => $tab,
+        $sortState = $this->listSortState($request, self::IDEA_LIST_CONFIG);
+
+        return Inertia::render('Ideas/Index', [
+            // through() memetakan tiap baris tanpa kehilangan meta paginator,
+            // sekaligus memastikan hanya kolom yang dipakai UI yang dikirim.
+            'ideas' => $query->paginate($perPage)->withQueryString()->through(
+                fn (Idea $idea) => [
+                    'id' => $idea->id,
+                    'idea_id' => $idea->idea_id,
+                    'idea_name' => $idea->idea_name,
+                    'status' => $idea->status,
+                    'status_label' => $idea->status_label,
+                    'business_unit_name' => $idea->businessUnit?->name,
+                    'department_name' => $idea->department?->name,
+                    'modified_at' => $idea->modified_at?->toIso8601ZuluString(),
+                    'can_edit' => $idea->status === 'draft',
+                    'urls' => [
+                        'show' => route('ideas.show', $idea),
+                        'edit' => route('ideas.edit', $idea),
+                        'destroy' => route('ideas.destroy', $idea),
+                    ],
+                ]
+            ),
+
+            'filters' => [
+                'q' => $request->get('q'),
+                'bu' => $request->get('bu'),
+                'unit' => $request->get('unit'),
+                'tab' => $tab,
+                'per_page' => $perPage,
+                'sort' => $sortState['sort'],
+                'dir' => $sortState['dir'],
+            ],
+
+            'businessUnits' => $buNames->values(),
+
+            // Angka tab sadar search & filter, tapi tidak terpengaruh tab aktif.
+            'tabs' => collect(self::INDEX_TABS)->map(fn (string $label, string $key) => [
+                'key' => $key,
+                'label' => $label,
+                'count' => $key === 'all' ? $counts->sum() : (int) $counts->get($key, 0),
+            ])->values(),
+
             // Konteks kartu Dashboard (bila halaman ini dibuka dari sana).
-            'metric'      => $metric,
+            'metric' => $metric,
             'metricLabel' => $metric ? MetricScopeService::labelOf($metric) : null,
-        ] + $this->listSortState($request, self::IDEA_LIST_CONFIG));
+        ]);
     }
 
     /**
@@ -116,12 +168,50 @@ class IdeaController extends Controller
 
         $idea->load(['businessUnit', 'department', 'user.businessUnit', 'user.department', 'attachments', 'approvals.user', 'approvals.onBehalfOf']);
 
-        return view('ideas.show', compact('idea'));
+        return Inertia::render('Ideas/Show', [
+            'idea' => [
+                'id' => $idea->id,
+                'idea_id' => $idea->idea_id,
+                'idea_name' => $idea->idea_name,
+                'status' => $idea->status,
+                'status_label' => $idea->status_label,
+                'problem' => $idea->problem,
+                'description' => $idea->description,
+                'expected_outcome' => $idea->expected_outcome,
+                'business_unit_name' => $idea->business_unit_name,
+                'department_name' => $idea->department_name,
+                'company_name' => $idea->company_name,
+                'location_name' => $idea->location_name,
+                'current_layer' => $idea->current_layer,
+                'modified_at' => $idea->modified_at?->toIso8601ZuluString(),
+                'created_at' => $idea->created_at?->toIso8601ZuluString(),
+            ],
+
+            'submitter' => $this->submitterPayload($idea),
+
+            'attachments' => $this->attachmentPayload($idea),
+
+            // Jejak keputusan: siapa memutus, di layer berapa, dan — bila dipakai
+            // konteks Report — atas nama siapa. Lihat App\Support\ReportOverride.
+            'approvals' => $idea->approvals->map(fn ($approval) => [
+                'id' => $approval->id,
+                'layer' => $approval->layer,
+                'decision' => $approval->decision,
+                'note' => $approval->note,
+                'decided_by' => $approval->user?->name,
+                'on_behalf_of' => $approval->on_behalf_of_id
+                    ? ($approval->onBehalfOf?->name ?? '#' . $approval->on_behalf_of_id)
+                    : null,
+                'created_at' => $approval->created_at?->toIso8601ZuluString(),
+            ])->values(),
+        ]);
     }
 
     public function create()
     {
-        return view('ideas.create', $this->formData());
+        return Inertia::render('Ideas/Create', $this->formData() + [
+            'values' => $this->formValues(null),
+        ]);
     }
 
     public function store(Request $request, IdeaWorkflowService $wf)
@@ -152,16 +242,25 @@ class IdeaController extends Controller
 
         return redirect()
             ->route('ideas.index')
-            ->with('success', $isSubmit
-                ? "Idea {$idea->idea_id} submitted."
-                : "Draft {$idea->idea_id} saved.");
+            ->with('success', __($isSubmit ? 'flash.ideas.submitted' : 'flash.ideas.draft_saved',
+                ['id' => $idea->idea_id]));
     }
 
     public function edit(Request $request, Idea $idea)
     {
         $this->authorizeOwnerDraft($request, $idea);
 
-        return view('ideas.edit', $this->formData() + ['idea' => $idea]);
+        $idea->load('attachments');
+
+        return Inertia::render('Ideas/Edit', $this->formData() + [
+            'idea' => [
+                'id' => $idea->id,
+                'idea_id' => $idea->idea_id,
+                'update_url' => route('ideas.update', $idea),
+            ],
+            'values' => $this->formValues($idea),
+            'attachments' => $this->attachmentPayload($idea),
+        ]);
     }
 
     public function update(Request $request, Idea $idea, IdeaWorkflowService $wf)
@@ -185,9 +284,8 @@ class IdeaController extends Controller
 
         return redirect()
             ->route('ideas.index')
-            ->with('success', $isSubmit
-                ? "Idea {$idea->idea_id} submitted."
-                : "Draft {$idea->idea_id} updated.");
+            ->with('success', __($isSubmit ? 'flash.ideas.submitted' : 'flash.ideas.draft_updated',
+                ['id' => $idea->idea_id]));
     }
 
     public function destroy(Request $request, Idea $idea)
@@ -199,7 +297,7 @@ class IdeaController extends Controller
 
         return redirect()
             ->route('ideas.index')
-            ->with('success', "Draft {$ideaId} deleted.");
+            ->with('success', __('flash.ideas.draft_deleted', ['id' => $ideaId]));
     }
 
     /**
@@ -262,7 +360,10 @@ class IdeaController extends Controller
         $list = $tab === 'all' ? $universe : $universe->where('status', $tab)->values();
 
         // --- Sort (whitelist), default modified_at desc ---
-        $sortable = ['idea_id', 'idea_name', 'status', 'current_layer', 'modified_at'];
+        $sortable = [
+            'idea_id', 'idea_name', 'business_unit_name', 'department_name',
+            'status', 'current_layer', 'modified_at',
+        ];
         $sort = in_array($request->get('sort'), $sortable, true) ? $request->get('sort') : 'modified_at';
         $dir  = $request->get('dir') === 'asc' ? 'asc' : 'desc';
         $list = $list->sortBy(fn (Idea $i) => $i->{$sort}, SORT_REGULAR, $dir === 'desc')->values();
@@ -289,14 +390,71 @@ class IdeaController extends Controller
             return $i;
         }));
 
-        return view('ideas.task-box', [
-            'ideas'         => $ideas,
-            'perPage'       => $perPage,
-            'buNames'       => $buNames,
-            'counts'        => $counts,
-            'tab'           => $tab,
-            'sort'          => $sort,
-            'dir'           => $dir,
+        $sla = app(\App\Services\SlaService::class);
+
+        return Inertia::render('Ideas/TaskBox', [
+            'ideas' => $ideas->through(function (Idea $idea) use ($sla) {
+                $evaluation = $sla->evaluate($idea->slaApprovalType(), $idea->reviewSince());
+
+                return [
+                    'id' => $idea->id,
+                    'idea_id' => $idea->idea_id,
+                    'idea_name' => $idea->idea_name,
+                    'status' => $idea->status,
+                    'status_label' => $idea->status_label,
+                    'submitter_name' => $idea->user?->name,
+                    'business_unit_name' => $idea->business_unit_name ?: $idea->businessUnit?->name,
+                    'department_name' => $idea->department_name ?: $idea->department?->name,
+                    'current_layer' => $idea->current_layer,
+
+                    // Rantai layer untuk tooltip. Admin melihat seluruh layer,
+                    // non-admin hanya layer yang sedang aktif (lihat atas).
+                    'layer_chain' => $idea->layer_chain,
+
+                    // SLA bersifat informasi saja — tidak mengirim apa pun.
+                    'sla' => [
+                        'state' => $evaluation['state'],
+                        'due' => $evaluation['due']?->toIso8601ZuluString(),
+                        'left' => $evaluation['left'],
+                    ],
+
+                    'can_review' => $idea->can_review,
+                    'can_create_shell' => $idea->can_create_shell,
+
+                    'urls' => [
+                        'review' => route('ideas.review.show', $idea),
+                        'create_project' => route('projects.create', ['idea_id' => $idea->idea_id]),
+                    ],
+
+                    // Halaman Create Project masih Blade — tautannya tidak boleh
+                    // berupa kunjungan Inertia. Lihat InertiaRoutes.
+                    'create_is_external' => ! \App\Support\Navigation\InertiaRoutes::has('projects.create'),
+                ];
+            }),
+
+            'filters' => [
+                'q' => $request->get('q'),
+                'bu' => $request->get('bu'),
+                'unit' => $request->get('unit'),
+                'tab' => $tab,
+                'per_page' => $perPage,
+                'sort' => $sort,
+                'dir' => $dir,
+            ],
+
+            'businessUnits' => $buNames->values(),
+
+            'tabs' => collect([
+                'all' => 'All',
+                'submitted' => 'Submitted',
+                'review' => 'On Review',
+                'approved' => 'Approved',
+                'rejected' => 'Rejected',
+            ])->map(fn (string $label, string $key) => [
+                'key' => $key,
+                'label' => $label,
+                'count' => (int) ($counts[$key] ?? 0),
+            ])->values(),
         ]);
     }
 
@@ -328,10 +486,48 @@ class IdeaController extends Controller
             ? $wf->currentApprover($idea)
             : null;
 
-        return view('ideas.review-show', [
-            'idea'      => $idea,
-            'atasNama'  => $atasNama,
+        $idea->load('attachments');
+
+        return Inertia::render('Ideas/Review', [
+            'idea' => [
+                'id' => $idea->id,
+                'idea_id' => $idea->idea_id,
+                'idea_name' => $idea->idea_name,
+                'status' => $idea->status,
+                'status_label' => $idea->status_label,
+                'problem' => $idea->problem,
+                'description' => $idea->description,
+                'expected_outcome' => $idea->expected_outcome,
+                'business_unit_name' => $idea->business_unit_name ?: $idea->businessUnit?->name,
+                'department_name' => $idea->department_name ?: $idea->department?->name,
+                'current_layer' => $idea->current_layer,
+            ],
+
+            'submitter' => $this->submitterPayload($idea),
+            'attachments' => $this->attachmentPayload($idea),
+
+            'approvals' => $idea->approvals->map(fn ($approval) => [
+                'id' => $approval->id,
+                'layer' => $approval->layer,
+                'decision' => $approval->decision,
+                'note' => $approval->note,
+                'decided_by' => $approval->user?->name,
+                'on_behalf_of' => $approval->on_behalf_of_id
+                    ? ($approval->onBehalfOf?->name ?? '#' . $approval->on_behalf_of_id)
+                    : null,
+                'created_at' => $approval->created_at?->toIso8601ZuluString(),
+            ])->values(),
+
             'canReview' => $wf->isCurrentReviewer($idea, $user),
+
+            // Terisi hanya bila pemegang override.role memutus menggantikan
+            // committee layer aktif; jejaknya dicatat sebagai on_behalf_of.
+            'onBehalfOf' => $atasNama ? ['id' => $atasNama->id, 'name' => $atasNama->name] : null,
+
+            'urls' => [
+                'approve' => route('ideas.review.approve', $idea),
+                'reject' => route('ideas.review.reject', $idea),
+            ],
         ]);
     }
 
@@ -350,10 +546,10 @@ class IdeaController extends Controller
         }
 
         abort_unless(ReportOverride::aktif($request), 403,
-            'Only the committee of the active layer may decide on this idea.');
+            __('messages.abort.idea_layer_committee_only'));
 
         $approver = $wf->currentApprover($idea);
-        abort_unless($approver !== null, 403, 'The active layer has no assigned committee.');
+        abort_unless($approver !== null, 403, __('messages.abort.layer_unassigned'));
 
         return $approver;
     }
@@ -366,8 +562,8 @@ class IdeaController extends Controller
         $wf->approve($idea, $request->user(), $note, $atasNama);
 
         return redirect()->route('ideas.taskbox')->with('success', $atasNama
-            ? "Idea {$idea->idea_id} approved on behalf of {$atasNama->name}."
-            : "Idea {$idea->idea_id} approved for your layer.");
+            ? __('flash.ideas.approved_on_behalf', ['id' => $idea->idea_id, 'name' => $atasNama->name])
+            : __('flash.ideas.approved', ['id' => $idea->idea_id]));
     }
 
     public function reject(Request $request, Idea $idea, IdeaWorkflowService $wf)
@@ -378,8 +574,8 @@ class IdeaController extends Controller
         $wf->reject($idea, $request->user(), $note, $atasNama);
 
         return redirect()->route('ideas.taskbox')->with('success', $atasNama
-            ? "Idea {$idea->idea_id} rejected on behalf of {$atasNama->name}."
-            : "Idea {$idea->idea_id} rejected.");
+            ? __('flash.ideas.rejected_on_behalf', ['id' => $idea->idea_id, 'name' => $atasNama->name])
+            : __('flash.ideas.rejected', ['id' => $idea->idea_id]));
     }
 
     /* ---- Attachments (T-17) ------------------------------------------ */
@@ -420,7 +616,7 @@ class IdeaController extends Controller
         $this->deleteAttachmentFile($attachment->file_path);
         $attachment->delete();
 
-        return back()->with('success', 'Attachment deleted.');
+        return back()->with('success', __('flash.ideas.attachment_deleted'));
     }
 
     /** Simpan file dari input attachments[] (opsional, multi-file). */
@@ -445,12 +641,69 @@ class IdeaController extends Controller
 
     private function formData(): array
     {
-        // Business Unit dari hcis (master_bisnisunits.nama_bisnis); Department via AJAX.
-        // employeeInfo: data BU/Department user login dari hcis (Employee Information).
+        // Business Unit dari hcis (master_bisnisunits.nama_bisnis); Unit/Company/
+        // Location di-cascade saat dibutuhkan karena daftarnya besar.
+        $user = auth()->user();
+        $employee = \App\Models\KpnEmployee::forEmail($user->email);
+
         return [
-            'businessUnits' => KpnBusinessUnit::names(),
-            'employeeInfo'  => \App\Models\KpnEmployee::forEmail(auth()->user()->email),
+            'businessUnits' => KpnBusinessUnit::names()->values(),
+            'employee' => [
+                'employee_id' => $user->employee_id,
+                'name' => $user->name,
+                'business_unit' => $employee?->businessUnitName() ?? $user->businessUnit?->name,
+                'department' => $employee?->departmentName() ?? $user->department?->name,
+            ],
         ];
+    }
+
+    /**
+     * Nilai awal form. Dikirim lengkap (string kosong, bukan null) supaya
+     * useForm Vue punya bentuk yang stabil dan `reset()` bekerja.
+     */
+    private function formValues(?Idea $idea): array
+    {
+        return [
+            'idea_name' => $idea->idea_name ?? '',
+            'problem' => $idea->problem ?? '',
+            'description' => $idea->description ?? '',
+            'expected_outcome' => $idea->expected_outcome ?? '',
+            'business_unit' => $idea->business_unit_name ?? '',
+            'department' => $idea->department_name ?? '',
+            'company' => $idea->company_name ?? '',
+            'location' => $idea->location_name ?? '',
+        ];
+    }
+
+    /**
+     * Identitas pengaju. BU & Department diambil dari hcis (employees.group_company
+     * / unit) dengan mirror lokal sebagai cadangan, sama seperti di form.
+     */
+    private function submitterPayload(Idea $idea): array
+    {
+        $creator = $idea->user;
+        $employee = \App\Models\KpnEmployee::forEmail($creator?->email);
+
+        return [
+            'employee_id' => $creator?->employee_id,
+            'name' => $creator?->name,
+            'business_unit' => $employee?->businessUnitName() ?? $creator?->businessUnit?->name,
+            'department' => $employee?->departmentName() ?? $creator?->department?->name,
+        ];
+    }
+
+    /** @return \Illuminate\Support\Collection<int, array<string, mixed>> */
+    private function attachmentPayload(Idea $idea): \Illuminate\Support\Collection
+    {
+        return $idea->attachments->map(fn (IdeaAttachment $attachment) => [
+            'id' => $attachment->id,
+            'file_name' => $attachment->file_name,
+            'urls' => [
+                'download' => route('ideas.attachments.download', [$idea, $attachment]),
+                'view' => route('ideas.attachments.view', [$idea, $attachment]),
+                'destroy' => route('ideas.attachments.destroy', [$idea, $attachment]),
+            ],
+        ])->values();
     }
 
     /**
@@ -512,7 +765,7 @@ class IdeaController extends Controller
     private function authorizeOwnerDraft(Request $request, Idea $idea): void
     {
         abort_unless($idea->user_id === $request->user()->id, 403);
-        abort_unless($idea->status === 'draft', 403, 'Only draft ideas can be edited.');
+        abort_unless($idea->status === 'draft', 403, __('messages.abort.only_draft_editable'));
     }
 
     /**

@@ -12,6 +12,9 @@ class EncryptCookies extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        //
+        // Pilihan bahasa ditulis oleh JavaScript (useLocale), jadi tidak boleh
+        // dienkripsi -- isinya hanya 'en' atau 'id', dan SetLocale mengabaikan
+        // nilai lain. Lihat App\Http\Middleware\SetLocale.
+        \App\Http\Middleware\SetLocale::COOKIE,
     ];
 }

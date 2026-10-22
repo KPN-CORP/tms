@@ -64,6 +64,11 @@ class RolesAndPermissionsSeeder extends Seeder
                 'project.bulk-upload',
                 'audit.view',
             ],
+            // Daftar Super Admin di bawah ini bukan batas haknya, melainkan
+            // katalog: beberapa permission (role.manage, override.role, dst)
+            // hanya disebut di sini, jadi baris inilah yang membuatnya ada di
+            // tabel. Hak sesungguhnya diluaskan jadi SEMUA permission oleh
+            // SuperAdminSeeder yang dipanggil di akhir run() ini.
             'Super Admin' => [
                 'dashboard.act-as',
                 'report.view',
@@ -92,6 +97,12 @@ class RolesAndPermissionsSeeder extends Seeder
             $role = Role::firstOrCreate(['name' => $roleName, 'guard_name' => 'web']);
             $role->syncPermissions(array_values(array_unique(array_merge($baseline, $permissions))));
         }
+
+        // Super Admin dapat SEMUA permission yang baru saja dibuat di atas.
+        // Dipanggil dari sini (bukan cuma dari DatabaseSeeder) supaya
+        // `db:seed --class=RolesAndPermissionsSeeder` pun meninggalkan Super
+        // Admin dalam keadaan lengkap.
+        $this->call(SuperAdminSeeder::class);
 
         // Assign user contoh (idempotent): [role, job_level grade]
         $assignments = [

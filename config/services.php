@@ -31,4 +31,13 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    /*
+     * Developer login: masuk sebagai user hcis mana pun tanpa password, untuk
+     * keperluan lokal/QA. Mati total selama DEV_LOGIN_KEY kosong — jangan diisi
+     * di production.
+     */
+    'dev_login' => [
+        'key' => env('DEV_LOGIN_KEY'),
+    ],
+
 ];

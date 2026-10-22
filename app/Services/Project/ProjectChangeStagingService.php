@@ -11,6 +11,7 @@ use App\Models\ProjectMember;
 use App\Models\ProjectUpdate;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Lang;
 
 /**
  * Staging perubahan data PROPOSAL saat project sudah berjalan.
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\DB;
  * Data ACTUAL tidak lewat sini — realisasi lapangan tetap memakai alur baseline
  * (Submit Actual -> Sponsor Approve) yang sudah ada.
  */
+
 class ProjectChangeStagingService
 {
     /**
@@ -45,13 +47,29 @@ class ProjectChangeStagingService
         'leadership'     => 'leadership_change',
     ];
 
-    /** Label manusiawi untuk pesan & tampilan. */
+    /**
+     * Label manusiawi untuk pesan & tampilan.
+     *
+     * Tetap berbahasa Inggris karena sebagiannya DISIMPAN (project_updates.
+     * description adalah jejak audit; menerjemahkannya saat menulis berarti
+     * bahasa penulis ikut tersimpan). Untuk teks yang dilihat pengguna pakai
+     * label() di bawah, yang menerjemahkan lewat lang/{locale}/messages.php.
+     */
     public const TYPE_LABEL = [
         'team_change'           => 'Team Change',
         'plan_indicator_change' => 'Plan & Indicator Change',
         'budget_change'         => 'Budget Change',
         'leadership_change'     => 'Project Sponsor & Leader Change',
     ];
+
+    /** TYPE_LABEL versi terjemahan, untuk pesan yang dibaca pengguna. */
+    public static function label(string $type): string
+    {
+        $key = 'messages.change_types.' . $type;
+
+        // Jenis baru yang belum masuk kamus tetap terbaca dalam bahasa Inggris.
+        return Lang::has($key) ? __($key) : (self::TYPE_LABEL[$type] ?? $type);
+    }
 
     /** Model yang boleh di-stage, dipetakan ke section-nya. */
     private const MODEL_SECTION = [
@@ -169,7 +187,7 @@ class ProjectChangeStagingService
                 $this->sebutPenyetuju($project, $draft)
             ));
 
-            $terkirim[] = self::TYPE_LABEL[$draft->change_type] ?? $draft->change_type;
+            $terkirim[] = self::label($draft->change_type);
         }
 
         return $terkirim;

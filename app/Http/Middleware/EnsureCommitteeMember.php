@@ -32,7 +32,7 @@ class EnsureCommitteeMember
             ->when($type, fn ($q) => $q->where('approval_type', $type))
             ->exists();
 
-        abort_unless($isMember, 403, 'This page is for committee members only.');
+        abort_unless($isMember, 403, __('messages.abort.committee_only'));
 
         return $next($request);
     }

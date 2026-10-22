@@ -24,8 +24,10 @@ use App\Services\Idea\IdeaWorkflowService;
 use App\Services\Project\ProjectApprovalWorkflowService;
 use App\Services\Project\ProjectChangeStagingService;
 use App\Services\Dashboard\MetricScopeService;
+use App\Support\Navigation\InertiaRoutes;
 use App\Support\ReportOverride;
 use App\Services\Project\ProjectUpdateService;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -34,6 +36,7 @@ use App\Models\KpnEmployee;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class ProjectController extends Controller
 {
@@ -61,24 +64,50 @@ class ProjectController extends Controller
         $draftLeader  = $draft ? optional($draft->leader)->employee_id : null;
         $draftSponsor = $draft ? optional($draft->sponsor)->employee_id : null;
 
-        // Pre-fill Leader/Sponsor: old input (mis. kembali karena error validasi)
-        // atau isi draft.
+        // Label Leader/Sponsor yang sudah terpilih di draft — dropdown-nya mencari
+        // ke server, jadi label itu harus ikut dikirim agar pilihan tetap terbaca
+        // tanpa menunggu pencarian.
         $preselect = KpnEmployee::query()
-            ->whereIn('employee_id', array_filter([
-                old('project_leader_id', $draftLeader),
-                old('project_sponsor_id', $draftSponsor),
-            ]))
+            ->whereIn('employee_id', array_filter([$draftLeader, $draftSponsor]))
             ->get()
             ->keyBy('employee_id');
 
-        return view('projects.create', [
-            'idea'         => $idea,
-            'draft'        => $draft,
-            'draftLeader'  => $draftLeader,
-            'draftSponsor' => $draftSponsor,
-            'categories'   => ProjectCategory::where('is_active', true)->orderBy('name')->get(),
-            'preselect'    => $preselect,
-            'searchUrl'    => route('org.employees'),
+        return Inertia::render('Projects/Create', [
+            'idea' => [
+                'idea_id' => $idea->idea_id,
+                'idea_name' => $idea->idea_name,
+            ],
+
+            // Draft belum terlihat Leader/Sponsor sampai ditekan Create Project.
+            'isDraft' => $draft !== null,
+
+            'values' => [
+                'idea_id' => $idea->idea_id,
+                'project_name' => $draft->project_name ?? $idea->idea_name ?? '',
+                'project_category_id' => $draft->project_category_id ?? null,
+                'project_sponsor_id' => $draftSponsor,
+                'project_leader_id' => $draftLeader,
+                'project_scope' => $draft->project_scope ?? '',
+                'expected_outcome' => $draft->expected_outcome ?? $idea->expected_outcome ?? '',
+                'notes' => $draft->notes ?? '',
+            ],
+
+            'labels' => [
+                'sponsor' => $draftSponsor ? $preselect[$draftSponsor]?->label() : null,
+                'leader' => $draftLeader ? $preselect[$draftLeader]?->label() : null,
+            ],
+
+            'categories' => ProjectCategory::where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->map(fn (ProjectCategory $c) => [
+                    'value' => $c->id,
+                    'label' => "{$c->name} ({$c->code})",
+                ])
+                ->values(),
+
+            'searchUrl' => route('org.employees'),
+            'backUrl' => route('ideas.taskbox', ['tab' => 'approved']),
         ]);
     }
 
@@ -167,7 +196,7 @@ class ProjectController extends Controller
 
             return redirect()
                 ->route('projects.shell')
-                ->with('success', 'Project shell saved as draft.');
+                ->with('success', __('flash.projects.shell_draft_saved'));
         }
 
         // project_id baru dibuat saat shell benar-benar dibuat (draft belum punya).
@@ -183,7 +212,7 @@ class ProjectController extends Controller
 
         return redirect()
             ->route('projects.show', $project)
-            ->with('success', "Project shell created ({$project->project_id}).");
+            ->with('success', __('flash.projects.shell_created', ['id' => $project->project_id]));
     }
 
     /**
@@ -205,7 +234,7 @@ class ProjectController extends Controller
 
         return redirect()
             ->route('projects.shell')
-            ->with('success', 'Draft project shell deleted.');
+            ->with('success', __('flash.projects.shell_draft_deleted'));
     }
 
 
@@ -224,6 +253,8 @@ class ProjectController extends Controller
     public function index(Request $request)
     {
         return $this->projectList($request, [
+            // Kunci terjemahan untuk judul/subjudul halaman (resources/js/locales).
+            'key'           => 'proposal',
             'title'         => 'My Project',
             'subtitle'      => 'Projects related to you (as submitter, member, leader, sponsor, or committee).',
             'route'         => 'projects.index',
@@ -255,6 +286,7 @@ class ProjectController extends Controller
     public function implementationIndex(Request $request)
     {
         return $this->projectList($request, [
+            'key'           => 'implementation',
             'title'         => 'Project Implementation',
             'subtitle'      => 'Projects that are approved and in progress (implementation).',
             'route'         => 'projects.implementation',
@@ -278,6 +310,7 @@ class ProjectController extends Controller
     public function completionIndex(Request $request)
     {
         return $this->projectList($request, [
+            'key'           => 'completion',
             'title'         => 'Project Completion',
             'subtitle'      => 'Projects under completion review or already completed.',
             'route'         => 'projects.completion',
@@ -375,24 +408,85 @@ class ProjectController extends Controller
 
         $perPage = $this->listPerPage($request);
 
-        return view('projects.list', [
-            'projects'     => $query->paginate($perPage)->withQueryString(),
-            'perPage'      => $perPage,
-            'buNames'      => KpnBusinessUnit::names(), // Business Unit dari master_bisnisunits; Unit cascade via AJAX
-            'counts'       => $counts,
-            'tab'          => $tab,
-            'statusMap'    => $statusMap,
-            'tabDefs'      => $opts['tabDefs'],
-            'pageTitle'    => $opts['title'],
-            'pageSubtitle' => $opts['subtitle'],
-            'routeName'    => $opts['route'],
-            'detailPhase'  => $opts['phase'] ?? null, // ?phase=... pada link Detail
-            'detailRoute'  => $opts['detailRoute'] ?? 'projects.show',
-            'createHint'   => $opts['createHint'] ?? null,
+        $sortState = $this->listSortState($request, $config);
+        $phase = $opts['phase'] ?? null;
+        $detailRoute = $opts['detailRoute'] ?? 'projects.show';
+        $user = $request->user();
+
+        return Inertia::render('Projects/List', [
+            'projects' => $query->paginate($perPage)->withQueryString()->through(
+                function (Project $project) use ($detailRoute, $phase, $user) {
+                    $params = $phase
+                        ? ['project' => $project, 'phase' => $phase]
+                        : ['project' => $project];
+
+                    return [
+                        'id' => $project->id,
+                        'project_id' => $project->project_id,
+                        'project_name' => $project->project_name,
+                        'project_category' => $project->project_category,
+                        'status' => $project->status,
+                        'status_label' => $project->statusBadge()[0],
+                        'leader' => $project->leader ? [
+                            'name' => $project->leader->name,
+                            'employee_id' => $project->leader->employee_id,
+                        ] : null,
+                        'sponsor' => $project->sponsor ? [
+                            'name' => $project->sponsor->name,
+                            'employee_id' => $project->sponsor->employee_id,
+                        ] : null,
+
+                        // Pensil hanya muncul bila user memang boleh mengubah pada
+                        // fase ini; Project Shell read-only jadi tidak pernah.
+                        'can_edit' => $detailRoute === 'projects.show'
+                            && $project->isEditableInPhase($user, $phase),
+
+                        'urls' => [
+                            'edit' => route($detailRoute, $params),
+                            'view' => route($detailRoute, $params + ['view' => 1]),
+                        ],
+                    ];
+                }
+            ),
+
+            // Detail project masih halaman Blade — tautannya tidak boleh berupa
+            // kunjungan Inertia. Lihat App\Support\Navigation\InertiaRoutes.
+            'detailIsExternal' => ! InertiaRoutes::has($detailRoute),
+
+            'filters' => [
+                'q' => $request->get('q'),
+                'bu' => $request->get('bu'),
+                'unit' => $request->get('unit'),
+                'tab' => $tab,
+                'per_page' => $perPage,
+                'sort' => $sortState['sort'],
+                'dir' => $sortState['dir'],
+            ],
+
+            // Business Unit dari master_bisnisunits; Unit di-cascade saat dibutuhkan.
+            'businessUnits' => KpnBusinessUnit::names()->values(),
+
+            // Angka tab memetakan kunci tab -> status DB lewat statusMap.
+            'tabs' => collect($opts['tabDefs'])->map(fn (string $label, string $key) => [
+                'key' => $key,
+                'label' => $label,
+                'count' => $key === 'all'
+                    ? (int) $counts->sum()
+                    : (int) $counts->get($statusMap[$key] ?? '', 0),
+            ])->values(),
+
+            'page' => [
+                'key' => $opts['key'],
+                'title' => $opts['title'],
+                'subtitle' => $opts['subtitle'],
+                'url' => route($opts['route']),
+                'createHint' => $opts['createHint'] ?? null,
+            ],
+
             // Konteks kartu Dashboard (bila halaman ini dibuka dari sana).
-            'metric'       => $metric,
-            'metricLabel'  => $metric ? MetricScopeService::labelOf($metric) : null,
-        ] + $this->listSortState($request, $config));
+            'metric' => $metric,
+            'metricLabel' => $metric ? MetricScopeService::labelOf($metric) : null,
+        ]);
     }
 
     /* ---- Project Shell (My Ideas > Project Shell) -------------------- */
@@ -432,10 +526,21 @@ class ProjectController extends Controller
             // WAJIB berkualifikasi tabel (idea_id ada di kedua tabel).
             'searchable'   => [],
             'sortable'     => [
-                'idea_id'      => 'ideas.idea_id',
-                'project_id'   => 'ps.project_id',
-                'project_name' => 'ps.project_name',
-                'created_at'   => 'ideas.created_at',
+                'idea_id'          => 'ideas.idea_id',
+                'project_id'       => 'ps.project_id',
+                'project_name'     => 'ps.project_name',
+                'project_category' => 'ps.project_category',
+                // Status shell bukan kolom: ia diturunkan dari hasil JOIN, sama
+                // persis dengan Project::shellStatusFor() dan dengan filter tab
+                // di bawah. Ekspresi ini whitelist milik kode, bukan masukan
+                // pengguna — yang dari request hanyalah kunci 'shell_status'.
+                'shell_status'     => new Expression(
+                    "case when ps.id is null then 'not_assigned'"
+                    ." when ps.is_shell_draft = 1 then 'draft'"
+                    ." when ps.status = 'cancelled' then 'cancelled'"
+                    ." else 'assigned' end"
+                ),
+                'created_at'       => 'ideas.created_at',
             ],
             'default_sort' => 'created_at',
             'default_dir'  => 'desc',
@@ -500,22 +605,76 @@ class ProjectController extends Controller
             ->get()
             ->keyBy('id');
 
-        return view('projects.shell-list', [
-            'rows'    => $rows,
-            'shells'  => $shells,
-            'perPage' => $perPage,
-            'buNames' => KpnBusinessUnit::names(),
-            'counts'  => $counts,
-            'total'   => $counts->sum(),
-            'tab'     => $tab,
-            'tabDefs' => [
-                'all'          => 'All',
-                'draft'        => 'Draft',
-                'assigned'     => 'Assigned',
-                'not_assigned' => 'Not Assigned',
-                'cancelled'    => 'Cancelled',
+        $sortState = $this->listSortState($request, $config);
+
+        return Inertia::render('Projects/ShellList', [
+            'rows' => $rows->through(function (Idea $row) use ($shells) {
+                // Satu baris = satu (ide, shell). shell null → ide belum dibuatkan shell.
+                $shell = $row->shell_pk ? $shells->get($row->shell_pk) : null;
+                $shellStatus = Project::shellStatusFor($shell);
+
+                return [
+                    'idea_id' => $row->idea_id,
+                    'idea_name' => $row->idea_name,
+                    'shell_id' => $shell?->id,
+                    'project_id' => $shell?->project_id,
+                    // Belum ada shell (atau draft tanpa nama): pakai nama ide.
+                    'project_name' => $shell?->project_name ?: $row->idea_name,
+                    'project_category' => $shell?->project_category,
+                    'leader' => $shell?->leader ? [
+                        'name' => $shell->leader->name,
+                        'employee_id' => $shell->leader->employee_id,
+                    ] : null,
+                    'sponsor' => $shell?->sponsor ? [
+                        'name' => $shell->sponsor->name,
+                        'employee_id' => $shell->sponsor->employee_id,
+                    ] : null,
+                    'shell_status' => $shellStatus,
+                    'shell_status_label' => Project::shellStatusBadge($shellStatus)[0],
+
+                    // Hanya committee layer terakhir ide yang boleh membuat /
+                    // melanjutkan shell. Baris yang tidak boleh tetap menampilkan
+                    // tombolnya, lalu menjelaskan lewat dialog — bukan 403.
+                    'can_create_shell' => (bool) $row->can_create_shell,
+
+                    'urls' => [
+                        'create' => route('projects.create', ['idea_id' => $row->idea_id]),
+                        'progress' => $shell ? route('projects.shell.progress', $shell) : null,
+                        'destroy_draft' => $shell ? route('projects.shell.draft.destroy', $shell->id) : null,
+                    ],
+
+                    // Halaman create & progress masih Blade. Lihat InertiaRoutes.
+                    'external' => [
+                        'create' => ! InertiaRoutes::has('projects.create'),
+                        'progress' => ! InertiaRoutes::has('projects.shell.progress'),
+                    ],
+                ];
+            }),
+
+            'filters' => [
+                'q' => $request->get('q'),
+                'bu' => $request->get('bu'),
+                'unit' => $request->get('unit'),
+                'tab' => $tab,
+                'per_page' => $perPage,
+                'sort' => $sortState['sort'],
+                'dir' => $sortState['dir'],
             ],
-        ] + $this->listSortState($request, $config));
+
+            'businessUnits' => KpnBusinessUnit::names()->values(),
+
+            'tabs' => collect([
+                'all' => 'All',
+                'draft' => 'Draft',
+                'assigned' => 'Assigned',
+                'not_assigned' => 'Not Assigned',
+                'cancelled' => 'Cancelled',
+            ])->map(fn (string $label, string $key) => [
+                'key' => $key,
+                'label' => $label,
+                'count' => $key === 'all' ? (int) $counts->sum() : (int) ($counts[$key] ?? 0),
+            ])->values(),
+        ]);
     }
 
     /** Halaman progress sebuah Project Shell: Progress Summary + Activities. */
@@ -523,7 +682,7 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         abort_unless($this->canSeeShell($project, $user), 403,
-            'You do not have access to this project shell.');
+            __('messages.abort.no_shell_access'));
 
         $project->load([
             'category', 'idea.businessUnit', 'idea.department', 'sponsor', 'leader', 'members.user',
@@ -531,17 +690,85 @@ class ProjectController extends Controller
             'statusLogs.changedBy', 'updates.requester', 'updates.reviewer',
         ]);
 
-        return view('projects.shell-progress', [
-            'project'    => $project,
-            'summary'    => $this->shellSummary($project),
-            'activities' => $this->shellActivities($project),
-            'canCancel'  => $this->canCancel($project, $user)
+        $summary = $this->shellSummary($project);
+        $cancellation = $project->status === 'cancelled' ? $project->cancellation() : null;
+        $approver = app(ProjectChangeStagingService::class)->ideaCommitteeApprover($project);
+
+        return Inertia::render('Projects/ShellProgress', [
+            'project' => [
+                'id' => $project->id,
+                'project_id' => $project->project_id,
+                'project_name' => $project->project_name,
+                'project_category' => $project->project_category,
+                'project_scope' => $project->project_scope,
+                'expected_outcome' => $project->expected_outcome,
+                'status' => $project->status,
+                'status_label' => $project->statusBadge()[0],
+                'created_at' => $project->created_at?->toIso8601ZuluString(),
+
+                'leader_id' => $project->project_leader_id,
+                'leader_name' => $project->leader?->name,
+                'sponsor_id' => $project->project_sponsor_id,
+                'sponsor_name' => $project->sponsor?->name,
+
+                'idea_id' => $project->idea?->idea_id,
+                // Snapshot nama dipakai lebih dulu, relasi jadi cadangan.
+                'business_unit_name' => $project->idea?->business_unit_name
+                    ?: $project->idea?->businessUnit?->name,
+                'department_name' => $project->idea?->department_name
+                    ?: $project->idea?->department?->name,
+            ],
+
+            'summary' => [
+                'planTotal' => $summary['planTotal'],
+                'planDone' => $summary['planDone'],
+                'planPercent' => $summary['planPercent'],
+                'memberCount' => $summary['memberCount'],
+                'weightTotal' => (float) $summary['weightTotal'],
+                'weightDone' => (float) $summary['weightDone'],
+                'indicatorPercent' => $summary['indicatorPercent'],
+                'lastActivity' => $summary['lastActivity']?->toIso8601ZuluString(),
+            ],
+
+            'activities' => $this->activityPayload($this->shellActivities($project)),
+
+            'cancellation' => $cancellation ? [
+                'reason' => $project->cancellationReason(),
+                'by' => $cancellation->changedBy?->name,
+                'at' => $cancellation->created_at?->toIso8601ZuluString(),
+            ] : null,
+
+            'canCancel' => $this->canCancel($project, $user)
                 && ! in_array($project->status, ['completed', 'cancelled'], true),
+
             // Hak ubah Sponsor/Leader langsung dari halaman ini (committee layer
             // terakhir ide memakai menu Project Shell, bukan Project Detail).
             'leadershipRights' => $this->leadershipRights($project, $user),
-            'ideaApprover'     => app(ProjectChangeStagingService::class)->ideaCommitteeApprover($project),
+            'ideaApprover' => $approver?->name,
+
+            'urls' => [
+                'back' => route('projects.shell'),
+                'detail' => route('projects.show', $project),
+                'leadership' => route('projects.leadership.update', $project),
+                'cancel' => route('projects.cancel', $project),
+                'userSearch' => route('org.users'),
+            ],
+
+            // Detail project masih halaman Blade. Lihat InertiaRoutes.
+            'detailIsExternal' => ! InertiaRoutes::has('projects.show'),
         ]);
+    }
+
+    /** Linimasa aktivitas dalam bentuk siap render. */
+    private function activityPayload(\Illuminate\Support\Collection $activities): \Illuminate\Support\Collection
+    {
+        return $activities->map(fn (array $item) => [
+            'at' => $item['at']?->toIso8601ZuluString(),
+            'kind' => $item['kind'],
+            'title' => $item['title'],
+            'note' => $item['note'],
+            'actor' => $item['actor'],
+        ])->values();
     }
 
     /** Ringkasan progress project (angka-angka untuk "Project Progress Summary"). */
@@ -831,7 +1058,310 @@ class ProjectController extends Controller
             $data['reviewableUpdateIds'] = collect();
         }
 
-        return view('projects.show', $data);
+        return Inertia::render('Projects/Show', $this->showPayload($request, $project, $data));
+    }
+
+    /**
+     * Ubah $data hasil show() menjadi payload halaman Vue.
+     *
+     * Perhitungan hak akses TIDAK diulang di sini — $data sudah melewati
+     * penguncian mode lihat-saja di show(), jadi kita hanya memindahkan isinya
+     * ke bentuk yang dipakai komponen.
+     */
+    private function showPayload(Request $request, Project $project, array $data): array
+    {
+        $idea = $project->idea;
+        $usersById = $data['users']->keyBy('id');
+        $pending = $data['pendingChanges'];
+        $showActual = $data['showActual'];
+
+        // Perubahan Leader yang masih ditahan, kalau ada.
+        $leadershipPending = $pending[Project::class . '#' . $project->id] ?? null;
+        $leadershipPending = $leadershipPending && array_key_exists('project_leader_id', $leadershipPending['fields'])
+            ? $leadershipPending
+            : null;
+
+        // Badge status: di tampilan Project Proposal, project yang sudah lewat
+        // approval tetap "Approved" — snapshot proposal, bukan progres eksekusi.
+        $badgeStatus = $project->status;
+
+        if ($data['phase'] !== 'implementation'
+            && in_array($project->status, ['ongoing', 'delayed', 'completion_review', 'completed'], true)) {
+            $badgeStatus = 'approved';
+        }
+
+        $cancellation = $project->status === 'cancelled' ? $project->cancellation() : null;
+
+        return [
+            'project' => [
+                'id' => $project->id,
+                'project_id' => $project->project_id,
+                'project_name' => $project->project_name,
+                'project_category' => $project->project_category,
+                'project_scope' => $project->project_scope,
+                'expected_outcome' => $project->expected_outcome,
+                'project_summary' => $project->project_summary,
+                'status' => $project->status,
+                'badge_status' => $badgeStatus,
+                'badge_label' => Project::STATUS_BADGES[$badgeStatus][0]
+                    ?? ucwords(str_replace('_', ' ', $badgeStatus)),
+                'current_layer' => $project->current_layer,
+                'created_at' => $project->created_at?->toIso8601ZuluString(),
+                'leader_id' => $project->project_leader_id,
+                'leader_name' => $project->leader?->name,
+                'sponsor_id' => $project->project_sponsor_id,
+                'sponsor_name' => $project->sponsor?->name,
+                'category_code' => $project->category?->code,
+            ],
+
+            'idea' => $idea ? [
+                'idea_id' => $idea->idea_id,
+                'idea_name' => $idea->idea_name,
+                'problem' => $idea->problem,
+                'submitter' => $idea->user?->name,
+                // Snapshot nama dipakai lebih dulu, relasi jadi cadangan.
+                'business_unit_name' => $idea->business_unit_name ?: $idea->businessUnit?->name,
+                'department_name' => $idea->department_name ?: $idea->department?->name,
+            ] : null,
+
+            'abilities' => [
+                'canEdit' => (bool) $data['canEdit'],
+                'viewOnly' => (bool) $data['viewOnly'],
+                'isLeader' => (bool) $data['isLeader'],
+                'isSponsor' => (bool) $data['isSponsor'],
+                'isReviewer' => (bool) $data['isReviewer'],
+                'canSubmitCompletion' => (bool) $data['canSubmitCompletion'],
+                'canCancel' => (bool) $data['canCancel'],
+                'canUploadAttachment' => (bool) $data['canUploadAttachment'],
+                'canEditRow' => (bool) $data['canEditRow'],
+                'canDeleteRow' => (bool) $data['canDeleteRow'],
+                'canSubmitChanges' => (bool) $data['canSubmitChanges'],
+                'canEditTeam' => (bool) $data['canEditTeam'],
+                'proposalReadOnly' => (bool) $data['proposalReadOnly'],
+            ],
+
+            'showActual' => $showActual,
+
+            'members' => $project->members->map(fn (ProjectMember $m) => [
+                'id' => $m->id,
+                'user_id' => $m->user_id,
+                'name' => $m->user?->name,
+                'role' => $m->role,
+                'version' => \App\Support\RecordVersion::of($m),
+                'urls' => [
+                    'update' => route('projects.members.update', [$project, $m]),
+                    'destroy' => route('projects.members.destroy', [$project, $m]),
+                ],
+            ])->values(),
+
+            // Slot role yang masih kurang untuk kategori project ini.
+            'roleSlots' => collect($project->category?->requiredRoles() ?? [])
+                ->map(function (array $required) use ($project) {
+                    $filled = $project->members
+                        ->filter(fn (ProjectMember $m) => mb_strtolower(trim((string) $m->role)) === mb_strtolower($required['role']))
+                        ->count();
+
+                    return ['role' => $required['role'], 'remaining' => max(0, $required['total'] - $filled)];
+                })
+                ->filter(fn (array $slot) => $slot['remaining'] > 0)
+                ->values(),
+
+            'plans' => $project->implementationPlans->map(fn (ImplementationPlan $plan) => [
+                'id' => $plan->id,
+                'activity' => $plan->activity,
+                'planning_start' => $plan->planning_start?->format('Y-m-d'),
+                'planning_end' => $plan->planning_end?->format('Y-m-d'),
+                'actual_start' => $plan->actual_start?->format('Y-m-d'),
+                'actual_end' => $plan->actual_end?->format('Y-m-d'),
+                'actual_days' => $plan->actual_days,
+                'pic_user_ids' => array_values((array) $plan->pic_user_ids),
+                'pic_names' => collect($plan->pic_user_ids)
+                    ->map(fn ($id) => $usersById[$id]?->name)
+                    ->filter()
+                    ->implode(', '),
+                'remarks' => $plan->remarks,
+                'status_label' => $plan->status_label,
+                'attachments' => $plan->attachments->map(fn ($att) => [
+                    'id' => $att->id,
+                    'file_name' => $att->file_name,
+                    'view_url' => route('projects.implementation.attachments.view', [$project, $plan, $att]),
+                    'destroy_url' => route('projects.implementation.attachments.destroy', [$project, $plan, $att]),
+                ])->values(),
+                'pending' => $pending[ImplementationPlan::class . '#' . $plan->id] ?? null,
+                'version' => \App\Support\RecordVersion::of($plan),
+                'urls' => [
+                    'update' => route('projects.implementation.update', [$project, $plan]),
+                    'destroy' => route('projects.implementation.destroy', [$project, $plan]),
+                ],
+            ])->values(),
+
+            'indicators' => $project->indicators->map(fn (ImplementationIndicator $ind) => [
+                'id' => $ind->id,
+                'indicator' => $ind->indicator,
+                'description' => $ind->description,
+                'baseline' => $ind->baseline,
+                'achievement_value' => $ind->achievement_value,
+                'achievement' => $ind->achievement,
+                'uom' => $ind->uom,
+                'weightage' => $ind->weightage,
+                'type' => $ind->type,
+                'improvement' => $ind->improvement,
+                'version' => \App\Support\RecordVersion::of($ind),
+                'urls' => [
+                    'update' => route('projects.indicators.update', [$project, $ind]),
+                    'destroy' => route('projects.indicators.destroy', [$project, $ind]),
+                ],
+            ])->values(),
+
+            'budgets' => $project->budgets->map(fn (ProjectBudget $b) => [
+                'id' => $b->id,
+                'item' => $b->item,
+                'qty' => $b->qty,
+                'uom' => $b->uom,
+                'unit_price' => $b->unit_price,
+                'planned_total' => (float) $b->planned_total,
+                'actual_qty' => $b->actual_qty,
+                'actual_price' => $b->actual_price,
+                'actual_cost' => $b->actual_cost === null ? null : (float) $b->actual_cost,
+                'attachments' => $b->attachments->map(fn ($att) => [
+                    'id' => $att->id,
+                    'file_name' => $att->file_name,
+                    'view_url' => route('projects.budgets.attachments.view', [$project, $b, $att]),
+                    'destroy_url' => route('projects.budgets.attachments.destroy', [$project, $b, $att]),
+                ])->values(),
+                'version' => \App\Support\RecordVersion::of($b),
+                'urls' => [
+                    'update' => route('projects.budgets.update', [$project, $b]),
+                    'destroy' => route('projects.budgets.destroy', [$project, $b]),
+                ],
+            ])->values(),
+
+            // Sebelum proposal disubmit budget masih bisa diisi; sesudahnya
+            // keadaannya sudah final.
+            'budgetEmptyMessage' => __(in_array($project->status, Project::EDITABLE_STATUSES, true)
+                ? 'messages.budget.empty_editable'
+                : 'messages.budget.empty_final'),
+
+            'attachments' => $project->attachments->map(function (ProjectAttachment $att) use ($project, $request, $data) {
+                $ext = strtolower(pathinfo((string) $att->file_name, PATHINFO_EXTENSION));
+                $mayDelete = $request->user()->id === $att->uploaded_by
+                    || $data['isLeader']
+                    || ReportOverride::aktif($request);
+
+                return [
+                    'id' => $att->id,
+                    'file_name' => $att->file_name,
+                    'file_size' => $att->file_size,
+                    // Gambar & PDF bisa dibuka di tab baru; sisanya hanya diunduh.
+                    'view_url' => in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)
+                        ? route('projects.attachments.view', [$project, $att])
+                        : null,
+                    'download_url' => route('projects.attachments.download', [$project, $att]),
+                    'destroy_url' => $mayDelete
+                        ? route('projects.attachments.destroy', [$project, $att])
+                        : null,
+                ];
+            })->values(),
+
+            'approvals' => $project->approvals->map(fn (ProjectApproval $a) => [
+                'id' => $a->id,
+                'layer' => $a->layer,
+                'decision' => $a->decision,
+                'note' => $a->note,
+                'decided_by' => $a->user?->name,
+                'on_behalf_of' => $a->on_behalf_of_id
+                    ? ($a->onBehalfOf?->name ?? '#' . $a->on_behalf_of_id)
+                    : null,
+                'created_at' => $a->created_at?->toIso8601ZuluString(),
+            ])->values(),
+
+            'statusLogs' => $project->statusLogs->map(fn ($log) => [
+                'id' => $log->id,
+                'old_status' => $log->old_status,
+                'new_status' => $log->new_status,
+                'remarks' => $log->remarks,
+                'changed_by' => $log->changedBy?->name,
+                'created_at' => $log->created_at?->toIso8601ZuluString(),
+            ])->values(),
+
+            'changeReviews' => $data['changeReviews']->map(function (array $review) use ($project) {
+                $update = $review['update'];
+
+                return [
+                    'id' => $update->id,
+                    // Kode + label: halaman menerjemahkan dari kodenya.
+                    'change_type' => $update->change_type,
+                    'label' => $review['label'],
+                    'requester' => $update->requester?->name,
+                    'requested_at' => $update->updated_at?->toIso8601ZuluString(),
+                    'approver_role' => $update->approver_role,
+                    'current_layer' => $update->current_layer,
+                    'review_note' => $update->review_note,
+                    'on_behalf_of' => $review['atasNama']?->name,
+                    'diff' => $review['diff'],
+                    'urls' => [
+                        'approve' => route('projects.updates.approve', [$project, $update]),
+                        'revision' => route('projects.updates.revision', [$project, $update]),
+                        'reject' => route('projects.updates.reject', [$project, $update]),
+                    ],
+                ];
+            })->values(),
+
+            'pendingLeadership' => $leadershipPending,
+            'pendingLeaderName' => $leadershipPending
+                ? User::find($leadershipPending['fields']['project_leader_id'])?->name
+                : null,
+            'pendingDraftCount' => $data['pendingDrafts']->count(),
+
+            'leadershipRights' => $data['leadershipRights'] ?: ['sponsor' => false, 'leader' => false, 'instant' => false],
+            'ideaApprover' => $data['ideaApprover']?->name,
+            'onBehalfOf' => $data['atasNama']?->name,
+
+            // Opsi PIC = anggota tim project (Leader + Sponsor + Members).
+            'teamMembers' => $data['teamMembers']->map(fn (User $u) => [
+                'value' => $u->id,
+                'label' => $u->name,
+            ])->values(),
+
+            'uomGroups' => collect(ImplementationIndicator::UOM_GROUPS)
+                ->map(fn (array $options, string $label) => [
+                    'label' => $label,
+                    'options' => collect($options)->map(fn (string $u) => ['value' => $u, 'label' => $u])->values(),
+                ])
+                ->values(),
+
+            'indicatorTypes' => ImplementationIndicator::TYPES,
+
+            // Bag error 'member' dipakai dialog Add Member (validasi / batas anggota).
+            'memberErrors' => session()->get('errors')?->getBag('member')->all() ?? [],
+
+            'cancellation' => $cancellation ? [
+                'reason' => $project->cancellationReason(),
+                'by' => $cancellation->changedBy?->name,
+                'at' => $cancellation->created_at?->toIso8601ZuluString(),
+            ] : null,
+
+            'urls' => [
+                'index' => route('projects.index'),
+                'report' => route('reports.index', ['type' => 'project']),
+                'userSearch' => route('org.users'),
+                'leadership' => route('projects.leadership.update', $project),
+                'membersStore' => route('projects.members.store', $project),
+                'plansStore' => route('projects.implementation.store', $project),
+                'indicatorsStore' => route('projects.indicators.store', $project),
+                'budgetsStore' => route('projects.budgets.store', $project),
+                'attachmentsStore' => route('projects.attachments.store', $project),
+                'draft' => route('projects.draft', $project),
+                'submit' => route('projects.submit', $project),
+                'submitChanges' => route('projects.changes.submit', $project),
+                'cancel' => route('projects.cancel', $project),
+                'sponsorApprove' => route('projects.sponsor.approve', $project),
+                'sponsorRevision' => route('projects.sponsor.revision', $project),
+                'reviewApprove' => route('projects.review.approve', $project),
+                'reviewRevision' => route('projects.review.revision', $project),
+                'reviewReject' => route('projects.review.reject', $project),
+            ],
+        ];
     }
 
     /* ---- Submit proposal (Leader) & keputusan Sponsor ---------------- */
@@ -842,18 +1372,18 @@ class ProjectController extends Controller
 
         // Syarat minimal submit (FR-181): minimal 1 activity & 1 indicator.
         if ($project->implementationPlans()->count() === 0 || $project->indicators()->count() === 0) {
-            return back()->with('error', 'At least 1 Implementation Plan and 1 Success Indicator are required before submitting.');
+            return back()->with('error', __('flash.projects.needs_plan_indicator'));
         }
 
         // Total weightage Success Indicators harus 100% (T-43/214).
         $totalWeight = (float) $project->indicators()->sum('weightage');
         if (abs($totalWeight - 100.0) > 0.01) {
-            return back()->with('error', "Total Success Indicator weightage must be 100% (currently {$totalWeight}%).");
+            return back()->with('error', __('flash.projects.weight_must_be_100', ['total' => $totalWeight]));
         }
 
         $this->transition($project, 'submitted', $request->user(), 'Proposal disubmit oleh Project Leader.');
 
-        return back()->with('success', 'Proposal submitted to the Project Sponsor.');
+        return back()->with('success', __('flash.projects.proposal_submitted'));
     }
 
     public function sponsorApprove(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
@@ -865,7 +1395,7 @@ class ProjectController extends Controller
         // Alirkan ke committee proposal (atau langsung Approved bila belum ada committee).
         $wf->start($project, 'committee_review', $request->user(), $note);
 
-        return back()->with('success', 'Proposal approved by the Sponsor.');
+        return back()->with('success', __('flash.projects.sponsor_approved'));
     }
 
     /**
@@ -897,7 +1427,7 @@ class ProjectController extends Controller
 
         $atasNama = $this->atasNamaProject($request, $project);
         abort_unless($atasNama !== null, 403,
-            'Only the committee of the active layer may decide on this project.');
+            __('messages.abort.project_layer_committee_only'));
 
         return $atasNama;
     }
@@ -916,7 +1446,7 @@ class ProjectController extends Controller
         $hak = $this->leadershipRights($project, $request->user());
 
         abort_unless($hak['sponsor'] || $hak['leader'], 403,
-            'You are not allowed to change the Project Sponsor or Leader.');
+            __('messages.abort.leadership_not_allowed'));
 
         $data = $request->validate([
             'project_sponsor_id' => ['nullable', 'integer', 'exists:kpncorp.users,id'],
@@ -941,7 +1471,7 @@ class ProjectController extends Controller
         }
 
         if (! $baru) {
-            return $this->backToSection($project, 'section-team', 'No change to the Sponsor or Leader.');
+            return $this->backToSection($project, 'section-team', __('flash.projects.leadership_unchanged'));
         }
 
         // Langsung berlaku bila: pelakunya committee layer terakhir ide (ia memang
@@ -958,7 +1488,7 @@ class ProjectController extends Controller
             $this->transition($project, $project->status, $request->user(),
                 "Sponsor/Leader changed: {$ringkas}. By {$request->user()->name}.");
 
-            return $this->kembaliDariLeadership($request, $project, 'Sponsor/Leader updated.');
+            return $this->kembaliDariLeadership($request, $project, __('flash.projects.leadership_updated'));
         }
 
         // Langsung DIKIRIM, bukan sekadar disimpan sebagai draft: tombolnya memang
@@ -971,8 +1501,8 @@ class ProjectController extends Controller
         $penyetuju = optional($svc->ideaCommitteeApprover($project))->name;
 
         return $this->kembaliDariLeadership($request, $project, $penyetuju
-            ? "Sponsor/Leader change submitted for approval by {$penyetuju}."
-            : 'Sponsor/Leader change submitted. It stays pending until an approver is determined.');
+            ? __('flash.projects.leadership_submitted', ['name' => $penyetuju])
+            : __('flash.projects.leadership_pending'));
     }
 
     /**
@@ -1001,6 +1531,7 @@ class ProjectController extends Controller
                 'project_id'    => 'project_id',
                 'project_name'  => 'project_name',
                 'current_layer' => 'current_layer',
+                'status'        => 'status',
                 'created_at'    => 'created_at',
             ],
             'default_sort' => 'created_at',
@@ -1038,11 +1569,62 @@ class ProjectController extends Controller
 
         $perPage = $this->listPerPage($request);
 
-        return view('projects.review', [
-            'projects' => $query->paginate($perPage)->withQueryString(),
-            'perPage'  => $perPage,
-            'buNames'  => KpnBusinessUnit::names(), // Business Unit dari master_bisnisunits; Unit cascade via AJAX
-        ] + $this->listSortState($request, $config));
+        $sortState = $this->listSortState($request, $config);
+        $sla = app(\App\Services\SlaService::class);
+
+        return Inertia::render('Projects/Review', [
+            'projects' => $query->paginate($perPage)->withQueryString()->through(
+                function (Project $project) use ($sla) {
+                    $evaluation = $sla->evaluate($project->slaApprovalType(), $project->reviewSince());
+
+                    // Jenis tugas. Project yang sudah berjalan hanya masuk Task Box
+                    // karena ada permintaan perubahan yang menunggu keputusan.
+                    $kind = match (true) {
+                        $project->status === 'completion_review' => 'completion',
+                        $project->isInExecution() => 'change_request',
+                        default => 'proposal',
+                    };
+
+                    return [
+                        'id' => $project->id,
+                        'project_id' => $project->project_id,
+                        'project_name' => $project->project_name,
+                        'leader_name' => $project->leader?->name,
+                        'business_unit_name' => $project->idea?->businessUnit?->name,
+                        'status' => $project->status,
+                        'status_label' => $project->statusBadge()[0],
+                        'current_layer' => $project->current_layer,
+                        'review_kind' => $kind,
+
+                        // Layer 1 proposal (status 'submitted') = keputusan Project Sponsor.
+                        'as_sponsor' => $project->status === ProjectApprovalWorkflowService::SPONSOR_PENDING_STATUS,
+
+                        'sla' => [
+                            'state' => $evaluation['state'],
+                            'due' => $evaluation['due']?->toIso8601ZuluString(),
+                            'left' => $evaluation['left'],
+                        ],
+
+                        'urls' => ['review' => route('projects.show', $project)],
+
+                        // Detail project masih Blade. Lihat InertiaRoutes.
+                        'external' => ! InertiaRoutes::has('projects.show'),
+                    ];
+                }
+            ),
+
+            'filters' => [
+                'q' => $request->get('q'),
+                'bu' => $request->get('bu'),
+                'unit' => $request->get('unit'),
+                'per_page' => $perPage,
+                'sort' => $sortState['sort'],
+                'dir' => $sortState['dir'],
+            ],
+
+            // Business Unit dari master_bisnisunits; Unit di-cascade saat dibutuhkan.
+            'businessUnits' => KpnBusinessUnit::names()->values(),
+        ]);
     }
 
     public function reviewApprove(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
@@ -1053,23 +1635,25 @@ class ProjectController extends Controller
         $wf->actingAs($atasNama, fn () => $wf->approve($project, $request->user(), $note));
 
         return redirect()->route('projects.review')->with('success', $atasNama
-            ? "{$project->project_id} approved on behalf of {$atasNama->name}."
-            : "Keputusan tersimpan untuk {$project->project_id}.");
+            ? __('flash.projects.review_approved_on_behalf',
+                ['id' => $project->project_id, 'name' => $atasNama->name])
+            : __('flash.projects.review_approved', ['id' => $project->project_id]));
     }
 
     public function reviewRevision(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
     {
         $atasNama = $this->authorizeReview($request, $project, $wf);
         abort_unless($project->status === 'committee_review', 403,
-            'Revision Required only applies to a proposal that is under committee review.');
+            __('messages.abort.revision_only_committee_review'));
 
         // Catatan wajib: Leader perlu tahu apa yang harus diperbaiki.
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
         $wf->actingAs($atasNama, fn () => $wf->requestRevision($project, $request->user(), $note));
 
         return redirect()->route('projects.review')->with('success', $atasNama
-            ? "Revision required on behalf of {$atasNama->name}: {$project->project_id} returned to the Project Leader."
-            : "Revision required: {$project->project_id} returned to the Project Leader.");
+            ? __('flash.projects.review_revision_on_behalf',
+                ['id' => $project->project_id, 'name' => $atasNama->name])
+            : __('flash.projects.review_revision', ['id' => $project->project_id]));
     }
 
     public function reviewReject(Request $request, Project $project, ProjectApprovalWorkflowService $wf)
@@ -1081,8 +1665,9 @@ class ProjectController extends Controller
         $wf->actingAs($atasNama, fn () => $wf->reject($project, $request->user(), $note));
 
         return redirect()->route('projects.review')->with('success', $atasNama
-            ? "Rejected on behalf of {$atasNama->name}: {$project->project_id}."
-            : "Ditolak: {$project->project_id}.");
+            ? __('flash.projects.review_rejected_on_behalf',
+                ['id' => $project->project_id, 'name' => $atasNama->name])
+            : __('flash.projects.review_rejected', ['id' => $project->project_id]));
     }
 
     /* ---- Completion request (Project Leader) ------------------------ */
@@ -1101,13 +1686,13 @@ class ProjectController extends Controller
 
         // Wajib minimal 1 Success Indicator (T-66/181).
         if ($project->indicators()->count() === 0) {
-            return back()->with('error', 'At least 1 Success Indicator is required before submitting completion.');
+            return back()->with('error', __('flash.projects.completion_needs_indicator'));
         }
 
         $project->update(['project_summary' => $data['project_summary']]);
         $wf->start($project->fresh(), 'completion_review', $request->user(), 'Completion request disubmit.');
 
-        return back()->with('success', 'Completion request disubmit.');
+        return back()->with('success', __('flash.projects.completion_submitted'));
     }
 
     /* ---- Project Update Request (T-260-268) ------------------------- */
@@ -1116,7 +1701,7 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         abort_unless($project->isInExecution() && $project->isTeamMember($user), 403,
-            'Only members of an ongoing project team may request an update.');
+            __('messages.abort.only_team_requests_update'));
 
         $data = $request->validate([
             'change_type' => ['required', Rule::in(array_keys(ProjectUpdate::CHANGE_TYPES))],
@@ -1140,13 +1725,17 @@ class ProjectController extends Controller
             'approver_role'   => $approver,
             'status'          => $auto ? 'approved' : 'pending',
             'reviewed_by'     => $auto ? $user->id : null,
-            'review_note'     => $auto ? 'Auto-approved (diajukan Sponsor).' : null,
+            'review_note'     => $auto ? __('flash.updates.auto_approved_note') : null,
             'snapshot_before' => $svc->snapshot($project),
         ]);
 
         return back()->with('success', $auto
-            ? 'Update request auto-approved. Please edit and then Apply.'
-            : 'Update request diajukan ke '.($approver === 'committee' ? 'Committee' : 'Sponsor').'.');
+            ? __('flash.updates.auto_approved')
+            : __('flash.updates.submitted_to', [
+                'approver' => __($approver === 'committee'
+                    ? 'flash.updates.approver_committee'
+                    : 'flash.updates.approver_sponsor'),
+            ]));
     }
 
     /**
@@ -1173,11 +1762,11 @@ class ProjectController extends Controller
         }
 
         abort_unless(ReportOverride::aktif($request), 403,
-            'Only the assigned approver may decide on this change request.');
+            __('messages.abort.only_assigned_approver'));
 
         // Permintaan yang menggantung belum punya penyetuju — tak ada yang bisa diwakili.
         abort_unless($update->approver_role !== 'unassigned', 403,
-            'This request has no approver yet; it stays pending until one is determined.');
+            __('messages.abort.no_approver_yet'));
 
         return $svc->approverOf($update);
     }
@@ -1193,17 +1782,18 @@ class ProjectController extends Controller
             $atasNama = $this->atasNamaUpdate($request, $update, $staging);
 
             $hasil = $staging->actingAs($atasNama, fn () => $staging->approve($update, $request->user(), $note));
-            $label = ProjectChangeStagingService::TYPE_LABEL[$update->change_type];
+            $label = ProjectChangeStagingService::label($update->change_type);
 
             return back()->with('success', $hasil === 'applied'
-                ? "{$label} approved and applied to the project."
-                : "{$label} approved; forwarded to layer {$update->fresh()->current_layer}.");
+                ? __('flash.updates.approved_applied', ['label' => $label])
+                : __('flash.updates.approved_forwarded',
+                    ['label' => $label, 'layer' => $update->fresh()->current_layer]));
         }
 
         abort_unless($svc->isReviewer($update, $request->user()), 403);
         $update->update(['status' => 'approved', 'reviewed_by' => $request->user()->id, 'review_note' => $note]);
 
-        return back()->with('success', 'Update request approved. The Project Leader can edit and then Apply.');
+        return back()->with('success', __('flash.updates.legacy_approved'));
     }
 
     /** Kembalikan permintaan ke Project Leader untuk diperbaiki (semua layer). */
@@ -1219,9 +1809,9 @@ class ProjectController extends Controller
         $note = $request->validate(['note' => ['required', 'string', 'max:2000']])['note'];
         $staging->actingAs($atasNama, fn () => $staging->requestRevision($update, $request->user(), $note));
 
-        $label = ProjectChangeStagingService::TYPE_LABEL[$update->change_type];
+        $label = ProjectChangeStagingService::label($update->change_type);
 
-        return back()->with('success', "{$label} returned to the Project Leader for revision.");
+        return back()->with('success', __('flash.updates.revision', ['label' => $label]));
     }
 
     public function rejectUpdate(Request $request, Project $project, ProjectUpdate $update, ProjectUpdateService $svc)
@@ -1238,25 +1828,26 @@ class ProjectController extends Controller
             $atasNama = $this->atasNamaUpdate($request, $update, $staging);
             $staging->actingAs($atasNama, fn () => $staging->reject($update, $request->user(), $note));
 
-            return back()->with('success', ProjectChangeStagingService::TYPE_LABEL[$update->change_type] . ' rejected.');
+            return back()->with('success', __('flash.updates.rejected',
+                ['label' => ProjectChangeStagingService::label($update->change_type)]));
         }
 
         abort_unless($svc->isReviewer($update, $request->user()), 403);
         $update->update(['status' => 'rejected', 'reviewed_by' => $request->user()->id, 'review_note' => $note]);
 
-        return back()->with('success', 'Update request rejected.');
+        return back()->with('success', __('flash.updates.legacy_rejected'));
     }
 
     public function applyUpdate(Request $request, Project $project, ProjectUpdate $update, ProjectUpdateService $svc)
     {
         abort_unless($update->project_id === $project->id, 404);
         abort_unless($project->project_leader_id === $request->user()->id && $update->status === 'approved', 403,
-            'Only the Project Leader may apply an approved update.');
+            __('messages.abort.only_leader_applies_update'));
 
         // Rekam kondisi setelah perubahan (before/after) lalu tutup update.
         $update->update(['status' => 'applied', 'snapshot_after' => $svc->snapshot($project->fresh())]);
 
-        return back()->with('success', 'Perubahan diterapkan (update ditutup).');
+        return back()->with('success', __('flash.updates.applied'));
     }
 
     /* ---- Project Cancellation (T-184/185/186/188/97) --------------- */
@@ -1264,10 +1855,10 @@ class ProjectController extends Controller
     public function cancelProject(Request $request, Project $project)
     {
         abort_unless($this->canCancel($project, $request->user()), 403,
-            'Only the Project Leader, Sponsor, last idea committee layer, or a Super Admin may cancel.');
+            __('messages.abort.cancel_not_allowed'));
 
         if (in_array($project->status, ['completed', 'cancelled'], true)) {
-            return back()->with('error', 'A Completed/Cancelled project cannot be cancelled.');
+            return back()->with('error', __('flash.projects.cancel_not_allowed'));
         }
 
         $reason = $request->validate(['reason' => ['required', 'string', 'max:2000']])['reason'];
@@ -1277,7 +1868,7 @@ class ProjectController extends Controller
         // T-97: pending approval/update otomatis hilang.
         $project->updates()->where('status', 'pending')->update(['status' => 'cancelled']);
 
-        return back()->with('success', 'Project cancelled.');
+        return back()->with('success', __('flash.projects.cancelled'));
     }
 
     private function canCancel(Project $project, User $user): bool
@@ -1302,18 +1893,18 @@ class ProjectController extends Controller
     {
         abort_unless(($project->project_leader_id === $request->user()->id
             || ReportOverride::aktif($request)) && $project->isInExecution(), 403,
-            'Only the Project Leader of a running project may submit changes.');
+            __('messages.abort.only_leader_submits_changes'));
 
         $note = $request->validate(['note' => ['nullable', 'string', 'max:2000']])['note'] ?? null;
 
         $terkirim = $svc->submitDrafts($project, $request->user(), $note);
 
         if (! $terkirim) {
-            return back()->with('error', 'There is no pending change to submit.');
+            return back()->with('error', __('flash.projects.no_pending_change'));
         }
 
         return $this->backToSection($project, 'section-implementation',
-            'Submitted for approval: ' . implode(', ', $terkirim) . '.',
+            __('flash.projects.changes_submitted', ['items' => implode(', ', $terkirim)]),
             ['phase' => 'implementation']);
     }
 
@@ -1321,7 +1912,7 @@ class ProjectController extends Controller
     private function pesanSimpan(string $normal, int $distage): string
     {
         return $distage > 0
-            ? "Saved. {$distage} proposal field(s) are held as a draft change and take effect only after approval - press Update Project to submit."
+            ? __('flash.projects.saved_with_draft', ['count' => $distage])
             : $normal;
     }
 
@@ -1358,7 +1949,7 @@ class ProjectController extends Controller
             'Revision required at layer ' . ProjectApprovalWorkflowService::SPONSOR_LAYER
             . " (Project Sponsor); returned to the Project Leader. Note: {$note}");
 
-        return back()->with('success', 'Proposal returned to the Project Leader for revision.');
+        return back()->with('success', __('flash.projects.sponsor_revision'));
     }
 
     private function authorizeSponsor(Request $request, Project $project): void
@@ -1433,7 +2024,7 @@ class ProjectController extends Controller
             }
         }
 
-        return $this->backToSection($project, 'section-implementation', 'Activity added.');
+        return $this->backToSection($project, 'section-implementation', __('flash.projects.activity_added'));
     }
 
     public function updateImplementation(Request $request, Project $project, ImplementationPlan $plan)
@@ -1491,7 +2082,7 @@ class ProjectController extends Controller
         }
 
         return $this->backToSection($project, 'section-implementation',
-            $this->pesanSimpan('Activity updated.', $distage),
+            $this->pesanSimpan(__('flash.projects.activity_updated'), $distage),
             $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
@@ -1524,7 +2115,7 @@ class ProjectController extends Controller
         abort_unless($plan->project_id === $project->id, 404);
         $plan->delete();
 
-        return $this->backToSection($project, 'section-implementation', 'Activity removed.');
+        return $this->backToSection($project, 'section-implementation', __('flash.projects.activity_removed'));
     }
 
     /**
@@ -1578,7 +2169,7 @@ class ProjectController extends Controller
 
         $this->recomputeExecutionStatus($project->fresh(), $request->user());
 
-        return $this->backToSection($project, 'section-implementation', 'Actual implementation updated.', ['phase' => 'implementation']);
+        return $this->backToSection($project, 'section-implementation', __('flash.projects.actual_updated'), ['phase' => 'implementation']);
     }
 
     /**
@@ -1610,7 +2201,7 @@ class ProjectController extends Controller
         $this->deleteAttachmentFile($attachment->file_path);
         $attachment->delete();
 
-        return $this->backToSection($project, 'section-implementation', 'Attachment removed.',
+        return $this->backToSection($project, 'section-implementation', __('flash.projects.attachment_removed'),
             $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
@@ -1640,7 +2231,7 @@ class ProjectController extends Controller
         $this->deleteAttachmentFile($attachment->file_path);
         $attachment->delete();
 
-        return $this->backToSection($project, 'section-budget', 'Attachment removed.',
+        return $this->backToSection($project, 'section-budget', __('flash.projects.attachment_removed'),
             $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
@@ -1676,7 +2267,7 @@ class ProjectController extends Controller
                 || ReportOverride::aktif($request),
             403
         );
-        abort_unless($plan->attachment_path, 404, 'No attachment.');
+        abort_unless($plan->attachment_path, 404, __('messages.abort.no_attachment'));
 
         return $this->downloadAttachmentFile($plan->attachment_path, $plan->attachment_name);
     }
@@ -1786,7 +2377,7 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         abort_unless($this->canEditRow($project, $user), 403,
-            'Only the Project Leader (during draft/revision) or a team member while the project is running may edit this.');
+            __('messages.abort.only_leader_or_team_edits'));
 
         return $this->leaderMayEditProposalFields($project, $user);
     }
@@ -1873,7 +2464,7 @@ class ProjectController extends Controller
             ]);
         }
 
-        return $this->backToSection($project, 'section-indicators', 'Indicator added.');
+        return $this->backToSection($project, 'section-indicators', __('flash.projects.indicator_added'));
     }
 
     public function updateIndicator(Request $request, Project $project, ImplementationIndicator $indicator)
@@ -1892,7 +2483,7 @@ class ProjectController extends Controller
                 ]);
             });
 
-            return $this->backToSection($project, 'section-indicators', 'Achievement updated.', ['phase' => 'implementation']);
+            return $this->backToSection($project, 'section-indicators', __('flash.projects.achievement_updated'), ['phase' => 'implementation']);
         }
 
         $data = $request->validate([
@@ -1941,7 +2532,7 @@ class ProjectController extends Controller
         $distage = $this->writeOrStage($request, $project, $indicator, $langsung, $proposal);
 
         return $this->backToSection($project, 'section-indicators',
-            $this->pesanSimpan('Indicator updated.', $distage),
+            $this->pesanSimpan(__('flash.projects.indicator_updated'), $distage),
             $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
@@ -1965,7 +2556,8 @@ class ProjectController extends Controller
         ], []);
 
         return $this->backToSection($project, 'section-indicators',
-            $this->pesanSimpan('Indicator achievement updated.', $distage), ['phase' => 'implementation']);
+            $this->pesanSimpan(__('flash.projects.indicator_achievement_updated'), $distage),
+            ['phase' => 'implementation']);
     }
 
     public function destroyIndicator(Request $request, Project $project, ImplementationIndicator $indicator)
@@ -1974,7 +2566,7 @@ class ProjectController extends Controller
         abort_unless($indicator->project_id === $project->id, 404);
         $indicator->delete();
 
-        return $this->backToSection($project, 'section-indicators', 'Indicator removed.');
+        return $this->backToSection($project, 'section-indicators', __('flash.projects.indicator_removed'));
     }
 
     public function storeBudget(Request $request, Project $project)
@@ -1998,7 +2590,7 @@ class ProjectController extends Controller
             ]);
         }
 
-        return $this->backToSection($project, 'section-budget', 'Budget added.');
+        return $this->backToSection($project, 'section-budget', __('flash.projects.budget_added'));
     }
 
     public function updateBudget(Request $request, Project $project, ProjectBudget $budget)
@@ -2023,7 +2615,8 @@ class ProjectController extends Controller
             $this->storeBudgetAttachments($request, $project, $budget);
 
             return $this->backToSection($project, 'section-budget',
-                $this->pesanSimpan('Actual budget updated.', $distage), ['phase' => 'implementation']);
+                $this->pesanSimpan(__('flash.projects.actual_budget_updated'), $distage),
+                ['phase' => 'implementation']);
         }
 
         $data = $request->validate([
@@ -2059,7 +2652,7 @@ class ProjectController extends Controller
         $this->storeBudgetAttachments($request, $project, $budget);
 
         return $this->backToSection($project, 'section-budget',
-            $this->pesanSimpan('Budget updated.', $distage),
+            $this->pesanSimpan(__('flash.projects.budget_updated'), $distage),
             $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
@@ -2069,7 +2662,7 @@ class ProjectController extends Controller
         abort_unless($budget->project_id === $project->id, 404);
         $budget->delete();
 
-        return $this->backToSection($project, 'section-budget', 'Budget item removed.');
+        return $this->backToSection($project, 'section-budget', __('flash.projects.budget_removed'));
     }
 
     /** Actual budget tracking (T-61) — saat project berjalan. */
@@ -2091,14 +2684,14 @@ class ProjectController extends Controller
             $budget->update($data + ['actual_cost' => $cost]);
         });
 
-        return $this->backToSection($project, 'section-budget', 'Actual budget updated.', ['phase' => 'implementation']);
+        return $this->backToSection($project, 'section-budget', __('flash.projects.actual_budget_updated'), ['phase' => 'implementation']);
     }
 
     public function storeMember(Request $request, Project $project)
     {
         // Leader (fase proposal/berjalan) ATAU admin pemegang override.role.
         abort_unless($this->bolehUbahTim($project, $request->user()), 403,
-            'Only the Project Leader or an administrator may add team members.');
+            __('messages.abort.only_leader_or_admin_adds_members'));
 
         // Multi-add: rows[] berisi {user_id, role}. users ada di hcis (kpncorp).
         // Slot role wajib boleh diisi bertahap → baris tanpa nama dilewati
@@ -2115,7 +2708,7 @@ class ProjectController extends Controller
             'rows.*.role'    => ['required', 'string', 'max:100'],
         ], [
             'rows.required'         => 'Select at least one name before saving.',
-            'rows.*.user_id.exists' => 'The selected name was not found in the employee directory.',
+            'rows.*.user_id.exists' => __('messages.validation.member_not_found'),
         ]);
 
         if ($validator->fails()) {
@@ -2141,7 +2734,7 @@ class ProjectController extends Controller
             ]);
         }
 
-        return $this->backToSection($project, 'section-team', count($rows) . ' team member(s) added.');
+        return $this->backToSection($project, 'section-team', __('flash.projects.members_added', ['count' => count($rows)]));
     }
 
     /** Kembali ke detail project dengan dialog Add Member terbuka + daftar alasan penolakan. */
@@ -2186,7 +2779,7 @@ class ProjectController extends Controller
         // pada fase berjalan hasilnya masuk change request "Team Change", bukan
         // langsung berlaku. authorizeLeader() menolak fase berjalan, jadi tidak dipakai.
         abort_unless($this->bolehUbahTim($project, $request->user()), 403,
-            'Only the Project Leader or an administrator may change team members.');
+            __('messages.abort.only_leader_or_admin_edits_members'));
         abort_unless($member->project_id === $project->id, 404);
 
         $data = $request->validate([
@@ -2198,18 +2791,18 @@ class ProjectController extends Controller
             ['user_id' => $data['user_id'], 'role' => $data['role']]);
 
         return $this->backToSection($project, 'section-team',
-            $this->pesanSimpan('Team member updated.', $distage),
+            $this->pesanSimpan(__('flash.projects.member_updated'), $distage),
             $project->isInExecution() ? ['phase' => 'implementation'] : []);
     }
 
     public function destroyMember(Request $request, Project $project, ProjectMember $member)
     {
         abort_unless($this->bolehUbahTim($project, $request->user()), 403,
-            'Only the Project Leader or an administrator may remove team members.');
+            __('messages.abort.only_leader_or_admin_removes_members'));
         abort_unless($member->project_id === $project->id, 404);
         $member->delete();
 
-        return $this->backToSection($project, 'section-team', 'Team member removed.');
+        return $this->backToSection($project, 'section-team', __('flash.projects.member_removed'));
     }
 
     /**
@@ -2220,7 +2813,7 @@ class ProjectController extends Controller
     {
         $this->authorizeLeader($request, $project);
 
-        return redirect()->route('projects.index')->with('success', 'Project Proposal saved as draft.');
+        return redirect()->route('projects.index')->with('success', __('flash.projects.proposal_draft_saved'));
     }
 
     /* ---- Attachments (T-100) ----------------------------------------- */
@@ -2229,7 +2822,7 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         abort_unless($project->isTeamMember($user) || ReportOverride::aktif($request), 403,
-            'Only project team members may upload attachments.');
+            __('messages.abort.only_team_uploads'));
 
         // Multi-file (seperti Create Idea): terima attachments[] atau fallback file tunggal.
         $request->validate([
@@ -2245,7 +2838,7 @@ class ProjectController extends Controller
             );
         }
 
-        return $this->backToSection($project, 'section-attachments', count($files) . ' attachment(s) uploaded.');
+        return $this->backToSection($project, 'section-attachments', __('flash.projects.attachments_uploaded', ['count' => count($files)]));
     }
 
     public function downloadAttachment(Request $request, Project $project, ProjectAttachment $attachment)
@@ -2288,7 +2881,7 @@ class ProjectController extends Controller
         $this->deleteAttachmentFile($attachment->file_path);
         $attachment->delete();
 
-        return $this->backToSection($project, 'section-attachments', 'Attachment deleted.');
+        return $this->backToSection($project, 'section-attachments', __('flash.projects.attachment_deleted'));
     }
 
     private function authorizeLeader(Request $request, Project $project): void
@@ -2304,7 +2897,7 @@ class ProjectController extends Controller
 
     private function authorizeShellCreator(User $user, Idea $idea): void
     {
-        abort_unless($idea->status === 'approved', 403, 'Idea is not approved yet.');
+        abort_unless($idea->status === 'approved', 403, __('messages.abort.idea_not_approved'));
 
         // TIDAK ada pembebasan Super Admin: membuat shell tetap hak committee
         // layer terakhir. Di menu Project Shell (yang memperlihatkan semua ide
@@ -2312,7 +2905,7 @@ class ProjectController extends Controller
         // flag can_create_shell — lihat shellIndex().
         $isLastLayer = app(IdeaWorkflowService::class)->isLastLayerCommittee($idea, $user);
 
-        abort_unless($isLastLayer, 403, 'Only the last committee layer may create a project.');
+        abort_unless($isLastLayer, 403, __('messages.abort.only_last_layer_creates_project'));
     }
 
     /**

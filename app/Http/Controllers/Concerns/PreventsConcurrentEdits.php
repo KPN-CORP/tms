@@ -73,7 +73,7 @@ trait PreventsConcurrentEdits
         $when = $last?->created_at?->utc()->format('d M Y H:i') . ' UTC';
 
         return $who
-            ? "This record was changed by {$who} at {$when}. Reload the page and reapply your change so their update is not overwritten."
-            : 'This record was changed by someone else while you were editing. Reload the page and reapply your change.';
+            ? __('messages.validation.concurrent_edit_by', ['name' => $who, 'time' => $when])
+            : __('messages.validation.concurrent_edit');
     }
 }

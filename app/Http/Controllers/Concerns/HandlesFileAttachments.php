@@ -32,7 +32,7 @@ trait HandlesFileAttachments
     /** Kembalikan response unduhan; 404 bila file hilang dari disk. */
     protected function downloadAttachmentFile(string $path, string $name)
     {
-        abort_unless(Storage::exists($path), 404, 'File not found.');
+        abort_unless(Storage::exists($path), 404, __('messages.abort.file_not_found'));
 
         return Storage::download($path, $name);
     }
@@ -43,7 +43,7 @@ trait HandlesFileAttachments
      */
     protected function viewAttachmentFile(string $path, string $name)
     {
-        abort_unless(Storage::exists($path), 404, 'File not found.');
+        abort_unless(Storage::exists($path), 404, __('messages.abort.file_not_found'));
 
         return Storage::response($path, $name);
     }

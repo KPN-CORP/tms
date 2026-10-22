@@ -1,3 +1,192 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ==========================================================================
+   Token warna
+   --------------------------------------------------------------------------
+   Nilainya mengikuti design system kpn-tmp / kpn-coi: merah bata #ab2f2b di
+   atas netral slate, bukan palet merah/abu bawaan Tailwind. Satu-satunya
+   tempat warna didefinisikan — komponen hanya menyebut nama semantiknya.
+
+   Ditulis sebagai triplet RGB tanpa fungsi `rgb()` supaya Tailwind bisa
+   menyisipkan alpha sendiri (`bg-surface/60`). Mode gelap hanya menimpa nilai
+   token yang sama; tidak ada kelas komponen yang perlu diubah.
+   ========================================================================== */
+@layer base {
+    :root {
+        /* Merah bata korporat (kpn-tmp/kpn-coi: --color-primary). */
+        --color-brand: 171 47 43;         /* #ab2f2b */
+        --color-brand-strong: 138 37 34;  /* #8a2522 */
+        --color-brand-soft: 254 242 242;  /* red-50, latar item menu aktif */
+        --color-brand-ink: 171 47 43;
+
+        --color-surface-sunken: 244 246 248; /* #f4f6f8 */
+        --color-surface: 255 255 255;
+        --color-surface-raised: 255 255 255;
+        --color-surface-muted: 248 250 252;  /* slate-50 */
+
+        --color-line: 226 232 240;        /* #e2e8f0 */
+        --color-line-strong: 203 213 225; /* slate-300 */
+
+        --color-ink: 30 41 59;            /* slate-800 — judul & teks kuat */
+        --color-ink-muted: 85 85 85;      /* #555555 — teks isi */
+        --color-ink-subtle: 148 163 184;  /* slate-400 — keterangan & kepala tabel */
+        /* Label field satu langkah lebih gelap dari keterangan — kpn-tmp
+           memakai slate-500 untuk label dan slate-400 untuk teks bantuan. */
+        --color-ink-label: 100 116 139;   /* slate-500 */
+        --color-ink-inverted: 255 255 255;
+
+        --color-success: 47 133 90;       /* #2f855a */
+        --color-success-soft: 240 255 244;
+        --color-success-ink: 47 133 90;
+
+        --color-warning: 180 83 9;        /* #b45309 */
+        --color-warning-soft: 255 251 235;
+        --color-warning-ink: 180 83 9;
+
+        --color-danger: 197 48 48;        /* #c53030 */
+        --color-danger-soft: 255 245 245;
+        --color-danger-ink: 197 48 48;
+
+        --color-info: 2 132 199;          /* sky-600 */
+        --color-info-soft: 240 249 255;
+        --color-info-ink: 3 105 161;
+
+        /* Avatar pengguna sengaja BUKAN warna brand: di kpn-tmp warnanya
+           berbeda supaya tidak bersaing dengan tanda brand di sidebar. */
+        --color-avatar: 20 184 166;       /* teal-500 */
+
+        --color-neutral: 100 116 139;     /* slate-500 */
+        --color-neutral-soft: 241 245 249;
+        --color-neutral-ink: 71 85 105;
+    }
+
+    .dark {
+        --color-brand: 220 92 88;
+        --color-brand-strong: 232 120 116;
+        --color-brand-soft: 61 21 20;
+        --color-brand-ink: 240 160 157;
+
+        --color-surface-sunken: 15 20 28;
+        --color-surface: 24 31 42;
+        --color-surface-raised: 31 40 53;
+        --color-surface-muted: 29 37 49;
+
+        --color-line: 45 55 71;
+        --color-line-strong: 66 78 97;
+
+        --color-ink: 237 240 246;
+        --color-ink-muted: 176 184 198;
+        --color-ink-subtle: 139 149 166;
+        --color-ink-label: 158 168 185;
+        --color-ink-inverted: 15 20 28;
+
+        --color-success: 72 180 128;
+        --color-success-soft: 8 46 33;
+        --color-success-ink: 120 210 165;
+
+        --color-warning: 214 138 48;
+        --color-warning-soft: 58 36 8;
+        --color-warning-ink: 236 180 102;
+
+        --color-danger: 226 102 102;
+        --color-danger-soft: 62 20 20;
+        --color-danger-ink: 240 150 150;
+
+        --color-info: 56 160 220;
+        --color-info-soft: 10 38 58;
+        --color-info-ink: 125 200 240;
+
+        --color-avatar: 45 212 191;
+
+        --color-neutral: 148 163 184;
+        --color-neutral-soft: 33 42 55;
+        --color-neutral-ink: 196 206 220;
+    }
+
+    /* Ukuran cangkang aplikasi. Blok logo di sidebar dan topbar mengambil
+       tingginya dari sini supaya garis bawah keduanya menyambung sebagai satu
+       garis — menyetel tinggi lewat padding membuat keduanya mudah meleset. */
+    :root {
+        --sidebar-width: 260px;
+        --topbar-height: 64px;
+    }
+
+    /* Kunci gulir HANYA untuk halaman bercangkang aplikasi.
+       Kelasnya dipasang AppLayout saat mount (lihat berkas itu), bukan di sini,
+       supaya halaman tamu tetap bisa digulir jendela ketika kartunya lebih
+       tinggi dari layar. Tanpa kunci ini jendela ikut menggulir dan membawa
+       sidebar serta topbar keluar layar: cangkangnya `position: static`,
+       sehingga `overflow: hidden` padanya tidak memotong semua turunan yang
+       diposisikan absolut. */
+    html.app-shell,
+    html.app-shell body {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    /* Cincin fokus seragam untuk semua kontrol, termasuk yang dipasang
+       @tailwindcss/forms (plugin itu memasang ring biru bawaannya). */
+    :where(input, select, textarea, button, a, [tabindex]):focus-visible {
+        outline: 2px solid rgb(var(--color-brand));
+        outline-offset: 2px;
+    }
+
+    :where(input, select, textarea):focus {
+        --tw-ring-color: rgb(var(--color-brand));
+        border-color: rgb(var(--color-brand));
+    }
+
+    ::placeholder {
+        color: rgb(var(--color-ink-subtle));
+    }
+
+    /* Chrome mengecat field autofill kuning tetap, dan background-color tidak
+       bisa menimpanya. Inset shadow besar satu-satunya cara menutupnya; delay
+       transisi yang janggal itu menahan kuningnya kembali saat fokus. */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus,
+    textarea:-webkit-autofill,
+    select:-webkit-autofill {
+        -webkit-box-shadow: 0 0 0 1000px rgb(var(--color-surface)) inset;
+        -webkit-text-fill-color: rgb(var(--color-ink));
+        caret-color: rgb(var(--color-ink));
+        transition: background-color 9999s ease-in-out 0s;
+    }
+
+    /* Hormati preferensi sistem untuk pengurangan animasi. */
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
+}
+
+@layer components {
+    /* Scrollbar tipis untuk panel internal (sidebar, tabel, dialog). */
+    .scroll-slim {
+        scrollbar-width: thin;
+        scrollbar-color: rgb(var(--color-line-strong)) transparent;
+    }
+
+    .scroll-slim::-webkit-scrollbar {
+        width: 0.5rem;
+        height: 0.5rem;
+    }
+
+    .scroll-slim::-webkit-scrollbar-thumb {
+        background-color: rgb(var(--color-line-strong));
+        border-radius: 9999px;
+    }
+
+    .scroll-slim::-webkit-scrollbar-track {
+        background: transparent;
+    }
+}

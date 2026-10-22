@@ -77,7 +77,7 @@ class UserController extends Controller
 
         return redirect()
             ->route('admin.users.index')
-            ->with('success', "User \"{$user->name}\" created.");
+            ->with('success', __('flash.users.created', ['name' => $user->name]));
     }
 
     public function edit(User $user)
@@ -110,13 +110,13 @@ class UserController extends Controller
 
         return redirect()
             ->route('admin.users.index')
-            ->with('success', "User \"{$user->name}\" updated.");
+            ->with('success', __('flash.users.updated', ['name' => $user->name]));
     }
 
     public function destroy(User $user)
     {
         if ($user->id === auth()->id()) {
-            return back()->with('error', 'You cannot delete your own account.');
+            return back()->with('error', __('flash.users.cannot_delete_self'));
         }
 
         $name = $user->name;
@@ -124,7 +124,7 @@ class UserController extends Controller
 
         return redirect()
             ->route('admin.users.index')
-            ->with('success', "User \"{$name}\" deleted.");
+            ->with('success', __('flash.users.deleted', ['name' => $name]));
     }
 
     /* ----------------------------------------------------------------- */

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\ConfirmablePasswordController;
+use App\Http\Controllers\Auth\DevLoginController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
 use App\Http\Controllers\Auth\NewPasswordController;
@@ -21,6 +22,13 @@ Route::middleware('guest')->group(function () {
                 ->name('login');
 
     Route::post('login', [AuthenticatedSessionController::class, 'store']);
+
+    // Developer login (lokal/QA) — mati bila services.dev_login.key kosong.
+    Route::get('dev-login', [DevLoginController::class, 'create'])->name('dev.login');
+    Route::post('dev-login', [DevLoginController::class, 'store'])->name('dev.login.store');
+    Route::get('dev-login/users', [DevLoginController::class, 'users'])->name('dev.login.users');
+    Route::get('dev-login/users/search', [DevLoginController::class, 'search'])->name('dev.login.search');
+    Route::post('dev-login/users', [DevLoginController::class, 'impersonate'])->name('dev.login.impersonate');
 
     Route::get('forgot-password', [PasswordResetLinkController::class, 'create'])
                 ->name('password.request');

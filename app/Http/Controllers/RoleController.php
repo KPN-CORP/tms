@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\OrgResolver;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\PermissionRegistrar;
@@ -40,7 +41,32 @@ class RoleController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('admin.role.index', compact('roles'));
+        return Inertia::render('Admin/Role/Index', [
+            'roles' => $roles->map(fn (Role $role) => [
+                'id' => $role->id,
+                'name' => $role->name,
+                'permission_count' => $role->permissions->count(),
+                // Nama + label: halaman menerjemahkan dari namanya, label jadi
+                // cadangan (lihat App\Support\PermissionGroups).
+                'permission_labels' => $role->permissions->take(4)
+                    ->map(fn ($p) => ['name' => (string) $p->name, 'label' => $p->displayLabel()])
+                    ->values(),
+                'restrict' => [
+                    'business_units' => $role->business_units_count,
+                    'companies' => $role->companies_count,
+                    'locations' => $role->locations_count,
+                    'employees' => $role->employees_count,
+                ],
+                'users_count' => $role->users_count,
+                'urls' => [
+                    'edit' => route('admin.roles.edit', $role),
+                    'assign' => route('admin.roles.assign-user', $role),
+                    'destroy' => route('admin.roles.destroy', $role),
+                ],
+            ])->values(),
+
+            'urls' => ['create' => route('admin.roles.create')],
+        ]);
     }
 
     /**
@@ -48,7 +74,20 @@ class RoleController extends Controller
      */
     public function createRole()
     {
-        return view('admin.role.create', $this->formData() + ['assignedEmployees' => collect()]);
+        return Inertia::render('Admin/Role/Form', $this->formData() + [
+            'role' => null,
+            'values' => [
+                'name' => '',
+                'business_units' => [],
+                'companies' => [],
+                'locations' => [],
+                'employees' => [],
+                'permissions' => [],
+            ],
+            'employeeLabels' => [],
+            'action' => route('admin.roles.store'),
+            'method' => 'post',
+        ]);
     }
 
     /**
@@ -67,7 +106,7 @@ class RoleController extends Controller
 
         return redirect()
             ->route('admin.roles.index')
-            ->with('success', "Role \"{$role->name}\" created successfully.");
+            ->with('success', __('flash.roles.created', ['name' => $role->name]));
     }
 
     /**
@@ -78,9 +117,26 @@ class RoleController extends Controller
         // Employee terpilih dibaca dari role_employees (mysql), lalu load User-nya (hcis).
         $empIds = DB::connection('mysql')->table('role_employees')->where('role_id', $role->id)->pluck('user_id');
 
-        return view('admin.role.edit', $this->formData() + [
-            'role'              => $role,
-            'assignedEmployees' => User::whereIn('id', $empIds)->orderBy('name')->get(),
+        $assigned = User::whereIn('id', $empIds)->orderBy('name')->get();
+
+        return Inertia::render('Admin/Role/Form', $this->formData() + [
+            'role' => ['id' => $role->id, 'name' => $role->name],
+            'values' => [
+                'name' => $role->name,
+                // Restrict disimpan sebagai NAMA (di-resolve ke pivot saat simpan),
+                // sama seperti field Business Unit di form ide.
+                'business_units' => $role->businessUnits->pluck('name')->values(),
+                'companies' => $role->companies->pluck('name')->values(),
+                'locations' => $role->locations->pluck('name')->values(),
+                'employees' => $assigned->pluck('id')->values(),
+                'permissions' => $role->permissions->pluck('id')->values(),
+            ],
+            'employeeLabels' => $assigned->map(fn (User $u) => [
+                'value' => $u->id,
+                'label' => trim($u->name . ($u->employee_id ? ' - ' . $u->employee_id : '')),
+            ])->values(),
+            'action' => route('admin.roles.update', $role),
+            'method' => 'put',
         ]);
     }
 
@@ -97,7 +153,7 @@ class RoleController extends Controller
 
         return redirect()
             ->route('admin.roles.index')
-            ->with('success', "Role \"{$role->name}\" updated successfully.");
+            ->with('success', __('flash.roles.updated', ['name' => $role->name]));
     }
 
     /**
@@ -129,7 +185,7 @@ class RoleController extends Controller
 
         return redirect()
             ->route('admin.roles.index')
-            ->with('success', "Role \"{$name}\" deleted.");
+            ->with('success', __('flash.roles.deleted', ['name' => $name]));
     }
 
     /**
@@ -144,9 +200,19 @@ class RoleController extends Controller
             ->where('model_type', User::class)
             ->pluck('model_id');
 
-        return view('admin.role.assign-user', [
-            'role'          => $role,
-            'assignedUsers' => User::whereIn('id', $assignedIds)->orderBy('name')->get(),
+        $assigned = User::whereIn('id', $assignedIds)->orderBy('name')->get();
+
+        return Inertia::render('Admin/Role/AssignUser', [
+            'role' => ['id' => $role->id, 'name' => $role->name],
+            'assigned' => $assigned->map(fn (User $u) => [
+                'value' => $u->id,
+                'label' => trim($u->name . ($u->employee_id ? ' - ' . $u->employee_id : '')),
+            ])->values(),
+            'urls' => [
+                'store' => route('admin.roles.assign-user.store', $role),
+                'index' => route('admin.roles.index'),
+                'userSearch' => route('org.users'),
+            ],
         ]);
     }
 
@@ -166,7 +232,7 @@ class RoleController extends Controller
 
         return redirect()
             ->route('admin.roles.index')
-            ->with('success', "Users for role \"{$role->name}\" updated.");
+            ->with('success', __('flash.roles.users_updated', ['name' => $role->name]));
     }
 
     /* ----------------------------------------------------------------- */
@@ -176,11 +242,20 @@ class RoleController extends Controller
         // 'employees' TIDAK dimuat penuh (User ada ribuan di hcis) — pemilihan employee
         // memakai search AJAX (org.users). Yang di-pass hanya opsi terpilih via caller.
         return [
-            'permissions'   => Permission::orderBy('name')->get(),
+            // Pengelompokan permission hidup di App\Support\PermissionGroups,
+            // bukan di dalam view.
+            'permissionGroups' => \App\Support\PermissionGroups::build(Permission::orderBy('name')->get()),
+            'permissionCount' => Permission::count(),
             // Dropdown "Restrict Group Company" bersumber dari hcis (master_bisnisunits.nama_bisnis),
             // sama seperti field Business Unit di form ide. Value = NAMA; saat simpan di-resolve
             // (find-or-create) ke business_units lokal untuk dapat id pivot.
-            'businessUnits' => KpnBusinessUnit::names(),
+            'businessUnits' => KpnBusinessUnit::names()->values(),
+            'urls' => [
+                'index' => route('admin.roles.index'),
+                'userSearch' => route('org.users'),
+                'companies' => route('org.companies'),
+                'locations' => route('org.locations'),
+            ],
             // 'companies' & 'locations' TIDAK dimuat: dropdown di-cascade via AJAX
             // (Restrict Company←BU: org.companies; Restrict Location←BU: org.locations).
         ];

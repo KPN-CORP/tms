@@ -138,7 +138,7 @@ class ApprovalCoverageReport
                     'type_label' => CommitteeAssignment::TYPES[$first->approval_type] ?? $first->approval_type,
                     'bu_id'      => $first->business_unit_id,
                     'bu'         => optional($first->businessUnit)->name ?? '—',
-                    'unit'       => optional($first->department)->name ?? 'All units (BU-wide)',
+                    'unit'       => optional($first->department)->name ?? __('messages.labels.all_units_bu_wide'),
                     'missing'    => $missing->all(),
                     'lowest'     => $layers->min(),
                     'highest'    => $layers->max(),

@@ -12,6 +12,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // SuperAdminSeeder tidak perlu didaftarkan di sini: ia dipanggil dari
+        // dalam RolesAndPermissionsSeeder, setelah semua permission dibuat.
         $this->call([
             RolesAndPermissionsSeeder::class,
         ]);

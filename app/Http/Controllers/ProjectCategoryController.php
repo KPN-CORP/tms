@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Project;
 use App\Models\ProjectCategory;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -12,9 +13,47 @@ class ProjectCategoryController extends Controller
 {
     public function index(Request $request)
     {
-        return view('admin.project-category.index', [
-            'categories' => ProjectCategory::orderBy('name')->get(),
-            'editing'    => ProjectCategory::find($request->integer('edit')),
+        $editing = ProjectCategory::find($request->integer('edit'));
+
+        return Inertia::render('Admin/ProjectCategory/Index', [
+            'categories' => ProjectCategory::orderBy('name')->get()->map(fn (ProjectCategory $c) => [
+                'id' => $c->id,
+                'code' => $c->code,
+                'name' => $c->name,
+                'leader_grade_min' => $c->leader_grade_min,
+                'leader_grade_max' => $c->leader_grade_max,
+                'sponsor_grade_min' => $c->sponsor_grade_min,
+                'sponsor_grade_max' => $c->sponsor_grade_max,
+                'max_team_members' => $c->max_team_members,
+                'required_roles' => $c->requiredRoles(),
+                'is_active' => (bool) $c->is_active,
+                'urls' => [
+                    'edit' => route('admin.project-categories.index', ['edit' => $c->id]),
+                    'update' => route('admin.project-categories.update', $c),
+                    'toggle' => route('admin.project-categories.toggle', $c),
+                    'destroy' => route('admin.project-categories.destroy', $c),
+                ],
+            ])->values(),
+
+            // Form yang sama dipakai untuk tambah & ubah; `editing` menentukan
+            // tujuan submit dan nilai awalnya.
+            'editing' => $editing ? [
+                'id' => $editing->id,
+                'name' => $editing->name,
+                'code' => $editing->code,
+                'leader_grade_min' => $editing->leader_grade_min,
+                'leader_grade_max' => $editing->leader_grade_max,
+                'sponsor_grade_min' => $editing->sponsor_grade_min,
+                'sponsor_grade_max' => $editing->sponsor_grade_max,
+                'max_team_members' => $editing->max_team_members,
+                'required_roles' => $editing->requiredRoles(),
+            ] : null,
+
+            'urls' => [
+                'index' => route('admin.project-categories.index'),
+                'store' => route('admin.project-categories.store'),
+                'update' => $editing ? route('admin.project-categories.update', $editing) : null,
+            ],
         ]);
     }
 
@@ -24,7 +63,7 @@ class ProjectCategoryController extends Controller
         ProjectCategory::create($data + ['is_active' => true]);
 
         return redirect()->route('admin.project-categories.index')
-            ->with('success', "Category {$data['code']} created.");
+            ->with('success', __('flash.categories.created', ['code' => $data['code']]));
     }
 
     public function update(Request $request, ProjectCategory $category)
@@ -33,27 +72,28 @@ class ProjectCategoryController extends Controller
         $category->update($data);
 
         return redirect()->route('admin.project-categories.index')
-            ->with('success', "Category {$data['code']} updated.");
+            ->with('success', __('flash.categories.updated', ['code' => $data['code']]));
     }
 
     public function toggle(ProjectCategory $category)
     {
         $category->update(['is_active' => ! $category->is_active]);
 
-        return back()->with('success', $category->is_active ? 'Category activated.' : 'Category deactivated.');
+        return back()->with('success',
+            __($category->is_active ? 'flash.categories.activated' : 'flash.categories.deactivated'));
     }
 
     public function destroy(ProjectCategory $category)
     {
         // Cegah hapus bila masih dipakai project (hindari data project menggantung) — arsipkan saja.
         if (Project::where('project_category_id', $category->id)->exists()) {
-            return back()->with('error', "Category {$category->code} is still used by projects — it cannot be deleted. Archive it instead.");
+            return back()->with('error', __('flash.categories.in_use', ['code' => $category->code]));
         }
 
         $code = $category->code;
         $category->delete();
 
-        return redirect()->route('admin.project-categories.index')->with('success', "Category {$code} deleted.");
+        return redirect()->route('admin.project-categories.index')->with('success', __('flash.categories.deleted', ['code' => $code]));
     }
 
     private function validated(Request $request, ?ProjectCategory $category = null): array
@@ -91,7 +131,10 @@ class ProjectCategoryController extends Controller
         $roleTotal = collect($required)->sum(fn ($r) => max(0, (int) $r['total']));
         if ($roleTotal > (int) $data['max_team_members']) {
             throw ValidationException::withMessages([
-                'max_team_members' => "Max Person in Team ({$data['max_team_members']}) cannot be less than the total Require Role ({$roleTotal}).",
+                'max_team_members' => __('messages.validation.team_smaller_than_roles', [
+                    'max' => $data['max_team_members'],
+                    'total' => $roleTotal,
+                ]),
             ]);
         }
 

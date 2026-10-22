@@ -14,6 +14,26 @@ class Idea extends Model
     // Tabel ideas memakai modified_at (bukan updated_at bawaan Laravel).
     const UPDATED_AT = 'modified_at';
 
+    /**
+     * Label status — satu-satunya sumber kebenaran, sejajar dengan
+     * Project::STATUS_BADGES. Warnanya TIDAK di sini: pemetaan nada warna ada
+     * di resources/js/lib/status.ts supaya kelas CSS tidak tersebar di PHP.
+     */
+    public const STATUS_LABELS = [
+        'draft' => 'Draft',
+        'submitted' => 'Submitted',
+        'review' => 'On Review',
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+        'project_created' => 'Project Created',
+    ];
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[$this->status]
+            ?? ucwords(str_replace('_', ' ', (string) $this->status));
+    }
+
     /** Label untuk audit trail (LogsActivity). */
     public function activityLabel(): string
     {
